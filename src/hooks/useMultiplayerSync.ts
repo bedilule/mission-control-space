@@ -24,6 +24,8 @@ interface UseMultiplayerSyncOptions {
   displayName: string;
   color: string;
   shipImage?: string; // Current ship image URL
+  shipEffects?: ShipEffects; // Current ship effects (size, glow, etc.)
+  shipUpgrades?: string[]; // Ship upgrade IDs
   onTeamUpdate?: (team: MultiplayerTeam) => void;
   onPlayerJoined?: (player: PlayerData) => void;
   onPlayerLeft?: (playerId: string) => void;
@@ -87,6 +89,8 @@ export function useMultiplayerSync(options: UseMultiplayerSyncOptions): UseMulti
     displayName,
     color,
     shipImage,
+    shipEffects,
+    shipUpgrades,
     onTeamUpdate,
     onPlayerJoined,
     onPlayerLeft,
@@ -125,9 +129,15 @@ export function useMultiplayerSync(options: UseMultiplayerSyncOptions): UseMulti
         is_online: true,
         last_seen: new Date().toISOString(),
       };
-      // Only update ship image if provided
+      // Sync ship data if provided
       if (shipImage) {
         updateData.ship_current_image = shipImage;
+      }
+      if (shipEffects) {
+        updateData.ship_effects = shipEffects;
+      }
+      if (shipUpgrades) {
+        updateData.ship_upgrades = shipUpgrades;
       }
       await supabase
         .from('players')
@@ -155,9 +165,15 @@ export function useMultiplayerSync(options: UseMultiplayerSyncOptions): UseMulti
         color,
         is_online: true,
       };
-      // Include ship image if provided
+      // Include ship data if provided
       if (shipImage) {
         newPlayer.ship_current_image = shipImage;
+      }
+      if (shipEffects) {
+        newPlayer.ship_effects = shipEffects;
+      }
+      if (shipUpgrades) {
+        newPlayer.ship_upgrades = shipUpgrades;
       }
 
       const { data: created, error } = await supabase
@@ -174,7 +190,7 @@ export function useMultiplayerSync(options: UseMultiplayerSyncOptions): UseMulti
         });
       }
     }
-  }, [teamId, username, displayName, color, shipImage]);
+  }, [teamId, username, displayName, color, shipImage, shipEffects, shipUpgrades]);
 
   // Update player online status
   const updateOnlineStatus = useCallback(async (isOnline: boolean) => {

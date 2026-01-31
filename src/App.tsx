@@ -465,6 +465,8 @@ function App() {
     displayName: currentUserInfo?.name || 'Anonymous',
     color: currentUserInfo?.color || '#ffa500',
     shipImage: currentShipInfo.currentImage,
+    shipEffects: currentShipInfo.effects,
+    shipUpgrades: currentShipInfo.upgrades,
     onTeamUpdate: (t) => {
       // Sync team state to local
       if (t.teamPoints !== teamPoints) {
@@ -504,14 +506,26 @@ function App() {
   );
 
   // Player positions hook - handles real-time ship positions
-  const { otherPlayers, broadcastPosition } = usePlayerPositions({
+  const { otherPlayers, broadcastPosition, setPositionUpdateCallback } = usePlayerPositions({
     teamId: team?.id || null,
     playerId: currentDbPlayerId,
     players: playersForPositions,
     localShip: gameRef.current?.getShipState() || { x: 5000, y: 5200, vx: 0, vy: 0, rotation: -1.5708, thrusting: false },
   });
 
-  // Update game with other players
+  // Set up direct position update callback (bypasses React state for smoother movement)
+  useEffect(() => {
+    if (gameRef.current) {
+      setPositionUpdateCallback((playerId, data) => {
+        gameRef.current?.onPlayerPositionUpdate(playerId, data);
+      });
+    }
+    return () => {
+      setPositionUpdateCallback(null);
+    };
+  }, [setPositionUpdateCallback]);
+
+  // Update game with other players (for metadata like ship images, effects, etc.)
   useEffect(() => {
     if (gameRef.current && otherPlayers.length > 0) {
       gameRef.current.setOtherPlayers(otherPlayers);
