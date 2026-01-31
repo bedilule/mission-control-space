@@ -2,7 +2,7 @@
   "visualUpgrade": {
     "description": "Modifies the ship image with user's requested feature",
     "api": "fal-ai/nano-banana/edit",
-    "prompt": "Add one small detail to this spaceship: {userInput}. Keep everything else exactly the same. Only add this one small element.",
+    "prompt": "Add one detail to this spaceship: {userInput}. Keep everything else exactly the same. Only add this one element.",
     "settings": {
       "num_images": 1,
       "aspect_ratio": "1:1",

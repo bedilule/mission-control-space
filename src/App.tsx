@@ -731,6 +731,20 @@ function App() {
     };
   };
 
+  // Select a planet image from history
+  const selectPlanetFromHistory = (userId: string, imageUrl: string) => {
+    const currentPlanet = getUserPlanet(userId);
+    setUserPlanets(prev => ({
+      ...prev,
+      [userId]: {
+        ...currentPlanet,
+        imageUrl,
+      }
+    }));
+    gameRef.current?.updateUserPlanetImage(userId, imageUrl);
+    soundManager.playUIClick();
+  };
+
   // Buy planet size upgrade (max 5 levels)
   const buyPlanetSizeUpgrade = () => {
     const userId = state.currentUser || '';
@@ -1842,9 +1856,13 @@ function App() {
                     <h4 style={{ color: '#888', fontSize: '0.8rem', marginBottom: '0.5rem', textTransform: 'uppercase' }}>
                       Terraform History
                     </h4>
-                    <div style={{ maxHeight: 100, overflowY: 'auto' }}>
+                    <div className="hidden-scrollbar" style={{ maxHeight: 120, overflowY: 'auto' }}>
                       {getUserPlanet(state.currentUser || '').history.map((entry, i) => (
-                        <div key={i} style={styles.historyItem}>
+                        <div key={i} style={{
+                          ...styles.historyItem,
+                          cursor: 'pointer',
+                          border: getUserPlanet(state.currentUser || '').imageUrl === entry.imageUrl ? '2px solid #4ade80' : '2px solid transparent',
+                        }} onClick={() => selectPlanetFromHistory(state.currentUser || '', entry.imageUrl)}>
                           <img src={entry.imageUrl} alt="" style={styles.historyThumb} />
                           <div style={styles.historyInfo}>
                             <span style={styles.historyDesc}>{entry.description}</span>
@@ -1852,9 +1870,12 @@ function App() {
                               {new Date(entry.timestamp).toLocaleDateString()}
                             </span>
                           </div>
+                          {getUserPlanet(state.currentUser || '').imageUrl === entry.imageUrl && (
+                            <span style={{ color: '#4ade80', fontSize: '0.75rem' }}>✓</span>
+                          )}
                           <button
                             style={styles.downloadButton}
-                            onClick={() => downloadImage(entry.imageUrl, `planet-${state.currentUser}-${i + 1}`)}
+                            onClick={(e) => { e.stopPropagation(); downloadImage(entry.imageUrl, `planet-${state.currentUser}-${i + 1}`); }}
                             title="Download"
                           >
                             ⬇
@@ -1937,25 +1958,40 @@ function App() {
                 <h4 style={{ color: '#888', fontSize: '0.8rem', marginBottom: '0.5rem', textTransform: 'uppercase' }}>
                   Terraform History
                 </h4>
-                <div style={{ maxHeight: 200, overflowY: 'auto' }}>
-                  {getUserPlanet(viewingPlanetOwner).history.map((entry, i) => (
-                    <div key={i} style={styles.historyItem}>
-                      <img src={entry.imageUrl} alt="" style={styles.historyThumb} />
-                      <div style={styles.historyInfo}>
-                        <span style={styles.historyDesc}>{entry.description}</span>
-                        <span style={styles.historyDate}>
-                          {new Date(entry.timestamp).toLocaleDateString()}
-                        </span>
-                      </div>
-                      <button
-                        style={{ ...styles.downloadButton, position: 'relative', top: 'auto', right: 'auto' }}
-                        onClick={() => downloadImage(entry.imageUrl, `planet-${viewingPlanetOwner}-${i + 1}`)}
-                        title="Download"
+                <div className="hidden-scrollbar" style={{ maxHeight: 200, overflowY: 'auto' }}>
+                  {getUserPlanet(viewingPlanetOwner).history.map((entry, i) => {
+                    const isOwner = viewingPlanetOwner === state.currentUser;
+                    const isSelected = getUserPlanet(viewingPlanetOwner).imageUrl === entry.imageUrl;
+                    return (
+                      <div
+                        key={i}
+                        style={{
+                          ...styles.historyItem,
+                          cursor: isOwner ? 'pointer' : 'default',
+                          border: isSelected ? '2px solid #4ade80' : '2px solid transparent',
+                        }}
+                        onClick={isOwner ? () => selectPlanetFromHistory(viewingPlanetOwner, entry.imageUrl) : undefined}
                       >
-                        ⬇
-                      </button>
-                    </div>
-                  ))}
+                        <img src={entry.imageUrl} alt="" style={styles.historyThumb} />
+                        <div style={styles.historyInfo}>
+                          <span style={styles.historyDesc}>{entry.description}</span>
+                          <span style={styles.historyDate}>
+                            {new Date(entry.timestamp).toLocaleDateString()}
+                          </span>
+                        </div>
+                        {isSelected && (
+                          <span style={{ color: '#4ade80', fontSize: '0.75rem' }}>✓</span>
+                        )}
+                        <button
+                          style={{ ...styles.downloadButton, position: 'relative', top: 'auto', right: 'auto' }}
+                          onClick={(e) => { e.stopPropagation(); downloadImage(entry.imageUrl, `planet-${viewingPlanetOwner}-${i + 1}`); }}
+                          title="Download"
+                        >
+                          ⬇
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             ) : (
@@ -2447,6 +2483,8 @@ styleSheet.textContent = `
   @keyframes spin { to { transform: rotate(360deg); } }
   button:hover { transform: scale(1.02); }
   select option { background: #1a1a2e; }
+  .hidden-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+  .hidden-scrollbar::-webkit-scrollbar { display: none; }
 `;
 document.head.appendChild(styleSheet);
 
