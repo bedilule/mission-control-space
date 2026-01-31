@@ -2,7 +2,7 @@
   "visualUpgrade": {
     "description": "Modifies the ship image with user's requested feature",
     "api": "fal-ai/nano-banana/edit",
-    "prompt": "Edit this spaceship image: add {userInput}. Keep the spaceship design intact but make this new feature very visible and impressive. Sci-fi spacecraft style, transparent background.",
+    "prompt": "Add one small detail to this spaceship: {userInput}. Keep everything else exactly the same. Only add this one small element.",
     "settings": {
       "num_images": 1,
       "aspect_ratio": "1:1",

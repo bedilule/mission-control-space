@@ -12,7 +12,7 @@
   "terraform": {
     "description": "Modifies an existing planet with user's requested feature",
     "api": "fal-ai/nano-banana/edit",
-    "prompt": "Edit this planet image: add {userInput}. Keep the planet spherical and centered. Make this new feature clearly visible. Game art style, black background.",
+    "prompt": "Add one small detail to this planet: {userInput}. Keep everything else exactly the same. Only add this one small element.",
     "settings": {
       "num_images": 1,
       "aspect_ratio": "1:1",
