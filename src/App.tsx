@@ -501,15 +501,23 @@ function App() {
     [teamPlayers]
   );
 
+  // Callback to send position updates directly to game (bypasses React for smoothness)
+  const handlePositionUpdate = useCallback((
+    playerId: string, x: number, y: number, vx: number, vy: number, rotation: number, thrusting: boolean
+  ) => {
+    gameRef.current?.updatePlayerPosition(playerId, x, y, vx, vy, rotation, thrusting);
+  }, []);
+
   // Player positions hook - handles real-time ship positions
   const { otherPlayers, broadcastPosition } = usePlayerPositions({
     teamId: team?.id || null,
     playerId: currentDbPlayerId,
     players: playersForPositions,
     localShip: gameRef.current?.getShipState() || { x: 5000, y: 5200, vx: 0, vy: 0, rotation: -1.5708, thrusting: false },
+    onPositionUpdate: handlePositionUpdate,
   });
 
-  // Update game with other players
+  // Update game with other players (for player info like names, colors, ship images)
   useEffect(() => {
     if (gameRef.current && otherPlayers.length > 0) {
       gameRef.current.setOtherPlayers(otherPlayers);

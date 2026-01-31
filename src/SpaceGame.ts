@@ -114,6 +114,7 @@ export class SpaceGame {
   private onDock: (planet: Planet) => void;
   private logoImage: HTMLImageElement | null = null;
   private shipImage: HTMLImageElement | null = null;
+  private baseShipImage: HTMLImageElement | null = null; // Default ship for players without custom skin
   private hormoziPlanetImage: HTMLImageElement | null = null;
   private shipLevel: number = 1;
   private shipEffects: ShipEffects = { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, ownedGlows: [], ownedTrails: [] };
@@ -159,6 +160,8 @@ export class SpaceGame {
   // Multiplayer: other players' ships
   private otherPlayers: OtherPlayer[] = [];
   private otherPlayerImages: Map<string, HTMLImageElement> = new Map();
+  // Target positions (received from network) - what we interpolate toward
+  private targetPositions: Map<string, { x: number; y: number; rotation: number; vx: number; vy: number; thrusting: boolean }> = new Map();
   // Interpolated positions for smooth rendering
   private interpolatedPositions: Map<string, { x: number; y: number; rotation: number; vx: number; vy: number }> = new Map();
 
@@ -236,6 +239,14 @@ export class SpaceGame {
     shipImg.src = shipImageUrl || '/ship-base.png';
     shipImg.onload = () => {
       this.shipImage = shipImg;
+    };
+
+    // Always load the base ship image separately (for other players without custom skins)
+    const baseShipImg = new Image();
+    baseShipImg.crossOrigin = 'anonymous';
+    baseShipImg.src = '/ship-base.png';
+    baseShipImg.onload = () => {
+      this.baseShipImage = baseShipImg;
     };
 
     // Load Hormozi planet image
@@ -2390,18 +2401,18 @@ export class SpaceGame {
 
   /**
    * Update the list of other players in the game.
-   * Called from the React layer when position broadcasts are received.
+   * Called from the React layer when player info changes (not positions).
    */
   public setOtherPlayers(players: OtherPlayer[]) {
     this.otherPlayers = players;
 
-    // Preload ship images for new players and initialize interpolated positions
+    // Preload ship images for new players
     for (const player of players) {
       if (player.shipImage && !this.otherPlayerImages.has(player.id)) {
         this.loadOtherPlayerImage(player.id, player.shipImage);
       }
 
-      // Initialize interpolated position if this is a new player
+      // Initialize positions if this is a new player
       if (!this.interpolatedPositions.has(player.id)) {
         this.interpolatedPositions.set(player.id, {
           x: player.x,
@@ -2410,58 +2421,97 @@ export class SpaceGame {
           vx: player.vx,
           vy: player.vy,
         });
+        this.targetPositions.set(player.id, {
+          x: player.x,
+          y: player.y,
+          rotation: player.rotation,
+          vx: player.vx,
+          vy: player.vy,
+          thrusting: player.thrusting,
+        });
       }
     }
 
-    // Clean up interpolated positions for players who left
+    // Clean up positions for players who left
     for (const id of this.interpolatedPositions.keys()) {
       if (!players.find(p => p.id === id)) {
         this.interpolatedPositions.delete(id);
+        this.targetPositions.delete(id);
       }
     }
   }
 
   /**
-   * Smoothly interpolate other players' positions toward their target positions.
-   * This creates smooth movement even with network latency.
+   * Update a single player's target position (called frequently from network).
+   * This doesn't cause React re-renders - just updates the target for interpolation.
+   */
+  public updatePlayerPosition(playerId: string, x: number, y: number, vx: number, vy: number, rotation: number, thrusting: boolean) {
+    this.targetPositions.set(playerId, { x, y, vx, vy, rotation, thrusting });
+
+    // Also update the otherPlayers array for thrusting state (used for particles)
+    const player = this.otherPlayers.find(p => p.id === playerId);
+    if (player) {
+      player.thrusting = thrusting;
+    }
+  }
+
+  /**
+   * Dead reckoning with ultra-smooth interpolation.
+   * Moves ships using physics simulation identical to the local ship,
+   * with very gentle corrections to stay in sync.
    */
   private updateOtherPlayersInterpolation() {
-    const LERP_FACTOR = 0.3; // How fast to interpolate (higher = snappier with 60fps updates)
-    const ROTATION_LERP = 0.35;
+    // Use same friction as local ship for identical feel
+    const FRICTION = SHIP_FRICTION; // 0.992
+    const POSITION_CORRECTION = 0.02; // Very gentle position correction
+    const VELOCITY_CORRECTION = 0.05; // Very gentle velocity blending
+    const ROTATION_CORRECTION = 0.08; // Smooth rotation
 
-    for (const player of this.otherPlayers) {
-      const interpolated = this.interpolatedPositions.get(player.id);
-      if (!interpolated) continue;
+    for (const [playerId, target] of this.targetPositions.entries()) {
+      let interpolated = this.interpolatedPositions.get(playerId);
 
-      // Calculate distance to target
-      const dx = player.x - interpolated.x;
-      const dy = player.y - interpolated.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-
-      // Handle world wrapping - if too far, teleport
-      if (dist > WORLD_SIZE / 2) {
-        interpolated.x = player.x;
-        interpolated.y = player.y;
-        interpolated.rotation = player.rotation;
-      } else {
-        // Smooth interpolation using velocity for prediction
-        // Predict where they'll be based on their velocity
-        const predictX = player.x + player.vx * 2;
-        const predictY = player.y + player.vy * 2;
-
-        interpolated.x += (predictX - interpolated.x) * LERP_FACTOR;
-        interpolated.y += (predictY - interpolated.y) * LERP_FACTOR;
-
-        // Interpolate rotation (handle wrap-around)
-        let rotDiff = player.rotation - interpolated.rotation;
-        while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
-        while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
-        interpolated.rotation += rotDiff * ROTATION_LERP;
+      // Initialize if new
+      if (!interpolated) {
+        interpolated = { x: target.x, y: target.y, rotation: target.rotation, vx: target.vx, vy: target.vy };
+        this.interpolatedPositions.set(playerId, interpolated);
+        continue;
       }
 
-      // Update velocity for particle effects
-      interpolated.vx = player.vx;
-      interpolated.vy = player.vy;
+      // Calculate distance to target
+      const dx = target.x - interpolated.x;
+      const dy = target.y - interpolated.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      // Handle world wrapping or large teleports
+      if (dist > WORLD_SIZE / 2 || dist > 500) {
+        interpolated.x = target.x;
+        interpolated.y = target.y;
+        interpolated.rotation = target.rotation;
+        interpolated.vx = target.vx;
+        interpolated.vy = target.vy;
+      } else {
+        // Apply friction (identical to local ship physics)
+        interpolated.vx *= FRICTION;
+        interpolated.vy *= FRICTION;
+
+        // Blend velocity toward target velocity (very smooth)
+        interpolated.vx += (target.vx - interpolated.vx) * VELOCITY_CORRECTION;
+        interpolated.vy += (target.vy - interpolated.vy) * VELOCITY_CORRECTION;
+
+        // Apply velocity to position (physics simulation)
+        interpolated.x += interpolated.vx;
+        interpolated.y += interpolated.vy;
+
+        // Very gentle position correction to fix accumulated drift
+        interpolated.x += dx * POSITION_CORRECTION;
+        interpolated.y += dy * POSITION_CORRECTION;
+
+        // Smooth rotation interpolation (handle wrap-around)
+        let rotDiff = target.rotation - interpolated.rotation;
+        while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
+        while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
+        interpolated.rotation += rotDiff * ROTATION_CORRECTION;
+      }
     }
   }
 
@@ -2485,8 +2535,10 @@ export class SpaceGame {
    */
   private loadOtherPlayerImage(playerId: string, imageUrl: string) {
     if (!imageUrl || imageUrl === '/ship-base.png') {
-      // Use the same base ship image
-      this.otherPlayerImages.set(playerId, this.shipImage!);
+      // Use the base ship image (not the local player's custom ship)
+      if (this.baseShipImage) {
+        this.otherPlayerImages.set(playerId, this.baseShipImage);
+      }
       return;
     }
 
@@ -2497,9 +2549,9 @@ export class SpaceGame {
       this.otherPlayerImages.set(playerId, img);
     };
     img.onerror = () => {
-      // Fallback to base ship
-      if (this.shipImage) {
-        this.otherPlayerImages.set(playerId, this.shipImage);
+      // Fallback to base ship (not local player's custom ship)
+      if (this.baseShipImage) {
+        this.otherPlayerImages.set(playerId, this.baseShipImage);
       }
     };
   }
@@ -2528,7 +2580,7 @@ export class SpaceGame {
    */
   private drawOtherPlayerAt(player: OtherPlayer, x: number, y: number, rotation?: number) {
     const { ctx } = this;
-    const shipImage = this.otherPlayerImages.get(player.id) || this.shipImage;
+    const shipImage = this.otherPlayerImages.get(player.id) || this.baseShipImage;
     const renderRotation = rotation ?? player.rotation;
 
     ctx.save();

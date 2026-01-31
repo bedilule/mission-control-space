@@ -24,6 +24,8 @@ interface UsePlayerPositionsOptions {
     rotation: number;
     thrusting: boolean;
   };
+  // Direct callback to update game positions (bypasses React state for smoothness)
+  onPositionUpdate?: (playerId: string, x: number, y: number, vx: number, vy: number, rotation: number, thrusting: boolean) => void;
 }
 
 interface UsePlayerPositionsReturn {
@@ -52,7 +54,7 @@ const defaultShipEffects: ShipEffects = {
 };
 
 export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlayerPositionsReturn {
-  const { teamId, playerId, players, localShip } = options;
+  const { teamId, playerId, players, localShip, onPositionUpdate } = options;
 
   const [otherPlayers, setOtherPlayers] = useState<OtherPlayer[]>([]);
 
@@ -61,11 +63,16 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
   const lastDbUpdateRef = useRef<number>(0);
   const positionCacheRef = useRef<Map<string, CachedPosition>>(new Map());
   const playersRef = useRef<PlayerInfo[]>(players);
+  const onPositionUpdateRef = useRef(onPositionUpdate);
 
-  // Keep players ref updated without triggering effects
+  // Keep refs updated without triggering effects
   useEffect(() => {
     playersRef.current = players;
   }, [players]);
+
+  useEffect(() => {
+    onPositionUpdateRef.current = onPositionUpdate;
+  }, [onPositionUpdate]);
 
   // Broadcast position via realtime (fast, ephemeral)
   const broadcastPosition = useCallback(() => {
@@ -214,35 +221,44 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
         receivedAt: now,
       });
 
-      // Update state
-      setOtherPlayers((prev) => {
-        const playerInfo = playersRef.current.find((p) => p.id === data.player_id);
-        if (!playerInfo) return prev;
+      // Send position update directly to game (bypasses React for smoothness)
+      if (onPositionUpdateRef.current) {
+        onPositionUpdateRef.current(data.player_id, data.x, data.y, data.vx, data.vy, data.rotation, data.thrusting);
+      }
 
-        const existing = prev.findIndex((p) => p.id === data.player_id);
-        const updatedPlayer: OtherPlayer = {
-          id: data.player_id,
-          username: playerInfo.username,
-          displayName: playerInfo.displayName,
-          color: playerInfo.color,
-          x: data.x,
-          y: data.y,
-          vx: data.vx,
-          vy: data.vy,
-          rotation: data.rotation,
-          thrusting: data.thrusting,
-          shipImage: playerInfo.shipImage,
-          shipEffects: playerInfo.shipEffects || defaultShipEffects,
-        };
+      // Update React state less frequently (for UI elements like player list)
+      // Only update if player is new or every 500ms
+      const lastStateUpdate = cached?.receivedAt || 0;
+      if (!cached || now - lastStateUpdate > 500) {
+        setOtherPlayers((prev) => {
+          const playerInfo = playersRef.current.find((p) => p.id === data.player_id);
+          if (!playerInfo) return prev;
 
-        if (existing >= 0) {
-          const newPlayers = [...prev];
-          newPlayers[existing] = updatedPlayer;
-          return newPlayers;
-        } else {
-          return [...prev, updatedPlayer];
-        }
-      });
+          const existing = prev.findIndex((p) => p.id === data.player_id);
+          const updatedPlayer: OtherPlayer = {
+            id: data.player_id,
+            username: playerInfo.username,
+            displayName: playerInfo.displayName,
+            color: playerInfo.color,
+            x: data.x,
+            y: data.y,
+            vx: data.vx,
+            vy: data.vy,
+            rotation: data.rotation,
+            thrusting: data.thrusting,
+            shipImage: playerInfo.shipImage,
+            shipEffects: playerInfo.shipEffects || defaultShipEffects,
+          };
+
+          if (existing >= 0) {
+            const newPlayers = [...prev];
+            newPlayers[existing] = updatedPlayer;
+            return newPlayers;
+          } else {
+            return [...prev, updatedPlayer];
+          }
+        });
+      }
     });
 
     channel.subscribe(async (status) => {
