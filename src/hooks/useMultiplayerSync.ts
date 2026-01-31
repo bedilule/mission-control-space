@@ -22,6 +22,7 @@ interface UseMultiplayerSyncOptions {
   username: string;
   displayName: string;
   color: string;
+  shipImage?: string; // Current ship image URL
   onTeamUpdate?: (team: MultiplayerTeam) => void;
   onPlayerJoined?: (player: PlayerData) => void;
   onPlayerLeft?: (playerId: string) => void;
@@ -83,6 +84,7 @@ export function useMultiplayerSync(options: UseMultiplayerSyncOptions): UseMulti
     username,
     displayName,
     color,
+    shipImage,
     onTeamUpdate,
     onPlayerJoined,
     onPlayerLeft,
@@ -115,14 +117,19 @@ export function useMultiplayerSync(options: UseMultiplayerSyncOptions): UseMulti
     if (existing) {
       // Update existing player
       playerDbIdRef.current = existing.id;
+      const updateData: Record<string, unknown> = {
+        display_name: displayName,
+        color,
+        is_online: true,
+        last_seen: new Date().toISOString(),
+      };
+      // Only update ship image if provided
+      if (shipImage) {
+        updateData.ship_current_image = shipImage;
+      }
       await supabase
         .from('players')
-        .update({
-          display_name: displayName,
-          color,
-          is_online: true,
-          last_seen: new Date().toISOString(),
-        })
+        .update(updateData)
         .eq('id', existing.id);
 
       // Also ensure ship_positions entry exists
@@ -139,13 +146,17 @@ export function useMultiplayerSync(options: UseMultiplayerSyncOptions): UseMulti
       }
     } else {
       // Create new player
-      const newPlayer = {
+      const newPlayer: Record<string, unknown> = {
         team_id: teamId,
         username,
         display_name: displayName,
         color,
         is_online: true,
       };
+      // Include ship image if provided
+      if (shipImage) {
+        newPlayer.ship_current_image = shipImage;
+      }
 
       const { data: created, error } = await supabase
         .from('players')
@@ -161,7 +172,7 @@ export function useMultiplayerSync(options: UseMultiplayerSyncOptions): UseMulti
         });
       }
     }
-  }, [teamId, username, displayName, color]);
+  }, [teamId, username, displayName, color, shipImage]);
 
   // Update player online status
   const updateOnlineStatus = useCallback(async (isOnline: boolean) => {
