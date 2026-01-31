@@ -827,11 +827,38 @@ export class SpaceGame {
     this.isLanding = true;
     this.landingProgress = 0;
     this.landingPlanet = planet;
+
+    const ship = this.state.ship;
+    const orbitRadius = planet.radius + 80;
+
+    // Calculate starting angle relative to planet center
+    const dx = ship.x - planet.x;
+    const dy = ship.y - planet.y;
+    const startAngle = Math.atan2(dy, dx);
+
+    // Landing is at the top of the planet (angle = -π/2)
+    const landAngle = -Math.PI / 2;
+
+    // Calculate orbit arc - go counter-clockwise and do at least 270° for drama
+    let arcLength = landAngle - startAngle;
+    // Normalize to counter-clockwise direction (negative = counter-clockwise)
+    while (arcLength > 0) arcLength -= Math.PI * 2;
+    while (arcLength < -Math.PI * 2) arcLength += Math.PI * 2;
+    // Ensure minimum 270° arc for a satisfying orbit
+    if (arcLength > -Math.PI * 1.5) {
+      arcLength -= Math.PI * 2;
+    }
+
     this.landingStartPos = {
-      x: this.state.ship.x,
-      y: this.state.ship.y,
-      rotation: this.state.ship.rotation,
+      x: ship.x,
+      y: ship.y,
+      rotation: ship.rotation,
     };
+
+    // Store orbit parameters
+    (this as any).orbitStartAngle = startAngle;
+    (this as any).orbitArcLength = arcLength;
+    (this as any).orbitRadius = orbitRadius;
 
     // Stop any thrust sound
     soundManager.stopThrust();
@@ -840,37 +867,133 @@ export class SpaceGame {
   private updateLandingAnimation() {
     if (!this.isLanding || !this.landingPlanet || !this.landingStartPos) return;
 
-    // Smooth easing curve
-    this.landingProgress += 0.025;
-    const t = this.easeInOutCubic(Math.min(this.landingProgress, 1));
+    // ~3.5 second animation at 60fps
+    this.landingProgress += 0.005;
+    const progress = Math.min(this.landingProgress, 1);
 
-    // Calculate landing position (on the planet surface)
-    const targetX = this.landingPlanet.x;
-    const targetY = this.landingPlanet.y - this.landingPlanet.radius - 20;
-    const targetRotation = -Math.PI / 2; // Point upward
+    const planet = this.landingPlanet;
+    const orbitRadius = (this as any).orbitRadius || planet.radius + 80;
+    const startAngle = (this as any).orbitStartAngle || 0;
+    const arcLength = (this as any).orbitArcLength || -Math.PI * 2;
+    const landAngle = -Math.PI / 2; // Top of planet
+    const landingY = planet.y - planet.radius - 25;
 
-    // Interpolate position
-    this.state.ship.x = this.landingStartPos.x + (targetX - this.landingStartPos.x) * t;
-    this.state.ship.y = this.landingStartPos.y + (targetY - this.landingStartPos.y) * t;
+    // Phase 1 (0-0.12): Smooth approach to orbit altitude
+    // Phase 2 (0.12-0.70): Orbit around the planet from current position
+    // Phase 3 (0.70-0.88): Exit orbit and retro burn descent
+    // Phase 4 (0.88-1.0): Touchdown with dust
 
-    // Smoothly rotate to upward
-    let rotDiff = targetRotation - this.landingStartPos.rotation;
-    while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
-    while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
-    this.state.ship.rotation = this.landingStartPos.rotation + rotDiff * t;
+    if (progress < 0.12) {
+      // Phase 1: Smooth transition to orbit - move to orbit radius while starting the arc
+      const approachT = progress / 0.12;
+      const easeApproach = this.easeInOutQuad(approachT);
 
-    // Stop ship velocity
+      // Current distance from planet
+      const currentDist = Math.sqrt(
+        Math.pow(this.landingStartPos.x - planet.x, 2) +
+        Math.pow(this.landingStartPos.y - planet.y, 2)
+      );
+
+      // Blend from current position to orbit radius, while starting to curve
+      const blendedRadius = currentDist + (orbitRadius - currentDist) * easeApproach;
+      const angleProgress = approachT * 0.1; // Start 10% of the arc during approach
+      const currentAngle = startAngle + arcLength * angleProgress;
+
+      this.state.ship.x = planet.x + Math.cos(currentAngle) * blendedRadius;
+      this.state.ship.y = planet.y + Math.sin(currentAngle) * blendedRadius;
+
+      // Rotate to face direction of travel (tangent, counter-clockwise)
+      const tangentAngle = currentAngle - Math.PI / 2;
+      let rotDiff = tangentAngle - this.landingStartPos.rotation;
+      while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
+      while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
+      this.state.ship.rotation = this.landingStartPos.rotation + rotDiff * easeApproach;
+
+      // Thrust particles during approach
+      if (Math.random() < 0.4) {
+        this.emitOrbitTrail();
+      }
+
+    } else if (progress < 0.70) {
+      // Phase 2: ORBIT - follow the arc around the planet
+      const orbitT = (progress - 0.12) / 0.58;
+
+      // Continue from 10% to 100% of the arc
+      const angleProgress = 0.1 + orbitT * 0.9;
+      const currentAngle = startAngle + arcLength * angleProgress;
+
+      this.state.ship.x = planet.x + Math.cos(currentAngle) * orbitRadius;
+      this.state.ship.y = planet.y + Math.sin(currentAngle) * orbitRadius;
+
+      // Ship faces direction of travel (tangent to orbit, counter-clockwise)
+      this.state.ship.rotation = currentAngle - Math.PI / 2;
+
+      // Emit orbit trail particles
+      if (Math.random() < 0.6) {
+        this.emitOrbitTrail();
+      }
+
+      // Start engine sound during orbit
+      if (progress > 0.13 && progress < 0.15) {
+        soundManager.startThrust(false);
+      }
+
+    } else if (progress < 0.88) {
+      // Phase 3: Exit orbit at top, flip and retro burn down
+      const descentT = (progress - 0.70) / 0.18;
+      const easeDescent = this.easeInOutQuad(descentT);
+
+      // We're at the top of the planet (landAngle = -π/2)
+      const exitX = planet.x + Math.cos(landAngle) * orbitRadius;
+      const exitY = planet.y + Math.sin(landAngle) * orbitRadius;
+
+      // Descend from orbit to landing position
+      this.state.ship.x = exitX + (planet.x - exitX) * easeDescent;
+      this.state.ship.y = exitY + (landingY - exitY) * easeDescent;
+
+      // Flip to point up (engines down) for retro burn
+      // Start rotation: facing left (tangent at top) = 0 or π
+      // End rotation: pointing up = -π/2
+      const startRot = landAngle - Math.PI / 2; // Tangent direction at top
+      const endRot = -Math.PI / 2; // Pointing up
+      const flipProgress = this.easeOutBack(Math.min(descentT * 1.8, 1));
+      this.state.ship.rotation = startRot + (endRot - startRot + Math.PI) * flipProgress;
+
+      // Heavy retro flames during descent
+      this.emitRetroThrustFlames(0.8 - descentT * 0.3);
+
+      // Switch to boost sound for retro burn
+      if (progress > 0.71 && progress < 0.73) {
+        soundManager.stopThrust();
+        soundManager.startThrust(true);
+      }
+
+    } else {
+      // Phase 4: Touchdown with bounce and dust
+      const touchT = (progress - 0.88) / 0.12;
+      const easeTouch = this.easeOutBounce(touchT);
+
+      this.state.ship.x = planet.x;
+      this.state.ship.y = landingY + (1 - easeTouch) * 8; // Slight bounce down
+      this.state.ship.rotation = -Math.PI / 2; // Pointing up
+
+      // Stop thrust
+      if (progress > 0.89 && progress < 0.91) {
+        soundManager.stopThrust();
+      }
+
+      // Dust explosion on touchdown
+      if (touchT < 0.25) {
+        this.emitTouchdownDust();
+      }
+    }
+
+    // Stop ship velocity during animation
     this.state.ship.vx = 0;
     this.state.ship.vy = 0;
 
-    // Emit landing particles
-    if (this.landingProgress < 0.8 && Math.random() < 0.3) {
-      this.emitLandingParticles();
-    }
-
     // Animation complete
-    if (this.landingProgress >= 1) {
-      // Small delay before triggering dock
+    if (this.landingProgress >= 1.05) {
       setTimeout(() => {
         if (this.landingPlanet) {
           soundManager.playDockingSound();
@@ -880,27 +1003,129 @@ export class SpaceGame {
         this.landingPlanet = null;
         this.landingStartPos = null;
         this.landingProgress = 0;
-      }, 200);
+        // Clean up orbit params
+        delete (this as any).orbitStartAngle;
+        delete (this as any).orbitArcLength;
+        delete (this as any).orbitRadius;
+      }, 100);
     }
   }
 
-  private emitLandingParticles() {
+  private emitOrbitTrail() {
     const { ship } = this.state;
-    const backAngle = ship.rotation + Math.PI;
+    const trailAngle = ship.rotation + Math.PI;
 
-    for (let i = 0; i < 3; i++) {
-      const spread = (Math.random() - 0.5) * 0.8;
-      const speed = Math.random() * 2 + 1;
+    // Colorful orbit trail
+    const colors = ['#00ffff', '#00aaff', '#0088ff', '#ffffff'];
+
+    for (let i = 0; i < 2; i++) {
+      const spread = (Math.random() - 0.5) * 0.4;
+      const speed = Math.random() * 1.5 + 0.5;
+
       this.state.particles.push({
-        x: ship.x + Math.cos(backAngle) * 15,
-        y: ship.y + Math.sin(backAngle) * 15,
-        vx: Math.cos(backAngle + spread) * speed,
-        vy: Math.sin(backAngle + spread) * speed,
-        life: 20 + Math.random() * 10,
-        maxLife: 30,
+        x: ship.x + Math.cos(trailAngle) * 18,
+        y: ship.y + Math.sin(trailAngle) * 18,
+        vx: Math.cos(trailAngle + spread) * speed,
+        vy: Math.sin(trailAngle + spread) * speed,
+        life: 35 + Math.random() * 15,
+        maxLife: 50,
         size: Math.random() * 4 + 2,
-        color: '#ffa500',
+        color: colors[Math.floor(Math.random() * colors.length)],
       });
+    }
+  }
+
+  private emitRetroThrustFlames(intensity: number) {
+    const { ship } = this.state;
+    // Flames shoot DOWN (opposite of ship nose direction, which points up)
+    const flameAngle = ship.rotation + Math.PI; // Down toward planet
+
+    // More particles = more intense flames during heavy braking
+    const particleCount = Math.floor(4 + intensity * 6);
+    const flameIntensity = 0.5 + (1 - intensity) * 0.5; // Stronger at start
+
+    for (let i = 0; i < particleCount; i++) {
+      const spread = (Math.random() - 0.5) * 1.0;
+      const speed = (Math.random() * 4 + 3) * flameIntensity;
+
+      // Fire colors - white core, orange/red outer
+      const colors = ['#ffffff', '#ffff88', '#ffaa00', '#ff6600', '#ff3300'];
+      const color = colors[Math.floor(Math.random() * colors.length)];
+
+      this.state.particles.push({
+        x: ship.x + Math.cos(flameAngle) * 20,
+        y: ship.y + Math.sin(flameAngle) * 20,
+        vx: Math.cos(flameAngle + spread) * speed,
+        vy: Math.sin(flameAngle + spread) * speed,
+        life: 25 + Math.random() * 15,
+        maxLife: 40,
+        size: Math.random() * 6 + 3,
+        color,
+      });
+    }
+
+    // Add some smoke/exhaust
+    if (Math.random() < 0.4) {
+      const smokeAngle = flameAngle + (Math.random() - 0.5) * 0.8;
+      this.state.particles.push({
+        x: ship.x + Math.cos(flameAngle) * 25,
+        y: ship.y + Math.sin(flameAngle) * 25,
+        vx: Math.cos(smokeAngle) * 1.5,
+        vy: Math.sin(smokeAngle) * 1.5,
+        life: 40 + Math.random() * 20,
+        maxLife: 60,
+        size: Math.random() * 8 + 4,
+        color: '#888888',
+      });
+    }
+  }
+
+  private emitTouchdownDust() {
+    const { ship } = this.state;
+
+    // Dust spreads outward from landing point
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2 + Math.random() * 0.3;
+      const speed = Math.random() * 3 + 2;
+
+      // Dust colors - browns and grays
+      const colors = ['#aa8866', '#997755', '#888888', '#776655', '#665544'];
+
+      this.state.particles.push({
+        x: ship.x + Math.cos(angle) * 15,
+        y: ship.y + 20, // At the bottom of the ship
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed * 0.3 + Math.random(), // Mostly horizontal spread
+        life: 30 + Math.random() * 20,
+        maxLife: 50,
+        size: Math.random() * 5 + 3,
+        color: colors[Math.floor(Math.random() * colors.length)],
+      });
+    }
+  }
+
+  // Additional easing functions for the landing
+  private easeOutBack(t: number): number {
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+  }
+
+  private easeInOutQuad(t: number): number {
+    return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+  }
+
+  private easeOutBounce(t: number): number {
+    const n1 = 7.5625;
+    const d1 = 2.75;
+    if (t < 1 / d1) {
+      return n1 * t * t;
+    } else if (t < 2 / d1) {
+      return n1 * (t -= 1.5 / d1) * t + 0.75;
+    } else if (t < 2.5 / d1) {
+      return n1 * (t -= 2.25 / d1) * t + 0.9375;
+    } else {
+      return n1 * (t -= 2.625 / d1) * t + 0.984375;
     }
   }
 
