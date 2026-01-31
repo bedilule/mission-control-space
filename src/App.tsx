@@ -1156,14 +1156,11 @@ function App() {
             {/* AI Visual Upgrade Section */}
             <div style={styles.shopSection}>
               <h3 style={styles.shopSectionTitle}>🎨 Visual Modification</h3>
-              <p style={styles.upgradeHint}>
-                Describe what you want to add to your vessel (like adding bunny ears, flames, crystals, etc.)
-              </p>
               <textarea
                 style={styles.upgradeInput}
                 value={upgradePrompt}
                 onChange={e => setUpgradePrompt(e.target.value)}
-                placeholder="e.g., bunny ears, dragon wings, crystal cockpit, golden trim..."
+                placeholder="Describe what you want to add..."
                 rows={2}
               />
               <button
@@ -1473,12 +1470,11 @@ function App() {
                 </p>
 
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>What do you want to add?</label>
                   <textarea
                     style={styles.upgradeInput}
                     value={terraformPrompt}
                     onChange={e => setTerraformPrompt(e.target.value)}
-                    placeholder="e.g., a small forest, a blue lake, a volcano, crystal mountains, a tiny village..."
+                    placeholder="Describe what you want to add..."
                     rows={3}
                   />
                 </div>
