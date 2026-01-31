@@ -37,6 +37,9 @@ interface ShipEffects {
   glowColor: string | null;
   trailType: 'default' | 'fire' | 'ice' | 'rainbow';
   sizeBonus: number;
+  speedBonus: number;
+  ownedGlows: string[];
+  ownedTrails: string[];
 }
 
 // Store terraform counts for scaling
@@ -73,7 +76,7 @@ export class SpaceGame {
   private shipImage: HTMLImageElement | null = null;
   private hormoziPlanetImage: HTMLImageElement | null = null;
   private shipLevel: number = 1;
-  private shipEffects: ShipEffects = { glowColor: null, trailType: 'default', sizeBonus: 0 };
+  private shipEffects: ShipEffects = { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, ownedGlows: [], ownedTrails: [] };
   private blackHole: BlackHole;
   private shipBeingSucked: boolean = false;
   private suckProgress: number = 0;
@@ -85,6 +88,19 @@ export class SpaceGame {
   private landingProgress: number = 0;
   private landingPlanet: Planet | null = null;
   private landingStartPos: { x: number; y: number; rotation: number } | null = null;
+
+  // Upgrading animation state (orbiting satellites/robots)
+  private isUpgrading: boolean = false;
+  private upgradeSatellites: {
+    angle: number;
+    distance: number;
+    speed: number;
+    size: number;
+    color: string;
+    wobble: number;
+    wobbleSpeed: number;
+    type: 'satellite' | 'robot';
+  }[] = [];
 
   constructor(canvas: HTMLCanvasElement, onDock: (planet: Planet) => void, customPlanets: CustomPlanetData[] = [], shipImageUrl?: string, goals?: GoalsData, upgradeCount: number = 0, userPlanets?: Record<string, UserPlanetData>) {
     this.canvas = canvas;
@@ -645,8 +661,9 @@ export class SpaceGame {
 
     // Check if boosting
     const isBoosting = this.keys.has('shift');
-    const acceleration = isBoosting ? SHIP_BOOST_ACCELERATION : SHIP_ACCELERATION;
-    const maxSpeed = isBoosting ? SHIP_BOOST_MAX_SPEED : SHIP_MAX_SPEED;
+    const speedMultiplier = 1 + ((this.shipEffects.speedBonus || 0) * 0.1); // Each level = +10%
+    const acceleration = (isBoosting ? SHIP_BOOST_ACCELERATION : SHIP_ACCELERATION) * speedMultiplier;
+    const maxSpeed = (isBoosting ? SHIP_BOOST_MAX_SPEED : SHIP_MAX_SPEED) * speedMultiplier;
 
     // Handle thrust
     const wasThrusting = ship.thrusting;
@@ -1150,6 +1167,143 @@ export class SpaceGame {
       p.vy *= 0.97;
       return p.life > 0;
     });
+  }
+
+  // Upgrading animation with orbiting satellites/robots
+  public startUpgradeAnimation() {
+    if (this.isUpgrading) return;
+    this.isUpgrading = true;
+
+    // Create 4-6 satellites/robots with random properties
+    const count = 4 + Math.floor(Math.random() * 3);
+    const colors = ['#00ffff', '#ff6b9d', '#ffd700', '#4ade80', '#a855f7', '#ff8c00'];
+
+    this.upgradeSatellites = [];
+    for (let i = 0; i < count; i++) {
+      this.upgradeSatellites.push({
+        angle: (i / count) * Math.PI * 2 + Math.random() * 0.5,
+        distance: 50 + Math.random() * 30,
+        speed: 0.02 + Math.random() * 0.02,
+        size: 4 + Math.random() * 4,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        wobble: Math.random() * Math.PI * 2,
+        wobbleSpeed: 0.05 + Math.random() * 0.05,
+        type: Math.random() > 0.5 ? 'satellite' : 'robot',
+      });
+    }
+  }
+
+  public stopUpgradeAnimation() {
+    this.isUpgrading = false;
+    this.upgradeSatellites = [];
+  }
+
+  private updateUpgradeSatellites() {
+    if (!this.isUpgrading) return;
+
+    for (const sat of this.upgradeSatellites) {
+      // Orbit around
+      sat.angle += sat.speed;
+      // Wobble the distance
+      sat.wobble += sat.wobbleSpeed;
+
+      // Emit tiny sparkle particles occasionally
+      if (Math.random() < 0.05) {
+        const { ship } = this.state;
+        const x = ship.x + Math.cos(sat.angle) * (sat.distance + Math.sin(sat.wobble) * 10);
+        const y = ship.y + Math.sin(sat.angle) * (sat.distance + Math.sin(sat.wobble) * 10);
+
+        this.state.particles.push({
+          x,
+          y,
+          vx: (Math.random() - 0.5) * 0.5,
+          vy: (Math.random() - 0.5) * 0.5,
+          life: 15 + Math.random() * 10,
+          maxLife: 25,
+          size: 2 + Math.random() * 2,
+          color: sat.color,
+        });
+      }
+    }
+  }
+
+  private renderUpgradeSatellites() {
+    if (!this.isUpgrading || this.upgradeSatellites.length === 0) return;
+
+    const { ctx, state } = this;
+    const { camera, ship } = state;
+    const shipX = ship.x - camera.x;
+    const shipY = ship.y - camera.y;
+
+    for (const sat of this.upgradeSatellites) {
+      const wobbleOffset = Math.sin(sat.wobble) * 10;
+      const x = shipX + Math.cos(sat.angle) * (sat.distance + wobbleOffset);
+      const y = shipY + Math.sin(sat.angle) * (sat.distance + wobbleOffset);
+
+      ctx.save();
+      ctx.translate(x, y);
+
+      if (sat.type === 'satellite') {
+        // Draw satellite: body + solar panels
+        ctx.rotate(sat.angle + Math.PI / 2);
+
+        // Glow
+        ctx.shadowColor = sat.color;
+        ctx.shadowBlur = 8;
+
+        // Body (hexagon-ish)
+        ctx.fillStyle = '#333';
+        ctx.beginPath();
+        ctx.arc(0, 0, sat.size * 0.6, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Solar panels
+        ctx.fillStyle = sat.color;
+        ctx.fillRect(-sat.size * 1.5, -sat.size * 0.2, sat.size, sat.size * 0.4);
+        ctx.fillRect(sat.size * 0.5, -sat.size * 0.2, sat.size, sat.size * 0.4);
+
+        // Center light
+        ctx.beginPath();
+        ctx.arc(0, 0, sat.size * 0.3, 0, Math.PI * 2);
+        ctx.fillStyle = sat.color;
+        ctx.fill();
+
+      } else {
+        // Draw robot: small cute bot
+        ctx.rotate(sat.angle * 2); // Spin faster
+
+        // Glow
+        ctx.shadowColor = sat.color;
+        ctx.shadowBlur = 6;
+
+        // Body
+        ctx.fillStyle = '#444';
+        ctx.beginPath();
+        ctx.roundRect(-sat.size * 0.5, -sat.size * 0.5, sat.size, sat.size, 2);
+        ctx.fill();
+
+        // Eyes
+        ctx.fillStyle = sat.color;
+        ctx.beginPath();
+        ctx.arc(-sat.size * 0.2, -sat.size * 0.1, sat.size * 0.15, 0, Math.PI * 2);
+        ctx.arc(sat.size * 0.2, -sat.size * 0.1, sat.size * 0.15, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Antenna
+        ctx.strokeStyle = sat.color;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, -sat.size * 0.5);
+        ctx.lineTo(0, -sat.size * 0.9);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(0, -sat.size * 0.9, 2, 0, Math.PI * 2);
+        ctx.fillStyle = sat.color;
+        ctx.fill();
+      }
+
+      ctx.restore();
+    }
   }
 
   private emitThrustParticles(isBoosting: boolean = false) {

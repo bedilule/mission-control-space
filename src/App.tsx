@@ -79,15 +79,22 @@ const POINTS_PER_SIZE = { small: 50, medium: 100, big: 200 };
 const VISUAL_UPGRADE_COST = 75;
 
 // Programmatic ship effects (no AI needed - instant purchase)
-const SHIP_EFFECTS = [
-  { id: 'size', name: 'Size +10%', icon: '📈', cost: 50, description: 'Make your ship bigger', type: 'size' as const },
-  { id: 'glow_orange', name: 'Orange Glow', icon: '🟠', cost: 30, description: 'Orange energy aura', type: 'glow' as const, value: '#ff8800' },
-  { id: 'glow_blue', name: 'Blue Glow', icon: '🔵', cost: 30, description: 'Blue energy aura', type: 'glow' as const, value: '#00aaff' },
-  { id: 'glow_purple', name: 'Purple Glow', icon: '🟣', cost: 30, description: 'Purple energy aura', type: 'glow' as const, value: '#aa00ff' },
-  { id: 'glow_green', name: 'Green Glow', icon: '🟢', cost: 30, description: 'Green energy aura', type: 'glow' as const, value: '#00ff88' },
-  { id: 'trail_fire', name: 'Fire Trail', icon: '🔥', cost: 40, description: 'Blazing fire trail', type: 'trail' as const, value: 'fire' },
-  { id: 'trail_ice', name: 'Ice Trail', icon: '❄️', cost: 40, description: 'Frozen ice particles', type: 'trail' as const, value: 'ice' },
-  { id: 'trail_rainbow', name: 'Rainbow Trail', icon: '🌈', cost: 60, description: 'Colorful rainbow trail', type: 'trail' as const, value: 'rainbow' },
+const SIZE_EFFECT = { id: 'size', name: 'Size +10%', icon: '📈', cost: 50, type: 'size' as const };
+
+// Speed upgrades: 5 levels with increasing costs
+const SPEED_COSTS = [30, 50, 80, 120, 180]; // Cost per level
+
+const GLOW_EFFECTS = [
+  { id: 'glow_orange', name: 'Orange', icon: '🟠', cost: 30, value: '#ff8800' },
+  { id: 'glow_blue', name: 'Blue', icon: '🔵', cost: 30, value: '#00aaff' },
+  { id: 'glow_purple', name: 'Purple', icon: '🟣', cost: 30, value: '#aa00ff' },
+  { id: 'glow_green', name: 'Green', icon: '🟢', cost: 30, value: '#00ff88' },
+];
+
+const TRAIL_EFFECTS = [
+  { id: 'trail_fire', name: 'Fire', icon: '🔥', cost: 40, value: 'fire' },
+  { id: 'trail_ice', name: 'Ice', icon: '❄️', cost: 40, value: 'ice' },
+  { id: 'trail_rainbow', name: 'Rainbow', icon: '🌈', cost: 60, value: 'rainbow' },
 ];
 
 // Default goals/milestones
@@ -201,6 +208,9 @@ interface ShipEffects {
   glowColor: string | null;
   trailType: 'default' | 'fire' | 'ice' | 'rainbow';
   sizeBonus: number; // Percentage bonus (e.g., 10 = +10%)
+  speedBonus: number; // 0-5 levels, each gives +10% speed
+  ownedGlows: string[]; // Owned glow colors
+  ownedTrails: string[]; // Owned trail types
 }
 
 interface UserShip {
@@ -882,48 +892,114 @@ function App() {
     }
   };
 
-  // Buy instant effect (programmatic, no AI)
-  const buyEffect = (effectId: string) => {
-    const effect = SHIP_EFFECTS.find(e => e.id === effectId);
-    if (!effect || teamPoints < effect.cost) return;
+  // Buy size upgrade
+  const buySizeUpgrade = () => {
+    if (teamPoints < SIZE_EFFECT.cost) return;
 
     const userId = state.currentUser || 'default';
     const currentShip = getCurrentUserShip();
+    const currentEffects = getEffectsWithDefaults(currentShip.effects);
 
-    // Initialize effects if not present
-    const currentEffects: ShipEffects = currentShip.effects || {
-      glowColor: null,
-      trailType: 'default',
-      sizeBonus: 0,
-    };
+    const newEffects = { ...currentEffects, sizeBonus: currentEffects.sizeBonus + 10 };
 
-    // Apply the effect
-    let newEffects = { ...currentEffects };
-    if (effect.type === 'glow') {
-      newEffects.glowColor = effect.value as string;
-    } else if (effect.type === 'trail') {
-      newEffects.trailType = effect.value as 'fire' | 'ice' | 'rainbow';
-    } else if (effect.type === 'size') {
-      newEffects.sizeBonus = currentEffects.sizeBonus + 10;
+    setTeamPoints(prev => prev - SIZE_EFFECT.cost);
+    updateUserShipEffects(userId, currentShip, newEffects);
+    soundManager.playUIClick();
+  };
+
+  // Buy speed upgrade (max 5 levels)
+  const buySpeedUpgrade = () => {
+    const currentShip = getCurrentUserShip();
+    const currentEffects = getEffectsWithDefaults(currentShip.effects);
+    const currentLevel = currentEffects.speedBonus;
+
+    if (currentLevel >= 5) return;
+    const cost = SPEED_COSTS[currentLevel];
+    if (teamPoints < cost) return;
+
+    const userId = state.currentUser || 'default';
+    const newEffects = { ...currentEffects, speedBonus: currentLevel + 1 };
+
+    setTeamPoints(prev => prev - cost);
+    updateUserShipEffects(userId, currentShip, newEffects);
+    soundManager.playUIClick();
+  };
+
+  // Buy or switch glow
+  const handleGlow = (glowId: string) => {
+    const glow = GLOW_EFFECTS.find(g => g.id === glowId);
+    if (!glow) return;
+
+    const userId = state.currentUser || 'default';
+    const currentShip = getCurrentUserShip();
+    const currentEffects = getEffectsWithDefaults(currentShip.effects);
+    const owned = currentEffects.ownedGlows.includes(glow.value);
+
+    if (owned) {
+      // Already owned - toggle (free switch or turn off)
+      const newGlow = currentEffects.glowColor === glow.value ? null : glow.value;
+      const newEffects = { ...currentEffects, glowColor: newGlow };
+      updateUserShipEffects(userId, currentShip, newEffects);
+    } else {
+      // Buy it
+      if (teamPoints < glow.cost) return;
+      const newEffects = {
+        ...currentEffects,
+        ownedGlows: [...currentEffects.ownedGlows, glow.value],
+        glowColor: glow.value,
+      };
+      setTeamPoints(prev => prev - glow.cost);
+      updateUserShipEffects(userId, currentShip, newEffects);
     }
+    soundManager.playUIClick();
+  };
 
-    // Deduct points
-    setTeamPoints(prev => prev - effect.cost);
+  // Buy or switch trail
+  const handleTrail = (trailId: string) => {
+    const trail = TRAIL_EFFECTS.find(t => t.id === trailId);
+    if (!trail) return;
 
-    // Update user's ship
+    const userId = state.currentUser || 'default';
+    const currentShip = getCurrentUserShip();
+    const currentEffects = getEffectsWithDefaults(currentShip.effects);
+    const owned = currentEffects.ownedTrails.includes(trail.value);
+
+    if (owned) {
+      // Already owned - toggle (free switch or turn off)
+      const newTrail: ShipEffects['trailType'] = currentEffects.trailType === trail.value ? 'default' : trail.value as 'fire' | 'ice' | 'rainbow';
+      const newEffects: ShipEffects = { ...currentEffects, trailType: newTrail };
+      updateUserShipEffects(userId, currentShip, newEffects);
+    } else {
+      // Buy it
+      if (teamPoints < trail.cost) return;
+      const newEffects: ShipEffects = {
+        ...currentEffects,
+        ownedTrails: [...currentEffects.ownedTrails, trail.value],
+        trailType: trail.value as 'fire' | 'ice' | 'rainbow',
+      };
+      setTeamPoints(prev => prev - trail.cost);
+      updateUserShipEffects(userId, currentShip, newEffects);
+    }
+    soundManager.playUIClick();
+  };
+
+  // Helper to get effects with defaults
+  const getEffectsWithDefaults = (effects: ShipEffects | undefined): ShipEffects => ({
+    glowColor: effects?.glowColor ?? null,
+    trailType: effects?.trailType ?? 'default',
+    sizeBonus: effects?.sizeBonus ?? 0,
+    speedBonus: effects?.speedBonus ?? 0,
+    ownedGlows: effects?.ownedGlows ?? [],
+    ownedTrails: effects?.ownedTrails ?? [],
+  });
+
+  // Helper to update ship effects
+  const updateUserShipEffects = (userId: string, currentShip: UserShip, newEffects: ShipEffects) => {
     setUserShips(prev => ({
       ...prev,
-      [userId]: {
-        ...currentShip,
-        effects: newEffects,
-      }
+      [userId]: { ...currentShip, effects: newEffects }
     }));
-
-    // Update effects in the game
     gameRef.current?.updateShipEffects(newEffects);
-
-    // Play sound
-    soundManager.playUIClick();
   };
 
   // Select user
@@ -941,7 +1017,7 @@ function App() {
           baseImage: '/ship-base.png',
           upgrades: [],
           currentImage: '/ship-base.png',
-          effects: { glowColor: null, trailType: 'default', sizeBonus: 0 },
+          effects: { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, ownedGlows: [], ownedTrails: [] },
         }
       }));
     }
@@ -1217,8 +1293,6 @@ function App() {
               />
               <p style={{ color: '#666', fontSize: '0.75rem', marginTop: '0.5rem' }}>
                 {getCurrentUserShip().upgrades.length} visual upgrades
-                {getCurrentUserShip().effects?.glowColor && ' • Glow active'}
-                {getCurrentUserShip().effects?.trailType !== 'default' && getCurrentUserShip().effects?.trailType && ' • Trail active'}
               </p>
             </div>
 
@@ -1249,32 +1323,139 @@ function App() {
             {/* Instant Effects Section */}
             <div style={styles.shopSection}>
               <h3 style={styles.shopSectionTitle}>⚡ Instant Effects</h3>
-              <div style={styles.effectsGrid}>
-                {SHIP_EFFECTS.map(effect => {
-                  const currentEffects = getCurrentUserShip().effects;
-                  const isActive =
-                    (effect.type === 'glow' && currentEffects?.glowColor === effect.value) ||
-                    (effect.type === 'trail' && currentEffects?.trailType === effect.value);
-                  return (
-                    <button
-                      key={effect.id}
-                      style={{
-                        ...styles.effectItem,
-                        opacity: teamPoints >= effect.cost ? 1 : 0.5,
-                        borderColor: isActive ? '#ffa500' : '#333',
-                        background: isActive ? 'rgba(255, 165, 0, 0.1)' : 'rgba(255,255,255,0.05)',
-                      }}
-                      onClick={() => buyEffect(effect.id)}
-                      disabled={teamPoints < effect.cost}
-                      title={effect.description}
-                    >
-                      <span style={{ fontSize: '1.5rem' }}>{effect.icon}</span>
-                      <span style={{ fontSize: '0.75rem', color: '#fff' }}>{effect.name}</span>
-                      <span style={{ fontSize: '0.7rem', color: '#5490ff' }}>{effect.cost} 💎</span>
-                      {isActive && <span style={{ fontSize: '0.6rem', color: '#ffa500' }}>Active</span>}
-                    </button>
-                  );
-                })}
+
+              {/* Size Upgrade */}
+              <div style={styles.effectLane}>
+                <div style={styles.effectLaneLabel}>
+                  <span style={styles.effectLaneIcon}>📈</span>
+                  <span>Size</span>
+                </div>
+                <div style={styles.effectLaneContent}>
+                  <span style={styles.effectLaneValue}>+{getEffectsWithDefaults(getCurrentUserShip().effects).sizeBonus}%</span>
+                  <button
+                    style={{
+                      ...styles.effectBuyButton,
+                      opacity: teamPoints >= SIZE_EFFECT.cost ? 1 : 0.5,
+                    }}
+                    onClick={buySizeUpgrade}
+                    disabled={teamPoints < SIZE_EFFECT.cost}
+                  >
+                    +10% ({SIZE_EFFECT.cost} 💎)
+                  </button>
+                </div>
+              </div>
+
+              {/* Speed Upgrade with dots */}
+              {(() => {
+                const currentLevel = getEffectsWithDefaults(getCurrentUserShip().effects).speedBonus;
+                const nextCost = currentLevel < 5 ? SPEED_COSTS[currentLevel] : null;
+                const canBuy = nextCost !== null && teamPoints >= nextCost;
+                return (
+                  <div style={styles.effectLane}>
+                    <div style={styles.effectLaneLabel}>
+                      <span style={styles.effectLaneIcon}>⚡</span>
+                      <span>Speed</span>
+                    </div>
+                    <div style={styles.effectLaneContent}>
+                      <div style={styles.speedDots}>
+                        {[0, 1, 2, 3, 4].map(i => (
+                          <div
+                            key={i}
+                            style={{
+                              ...styles.speedDot,
+                              background: i < currentLevel ? '#ffa500' : 'rgba(255,255,255,0.15)',
+                            }}
+                          />
+                        ))}
+                      </div>
+                      <span style={styles.effectLaneValue}>+{currentLevel * 10}%</span>
+                      {nextCost !== null ? (
+                        <button
+                          style={{
+                            ...styles.effectBuyButton,
+                            opacity: canBuy ? 1 : 0.5,
+                          }}
+                          onClick={buySpeedUpgrade}
+                          disabled={!canBuy}
+                        >
+                          +10% ({nextCost} 💎)
+                        </button>
+                      ) : (
+                        <span style={styles.effectMaxed}>MAX</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Glows Lane */}
+              <div style={styles.effectLane}>
+                <div style={styles.effectLaneLabel}>
+                  <span style={styles.effectLaneIcon}>✨</span>
+                  <span>Glow</span>
+                </div>
+                <div style={styles.effectLaneItems}>
+                  {GLOW_EFFECTS.map(glow => {
+                    const effects = getEffectsWithDefaults(getCurrentUserShip().effects);
+                    const owned = effects.ownedGlows.includes(glow.value);
+                    const active = effects.glowColor === glow.value;
+                    return (
+                      <button
+                        key={glow.id}
+                        style={{
+                          ...styles.effectItemSmall,
+                          borderColor: active ? '#ffa500' : owned ? '#555' : '#333',
+                          background: active ? 'rgba(255, 165, 0, 0.15)' : owned ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)',
+                          opacity: owned || teamPoints >= glow.cost ? 1 : 0.5,
+                        }}
+                        onClick={() => handleGlow(glow.id)}
+                        disabled={!owned && teamPoints < glow.cost}
+                        title={owned ? (active ? 'Click to deactivate' : 'Click to activate') : `Buy for ${glow.cost} points`}
+                      >
+                        <span style={{ fontSize: '1.2rem' }}>{glow.icon}</span>
+                        <span style={{ fontSize: '0.65rem', color: '#aaa' }}>{glow.name}</span>
+                        {!owned && <span style={{ fontSize: '0.6rem', color: '#5490ff' }}>{glow.cost} 💎</span>}
+                        {owned && active && <span style={{ fontSize: '0.55rem', color: '#ffa500' }}>ON</span>}
+                        {owned && !active && <span style={{ fontSize: '0.55rem', color: '#666' }}>owned</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Trails Lane */}
+              <div style={styles.effectLane}>
+                <div style={styles.effectLaneLabel}>
+                  <span style={styles.effectLaneIcon}>💨</span>
+                  <span>Trail</span>
+                </div>
+                <div style={styles.effectLaneItems}>
+                  {TRAIL_EFFECTS.map(trail => {
+                    const effects = getEffectsWithDefaults(getCurrentUserShip().effects);
+                    const owned = effects.ownedTrails.includes(trail.value);
+                    const active = effects.trailType === trail.value;
+                    return (
+                      <button
+                        key={trail.id}
+                        style={{
+                          ...styles.effectItemSmall,
+                          borderColor: active ? '#ffa500' : owned ? '#555' : '#333',
+                          background: active ? 'rgba(255, 165, 0, 0.15)' : owned ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)',
+                          opacity: owned || teamPoints >= trail.cost ? 1 : 0.5,
+                        }}
+                        onClick={() => handleTrail(trail.id)}
+                        disabled={!owned && teamPoints < trail.cost}
+                        title={owned ? (active ? 'Click to deactivate' : 'Click to activate') : `Buy for ${trail.cost} points`}
+                      >
+                        <span style={{ fontSize: '1.2rem' }}>{trail.icon}</span>
+                        <span style={{ fontSize: '0.65rem', color: '#aaa' }}>{trail.name}</span>
+                        {!owned && <span style={{ fontSize: '0.6rem', color: '#5490ff' }}>{trail.cost} 💎</span>}
+                        {owned && active && <span style={{ fontSize: '0.55rem', color: '#ffa500' }}>ON</span>}
+                        {owned && !active && <span style={{ fontSize: '0.55rem', color: '#666' }}>owned</span>}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
@@ -1291,7 +1472,7 @@ function App() {
           <div style={{ ...styles.modal, maxWidth: 700 }} onClick={e => e.stopPropagation()}>
             <h2 style={styles.modalTitle}>📸 Ship Evolution Gallery</h2>
             <p style={{ color: '#888', marginBottom: '1rem' }}>
-              {mascotHistory.length} memories captured
+              {mascotHistory.length} versions • Click to select
             </p>
 
             {mascotHistory.length === 0 ? (
@@ -1300,26 +1481,56 @@ function App() {
               </p>
             ) : (
               <div style={styles.galleryGrid}>
-                {mascotHistory.map((entry, i) => (
-                  <div key={i} style={styles.galleryItem}>
-                    <div style={styles.galleryImageWrapper}>
-                      <img src={entry.imageUrl} alt={entry.planetName} style={styles.galleryImage} />
-                      <button
-                        style={styles.downloadButton}
-                        onClick={() => downloadImage(entry.imageUrl, `ship-${entry.earnedBy}-${i + 1}`)}
-                        title="Download"
-                      >
-                        ⬇
-                      </button>
+                {mascotHistory.map((entry, i) => {
+                  const isCurrentShip = getCurrentUserShip().currentImage === entry.imageUrl;
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        ...styles.galleryItem,
+                        border: isCurrentShip ? '2px solid #ffa500' : '1px solid #333',
+                        cursor: 'pointer',
+                      }}
+                      onClick={() => {
+                        if (!isCurrentShip) {
+                          const userId = state.currentUser || 'default';
+                          setUserShips(prev => ({
+                            ...prev,
+                            [userId]: {
+                              ...prev[userId],
+                              currentImage: entry.imageUrl,
+                            }
+                          }));
+                          gameRef.current?.updateShipImage(entry.imageUrl);
+                          soundManager.playUIClick();
+                        }
+                      }}
+                    >
+                      <div style={styles.galleryImageWrapper}>
+                        <img src={entry.imageUrl} alt={entry.planetName} style={styles.galleryImage} />
+                        {isCurrentShip && (
+                          <div style={styles.currentShipBadge}>Current</div>
+                        )}
+                        <button
+                          style={styles.downloadButton}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            downloadImage(entry.imageUrl, `ship-${entry.earnedBy}-${i + 1}`);
+                          }}
+                          title="Download"
+                        >
+                          ⬇
+                        </button>
+                      </div>
+                      <div style={styles.galleryInfo}>
+                        <span style={styles.galleryPlanet}>{entry.planetName}</span>
+                        <span style={styles.galleryMeta}>
+                          by {USERS.find(u => u.id === entry.earnedBy)?.name || entry.earnedBy}
+                        </span>
+                      </div>
                     </div>
-                    <div style={styles.galleryInfo}>
-                      <span style={styles.galleryPlanet}>{entry.planetName}</span>
-                      <span style={styles.galleryMeta}>
-                        by {USERS.find(u => u.id === entry.earnedBy)?.name || entry.earnedBy}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
@@ -1938,6 +2149,45 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '0.5rem', cursor: 'pointer', display: 'flex', flexDirection: 'column',
     alignItems: 'center', gap: '0.25rem', transition: 'border-color 0.2s',
   },
+  effectLane: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '0.6rem 0.75rem',
+    marginBottom: '0.5rem', border: '1px solid rgba(255,255,255,0.06)',
+  },
+  effectLaneLabel: {
+    display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#fff', fontSize: '0.85rem',
+    fontWeight: 500, minWidth: 70,
+  },
+  effectLaneIcon: { fontSize: '1rem' },
+  effectLaneContent: {
+    display: 'flex', alignItems: 'center', gap: '0.75rem',
+  },
+  effectLaneValue: {
+    color: '#ffa500', fontSize: '0.8rem', fontWeight: 600, minWidth: 40, textAlign: 'right',
+  },
+  effectBuyButton: {
+    padding: '0.35rem 0.6rem', background: 'rgba(84, 144, 255, 0.2)', border: '1px solid #5490ff',
+    borderRadius: 6, color: '#5490ff', fontSize: '0.7rem', cursor: 'pointer', whiteSpace: 'nowrap',
+  },
+  effectMaxed: {
+    padding: '0.35rem 0.6rem', background: 'rgba(255, 165, 0, 0.15)', border: '1px solid #ffa500',
+    borderRadius: 6, color: '#ffa500', fontSize: '0.7rem', fontWeight: 600,
+  },
+  speedDots: {
+    display: 'flex', gap: '4px', alignItems: 'center',
+  },
+  speedDot: {
+    width: 10, height: 10, borderRadius: '50%', transition: 'background 0.2s',
+  },
+  effectLaneItems: {
+    display: 'flex', gap: '0.4rem', flexWrap: 'wrap', justifyContent: 'flex-end', flex: 1,
+  },
+  effectItemSmall: {
+    background: 'rgba(255,255,255,0.03)', border: '1px solid #333', borderRadius: 6,
+    padding: '0.35rem 0.5rem', cursor: 'pointer', display: 'flex', flexDirection: 'column',
+    alignItems: 'center', gap: '0.15rem', transition: 'border-color 0.2s, background 0.2s',
+    minWidth: 52,
+  },
   upgradeInput: {
     width: '100%', padding: '0.75rem', background: 'rgba(255,255,255,0.05)', border: '1px solid #333',
     borderRadius: 8, color: '#fff', fontSize: '1rem', resize: 'none', boxSizing: 'border-box',
@@ -1954,6 +2204,11 @@ const styles: Record<string, React.CSSProperties> = {
     position: 'absolute', top: 4, right: 4, width: 28, height: 28, borderRadius: '50%',
     background: 'rgba(0,0,0,0.7)', border: '1px solid #555', color: '#fff',
     fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  },
+  currentShipBadge: {
+    position: 'absolute', bottom: 4, left: 4, right: 4, textAlign: 'center',
+    background: 'rgba(255, 165, 0, 0.9)', color: '#000', fontSize: '0.65rem',
+    fontWeight: 600, padding: '2px 0', borderRadius: 4,
   },
   galleryInfo: { padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' },
   galleryPlanet: { fontSize: '0.75rem', color: '#fff', fontWeight: 600 },
