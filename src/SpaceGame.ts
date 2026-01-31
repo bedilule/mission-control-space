@@ -2701,7 +2701,6 @@ export class SpaceGame {
    */
   private updateOtherPlayersInterpolation() {
     const now = Date.now();
-    const renderTime = now - RENDER_DELAY; // Always render 400ms in the past
     const deltaTime = 1 / 60; // Assume 60fps
 
     for (const player of this.otherPlayers) {
@@ -2709,6 +2708,15 @@ export class SpaceGame {
       if (!renderState) continue;
 
       const snapshots = this.playerSnapshots.get(player.id) || [];
+
+      // Calculate effective render delay - ramp up from 0 to RENDER_DELAY as buffer fills
+      // This prevents the "frozen at spawn" issue when player first joins
+      let effectiveDelay = RENDER_DELAY;
+      if (snapshots.length > 0) {
+        const bufferAge = now - snapshots[0].receivedAt; // How old is our oldest snapshot
+        effectiveDelay = Math.min(RENDER_DELAY, bufferAge * 0.8); // Use 80% of buffer age, max RENDER_DELAY
+      }
+      const renderTime = now - effectiveDelay;
 
       // Find snapshots for Catmull-Rom spline (need 4 points ideally)
       let p0: PositionSnapshot | null = null;
@@ -2800,8 +2808,43 @@ export class SpaceGame {
         newVy = renderState.deadReckonVy;
         newThrusting = p1.thrusting;
 
+      } else if (snapshots.length >= 2) {
+        // No p1 yet (buffer warming up) but have snapshots - interpolate between first two
+        const s0 = snapshots[0];
+        const s1 = snapshots[1];
+        const dt = s1.receivedAt - s0.receivedAt;
+        const elapsed = now - s0.receivedAt;
+        const t = dt > 0 ? Math.max(0, Math.min(1, elapsed / dt)) : 1;
+
+        const unwrapped = this.unwrapPosition(s0.x, s0.y, s1.x, s1.y);
+        newX = s0.x + (unwrapped.x - s0.x) * t;
+        newY = s0.y + (unwrapped.y - s0.y) * t;
+
+        let rotDiff = s1.rotation - s0.rotation;
+        while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
+        while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
+        newRotation = s0.rotation + rotDiff * t;
+
+        newVx = s0.vx + (s1.vx - s0.vx) * t;
+        newVy = s0.vy + (s1.vy - s0.vy) * t;
+        newThrusting = s1.thrusting;
+
+        const wrapped = this.wrapPosition(newX, newY);
+        newX = wrapped.x;
+        newY = wrapped.y;
+
+      } else if (snapshots.length === 1) {
+        // Only one snapshot - use it directly
+        const s = snapshots[0];
+        newX = s.x;
+        newY = s.y;
+        newRotation = s.rotation;
+        newVx = s.vx;
+        newVy = s.vy;
+        newThrusting = s.thrusting;
+
       } else {
-        // No data - stay at current position
+        // No snapshots at all - stay at current position
         newX = renderState.renderX;
         newY = renderState.renderY;
         newRotation = renderState.renderRotation;
