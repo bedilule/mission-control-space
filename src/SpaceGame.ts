@@ -49,7 +49,32 @@ const userPlanetSizeLevels: Map<string, number> = new Map();
 
 const USER_IDS = ['quentin', 'armel', 'alex', 'melia', 'hugue'];
 
-const WORLD_SIZE = 5000;
+// Expanded world to fit player zones + central hub
+const WORLD_SIZE = 8000;
+const ZONE_SIZE = 2500; // Each player zone radius
+const CENTER_X = WORLD_SIZE / 2;
+const CENTER_Y = WORLD_SIZE / 2;
+
+// Zone positions: center + 5 player zones around it
+interface Zone {
+  id: string;
+  name: string;
+  centerX: number;
+  centerY: number;
+  color: string;
+  ownerId: string | null; // null = shared zone
+}
+
+const ZONES: Zone[] = [
+  // Central shared zone
+  { id: 'central', name: 'Mission Control', centerX: CENTER_X, centerY: CENTER_Y, color: '#ffffff', ownerId: null },
+  // Player zones arranged around the center
+  { id: 'zone-quentin', name: "Quentin's Sector", centerX: CENTER_X, centerY: CENTER_Y - 2800, color: '#ffa500', ownerId: 'quentin' },
+  { id: 'zone-armel', name: "Armel's Sector", centerX: CENTER_X + 2400, centerY: CENTER_Y - 1400, color: '#4ade80', ownerId: 'armel' },
+  { id: 'zone-alex', name: "Alex's Sector", centerX: CENTER_X + 2400, centerY: CENTER_Y + 1400, color: '#5490ff', ownerId: 'alex' },
+  { id: 'zone-melia', name: "Melia's Sector", centerX: CENTER_X - 2400, centerY: CENTER_Y + 1400, color: '#ff6b9d', ownerId: 'melia' },
+  { id: 'zone-hugue', name: "Hugue's Sector", centerX: CENTER_X - 2400, centerY: CENTER_Y - 1400, color: '#8b5cf6', ownerId: 'hugue' },
+];
 const SHIP_ACCELERATION = 0.18;
 const SHIP_ROTATION_SPEED = 0.06;
 const SHIP_MAX_SPEED = 7;
@@ -105,10 +130,18 @@ export class SpaceGame {
     type: 'satellite' | 'robot';
   }[] = [];
 
-  constructor(canvas: HTMLCanvasElement, onDock: (planet: Planet) => void, customPlanets: CustomPlanetData[] = [], shipImageUrl?: string, goals?: GoalsData, upgradeCount: number = 0, userPlanets?: Record<string, UserPlanetData>) {
+  // Current player (for zone-based interactions)
+  private currentUser: string = 'quentin';
+
+  // For seamless world wrapping
+  private prevShipX: number = 0;
+  private prevShipY: number = 0;
+
+  constructor(canvas: HTMLCanvasElement, onDock: (planet: Planet) => void, customPlanets: CustomPlanetData[] = [], shipImageUrl?: string, goals?: GoalsData, upgradeCount: number = 0, userPlanets?: Record<string, UserPlanetData>, currentUser: string = 'quentin') {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
     this.onDock = onDock;
+    this.currentUser = currentUser;
 
     // Initialize state
     const basePlanets = this.createPlanets(goals);
@@ -117,8 +150,8 @@ export class SpaceGame {
 
     this.state = {
       ship: {
-        x: WORLD_SIZE / 2,
-        y: WORLD_SIZE - 400,
+        x: CENTER_X,
+        y: CENTER_Y + 200, // Start in central zone
         vx: 0,
         vy: 0,
         rotation: -Math.PI / 2,
@@ -142,9 +175,10 @@ export class SpaceGame {
     });
 
     // Initialize black hole (more centered, slightly offset)
+    // Black hole in the central zone
     this.blackHole = {
-      x: WORLD_SIZE / 2 + 200,
-      y: WORLD_SIZE / 2 - 300,
+      x: CENTER_X + 150,
+      y: CENTER_Y - 250,
       radius: 60,
       pullRadius: 350,
       eventHorizon: 30,
@@ -235,16 +269,17 @@ export class SpaceGame {
 
     const sizeRadius = { small: 35, medium: 50, big: 70 };
 
-    // Place business planets in a winding path on the left
-    const businessStartX = WORLD_SIZE / 2 - 600;
-    const businessStartY = WORLD_SIZE - 600;
+    // All shared goals are placed in the central zone
+    // Place business planets in a winding path on the left side of central zone
+    const businessStartX = CENTER_X - 500;
+    const businessStartY = CENTER_Y + 800;
     businessMilestones.forEach((m, i) => {
-      const zigzag = (i % 2 === 0) ? -150 : 150;
+      const zigzag = (i % 2 === 0) ? -120 : 120;
       const style = planetStyles[i % planetStyles.length];
       planets.push({
         ...m,
-        x: businessStartX + zigzag + Math.sin(i * 0.5) * 100,
-        y: businessStartY - i * 350,
+        x: businessStartX + zigzag + Math.sin(i * 0.5) * 80,
+        y: businessStartY - i * 280,
         radius: sizeRadius[m.size],
         color: style.baseColor,
         glowColor: style.baseColor.replace(')', ', 0.4)').replace('rgb', 'rgba'),
@@ -256,19 +291,20 @@ export class SpaceGame {
         description: m.description,
         reward: m.reward,
         realWorldReward: m.realWorldReward,
+        ownerId: null, // Shared planet
       });
     });
 
-    // Place product planets in a path on the right
-    const productStartX = WORLD_SIZE / 2 + 600;
-    const productStartY = WORLD_SIZE - 600;
+    // Place product planets in a path on the right side of central zone
+    const productStartX = CENTER_X + 500;
+    const productStartY = CENTER_Y + 800;
     productMilestones.forEach((m, i) => {
-      const zigzag = (i % 2 === 0) ? 150 : -150;
+      const zigzag = (i % 2 === 0) ? 120 : -120;
       const style = planetStyles[(i + 3) % planetStyles.length];
       planets.push({
         ...m,
-        x: productStartX + zigzag + Math.cos(i * 0.7) * 80,
-        y: productStartY - i * 400,
+        x: productStartX + zigzag + Math.cos(i * 0.7) * 60,
+        y: productStartY - i * 320,
         radius: sizeRadius[m.size],
         color: style.baseColor,
         glowColor: style.baseColor.replace(')', ', 0.4)').replace('rgb', 'rgba'),
@@ -280,17 +316,18 @@ export class SpaceGame {
         description: m.description,
         reward: m.reward,
         realWorldReward: m.realWorldReward,
+        ownerId: null, // Shared planet
       });
     });
 
-    // Place achievements as special golden planets scattered around
+    // Place achievements as special golden planets scattered around the central zone
     achievements.forEach((m, i) => {
       const angle = (i / achievements.length) * Math.PI * 0.8 - Math.PI * 0.4;
-      const distance = 800 + i * 200;
+      const distance = 600 + i * 150;
       planets.push({
         ...m,
-        x: WORLD_SIZE / 2 + Math.cos(angle) * distance,
-        y: WORLD_SIZE / 2 - 500 + Math.sin(angle) * distance * 0.5,
+        x: CENTER_X + Math.cos(angle) * distance,
+        y: CENTER_Y - 400 + Math.sin(angle) * distance * 0.5,
         radius: sizeRadius[m.size],
         color: '#ffd700',
         glowColor: 'rgba(255, 215, 0, 0.5)',
@@ -302,16 +339,17 @@ export class SpaceGame {
         description: m.description,
         reward: m.reward,
         realWorldReward: m.realWorldReward,
+        ownerId: null, // Shared planet
       });
     });
 
-    // SPECIAL STATIONS - Always accessible, near spawn
-    // Memory Lane - View ship evolution (left of spawn)
+    // SPECIAL STATIONS - In the central zone, near spawn point
+    // Memory Lane - View ship evolution (left of center)
     planets.push({
       id: 'memory-lane',
       name: 'Memory Lane',
-      x: WORLD_SIZE / 2 - 250,
-      y: WORLD_SIZE - 250,
+      x: CENTER_X - 200,
+      y: CENTER_Y + 350,
       radius: 55,
       color: '#ff6b9d',
       glowColor: 'rgba(255, 107, 157, 0.5)',
@@ -322,14 +360,15 @@ export class SpaceGame {
       hasRing: true,
       hasMoon: false,
       description: 'View your ship evolution gallery',
+      ownerId: null, // Shared station
     });
 
-    // Shop Station - Buy upgrades (right of spawn)
+    // Shop Station - Buy upgrades (right of center)
     planets.push({
       id: 'shop-station',
       name: 'Upgrade Shop',
-      x: WORLD_SIZE / 2 + 250,
-      y: WORLD_SIZE - 250,
+      x: CENTER_X + 200,
+      y: CENTER_Y + 350,
       radius: 55,
       color: '#5490ff',
       glowColor: 'rgba(84, 144, 255, 0.5)',
@@ -340,14 +379,15 @@ export class SpaceGame {
       hasRing: true,
       hasMoon: true,
       description: 'Spend team points on ship upgrades',
+      ownerId: null, // Shared station
     });
 
-    // Planet Builder - Create custom planets (above spawn)
+    // Planet Builder - Create custom planets (below center)
     planets.push({
       id: 'planet-builder',
       name: 'Planet Factory',
-      x: WORLD_SIZE / 2,
-      y: WORLD_SIZE - 150,
+      x: CENTER_X,
+      y: CENTER_Y + 500,
       radius: 50,
       color: '#ffa500',
       glowColor: 'rgba(255, 165, 0, 0.5)',
@@ -358,6 +398,7 @@ export class SpaceGame {
       hasRing: false,
       hasMoon: true,
       description: 'Create new milestone planets',
+      ownerId: null, // Shared station
     });
 
     return planets;
@@ -601,19 +642,13 @@ export class SpaceGame {
       hugue: { base: '#8b5cf6', accent: '#7c3aed' },
     };
 
-    // Position user planets scattered at the top of the map
-    const planetPositions = [
-      { x: WORLD_SIZE / 2 - 600, y: 500 },      // Quentin - top left
-      { x: WORLD_SIZE / 2 + 600, y: 450 },      // Armel - top right
-      { x: WORLD_SIZE / 2 - 300, y: 350 },      // Alex - upper middle left
-      { x: WORLD_SIZE / 2 + 300, y: 300 },      // Melia - upper middle right
-      { x: WORLD_SIZE / 2, y: 600 },            // Hugue - top center
-    ];
-
-    USER_IDS.forEach((userId, i) => {
+    USER_IDS.forEach((userId) => {
       const colors = userColors[userId];
       const planetData = userPlanets?.[userId];
-      const pos = planetPositions[i];
+
+      // Get zone center for this user
+      const zone = ZONES.find(z => z.ownerId === userId);
+      const pos = zone ? { x: zone.centerX, y: zone.centerY } : { x: CENTER_X, y: CENTER_Y };
       const terraformCount = planetData?.terraformCount || 0;
       const sizeLevel = planetData?.sizeLevel || 0;
 
@@ -641,6 +676,7 @@ export class SpaceGame {
         hasRing: (planetData?.terraformCount || 0) >= 3,
         hasMoon: (planetData?.terraformCount || 0) >= 5,
         description: `${userId.charAt(0).toUpperCase() + userId.slice(1)}'s personal planet`,
+        ownerId: userId, // This user owns this planet
       };
 
       planets.push(planet);
@@ -827,12 +863,12 @@ export class SpaceGame {
       }
     }
 
-    // World bounds (soft bounce)
-    const margin = 100;
-    if (ship.x < margin) { ship.x = margin; ship.vx *= -0.5; }
-    if (ship.x > WORLD_SIZE - margin) { ship.x = WORLD_SIZE - margin; ship.vx *= -0.5; }
-    if (ship.y < margin) { ship.y = margin; ship.vy *= -0.5; }
-    if (ship.y > WORLD_SIZE - margin) { ship.y = WORLD_SIZE - margin; ship.vy *= -0.5; }
+    // World bounds (wrap around like classic arcade games)
+    const wrapMargin = 50;
+    if (ship.x < -wrapMargin) { ship.x = WORLD_SIZE + wrapMargin; }
+    if (ship.x > WORLD_SIZE + wrapMargin) { ship.x = -wrapMargin; }
+    if (ship.y < -wrapMargin) { ship.y = WORLD_SIZE + wrapMargin; }
+    if (ship.y > WORLD_SIZE + wrapMargin) { ship.y = -wrapMargin; }
 
     this.updateCamera();
     this.updateParticles();
@@ -857,7 +893,12 @@ export class SpaceGame {
     if (closestPlanet) {
       this.state.nearbyPlanet = closestPlanet;
       // Check if close enough to dock (and not completed)
-      if (!closestPlanet.completed && closestDist < closestPlanet.radius + DOCKING_DISTANCE) {
+      // Also check ownership: can interact with shared planets (ownerId null) or own planets
+      const canInteract = closestPlanet.ownerId === null ||
+                          closestPlanet.ownerId === undefined ||
+                          closestPlanet.ownerId === this.currentUser;
+
+      if (!closestPlanet.completed && closestDist < closestPlanet.radius + DOCKING_DISTANCE && canInteract) {
         this.state.dockingPlanet = closestPlanet;
         if (this.keys.has(' ') && !this.isLanding) {
           this.keys.delete(' ');
@@ -1190,11 +1231,30 @@ export class SpaceGame {
   }
 
   private updateCamera() {
-    const { ship } = this.state;
+    const { ship, camera } = this.state;
+
+    // Detect if ship wrapped (large position jump)
+    const wrapThreshold = WORLD_SIZE * 0.5;
+    const deltaX = ship.x - this.prevShipX;
+    const deltaY = ship.y - this.prevShipY;
+
+    // If ship wrapped, snap camera to match
+    if (Math.abs(deltaX) > wrapThreshold) {
+      camera.x += deltaX > 0 ? WORLD_SIZE : -WORLD_SIZE;
+    }
+    if (Math.abs(deltaY) > wrapThreshold) {
+      camera.y += deltaY > 0 ? WORLD_SIZE : -WORLD_SIZE;
+    }
+
+    // Store for next frame
+    this.prevShipX = ship.x;
+    this.prevShipY = ship.y;
+
+    // Smooth camera follow
     const targetCamX = ship.x - this.canvas.width / 2;
     const targetCamY = ship.y - this.canvas.height / 2;
-    this.state.camera.x += (targetCamX - this.state.camera.x) * 0.06;
-    this.state.camera.y += (targetCamY - this.state.camera.y) * 0.06;
+    camera.x += (targetCamX - camera.x) * 0.06;
+    camera.y += (targetCamY - camera.y) * 0.06;
   }
 
   private updateParticles() {
@@ -1448,15 +1508,26 @@ export class SpaceGame {
     const { ctx, canvas, state } = this;
     const { camera, ship, planets, stars, particles, dockingPlanet } = state;
 
-    // Clear with gradient
+    // Get zone color blend for background/star tinting
+    const zoneColor = this.getZoneColorBlend();
+
+    // Helper to blend a base color with zone color
+    const blendWithZone = (baseR: number, baseG: number, baseB: number): string => {
+      const r = Math.round(baseR + (zoneColor.r - baseR) * zoneColor.intensity);
+      const g = Math.round(baseG + (zoneColor.g - baseG) * zoneColor.intensity);
+      const b = Math.round(baseB + (zoneColor.b - baseB) * zoneColor.intensity);
+      return `rgb(${r}, ${g}, ${b})`;
+    };
+
+    // Clear with gradient (tinted by zone color)
     const bgGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    bgGradient.addColorStop(0, '#0a0a15');
-    bgGradient.addColorStop(0.5, '#0f0f1a');
-    bgGradient.addColorStop(1, '#0a0a12');
+    bgGradient.addColorStop(0, blendWithZone(10, 10, 21));   // #0a0a15
+    bgGradient.addColorStop(0.5, blendWithZone(15, 15, 26)); // #0f0f1a
+    bgGradient.addColorStop(1, blendWithZone(10, 10, 18));   // #0a0a12
     ctx.fillStyle = bgGradient;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Draw stars with parallax
+    // Draw stars with parallax (some tinted by zone color)
     for (const star of stars) {
       const parallax = 0.2 + star.layer * 0.25;
       const x = star.x - camera.x * parallax;
@@ -1467,11 +1538,25 @@ export class SpaceGame {
 
       ctx.beginPath();
       ctx.arc(wrappedX, wrappedY, star.size, 0, Math.PI * 2);
-      ctx.fillStyle = star.color || `rgba(255, 255, 255, ${star.brightness})`;
+
+      // Tint some stars with zone color (based on layer - closer stars get more tint)
+      if (star.layer > 1 && zoneColor.intensity > 0.02) {
+        const starTint = zoneColor.intensity * 2 * star.layer;
+        const sr = Math.round(255 + (zoneColor.r - 255) * starTint);
+        const sg = Math.round(255 + (zoneColor.g - 255) * starTint);
+        const sb = Math.round(255 + (zoneColor.b - 255) * starTint);
+        ctx.fillStyle = `rgba(${sr}, ${sg}, ${sb}, ${star.brightness})`;
+      } else {
+        ctx.fillStyle = star.color || `rgba(255, 255, 255, ${star.brightness})`;
+      }
+
       ctx.globalAlpha = star.brightness;
       ctx.fill();
       ctx.globalAlpha = 1;
     }
+
+    // Draw zone backgrounds and boundaries
+    this.drawZones();
 
     // Draw path lines between planets of same type
     this.drawPathLines();
@@ -1518,6 +1603,72 @@ export class SpaceGame {
     ctx.fillText('W/↑ Thrust  •  A/← D/→ Rotate  •  S/↓ Brake  •  SHIFT Boost  •  SPACE Dock', 20, canvas.height - 15);
   }
 
+  // Get the current zone color blend based on ship position
+  private getZoneColorBlend(): { r: number; g: number; b: number; intensity: number } {
+    const { ship } = this.state;
+
+    // Find distances to all zone centers
+    const zoneDistances: { zone: Zone; distance: number }[] = ZONES.map(zone => {
+      const dx = ship.x - zone.centerX;
+      const dy = ship.y - zone.centerY;
+      return { zone, distance: Math.sqrt(dx * dx + dy * dy) };
+    });
+
+    // Sort by distance
+    zoneDistances.sort((a, b) => a.distance - b.distance);
+
+    const closest = zoneDistances[0];
+    const zoneRadius = closest.zone.id === 'central' ? ZONE_SIZE * 0.6 : ZONE_SIZE * 0.8;
+
+    // If in central zone, return neutral
+    if (closest.zone.id === 'central') {
+      return { r: 255, g: 255, b: 255, intensity: 0.02 };
+    }
+
+    // Parse hex color to RGB
+    const hex = closest.zone.color;
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+
+    // Calculate intensity based on how deep into the zone we are
+    // Full intensity at center, fading toward edges - kept subtle
+    const distanceRatio = Math.min(1, closest.distance / zoneRadius);
+    const intensity = Math.max(0, 0.035 * (1 - distanceRatio * 0.7));
+
+    return { r, g, b, intensity };
+  }
+
+  private drawZones() {
+    // Zone visuals are now handled via background tint and star colors
+    // This method is kept for potential future zone indicators
+  }
+
+  // Get all positions where an object should be rendered for seamless wrapping
+  private getWrappedPositions(worldX: number, worldY: number, objectRadius: number): { x: number; y: number }[] {
+    const { camera } = this.state;
+    const positions: { x: number; y: number }[] = [];
+    const margin = objectRadius + 200; // Buffer for visibility
+
+    // Check all 9 possible positions (original + 8 wrapped)
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const wrappedWorldX = worldX + dx * WORLD_SIZE;
+        const wrappedWorldY = worldY + dy * WORLD_SIZE;
+        const screenX = wrappedWorldX - camera.x;
+        const screenY = wrappedWorldY - camera.y;
+
+        // Only include if potentially visible on screen
+        if (screenX > -margin && screenX < this.canvas.width + margin &&
+            screenY > -margin && screenY < this.canvas.height + margin) {
+          positions.push({ x: screenX, y: screenY });
+        }
+      }
+    }
+
+    return positions;
+  }
+
   private drawPathLines() {
     const { ctx, state } = this;
     const { camera, planets } = state;
@@ -1559,13 +1710,15 @@ export class SpaceGame {
   }
 
   private drawPlanet(planet: Planet) {
-    const { ctx, state } = this;
-    const { camera } = state;
-    const x = planet.x - camera.x;
-    const y = planet.y - camera.y;
+    // Draw planet at all wrapped positions for seamless world wrapping
+    const positions = this.getWrappedPositions(planet.x, planet.y, planet.radius * 2.5);
+    for (const pos of positions) {
+      this.drawPlanetAt(planet, pos.x, pos.y);
+    }
+  }
 
-    // Skip if off screen
-    if (x < -150 || x > this.canvas.width + 150 || y < -150 || y > this.canvas.height + 150) return;
+  private drawPlanetAt(planet: Planet, x: number, y: number) {
+    const { ctx } = this;
 
     const style = (planet as any).style || { baseColor: planet.color, accent: planet.color };
 
@@ -1772,10 +1925,17 @@ export class SpaceGame {
   }
 
   private drawShip() {
+    // Draw ship at all wrapped positions for seamless world wrapping
+    const { ship } = this.state;
+    const positions = this.getWrappedPositions(ship.x, ship.y, 80);
+    for (const pos of positions) {
+      this.drawShipAt(pos.x, pos.y);
+    }
+  }
+
+  private drawShipAt(x: number, y: number) {
     const { ctx, state } = this;
-    const { camera, ship } = state;
-    const x = ship.x - camera.x;
-    const y = ship.y - camera.y;
+    const { ship } = state;
 
     ctx.save();
     ctx.translate(x, y);
@@ -1956,6 +2116,12 @@ export class SpaceGame {
   private drawPlanetInfo(planet: Planet, canDock: boolean) {
     const { ctx, canvas } = this;
 
+    // Check if this planet belongs to another player (locked)
+    const isLocked = planet.ownerId !== null &&
+                     planet.ownerId !== undefined &&
+                     planet.ownerId !== this.currentUser;
+    const ownerName = planet.ownerId ? planet.ownerId.charAt(0).toUpperCase() + planet.ownerId.slice(1) : null;
+
     const boxWidth = 320;
     const hasRealReward = planet.realWorldReward && !planet.completed;
     const boxHeight = hasRealReward ? 140 : 110;
@@ -1963,31 +2129,33 @@ export class SpaceGame {
     const boxY = canvas.height - boxHeight - 20;
 
     // Background
-    ctx.fillStyle = 'rgba(10, 10, 20, 0.95)';
+    ctx.fillStyle = isLocked ? 'rgba(30, 10, 10, 0.95)' : 'rgba(10, 10, 20, 0.95)';
     ctx.beginPath();
     ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 12);
     ctx.fill();
 
-    // Border with planet color
-    ctx.strokeStyle = planet.completed ? '#4ade80' : planet.color;
+    // Border with planet color (dimmed if locked)
+    ctx.strokeStyle = isLocked ? '#ff4444' : (planet.completed ? '#4ade80' : planet.color);
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // Planet name
-    ctx.fillStyle = planet.completed ? '#4ade80' : '#fff';
+    // Planet name (with lock icon if locked)
+    ctx.fillStyle = isLocked ? '#ff6666' : (planet.completed ? '#4ade80' : '#fff');
     ctx.font = 'bold 16px Space Grotesk';
     ctx.textAlign = 'center';
-    ctx.fillText(planet.completed ? `✓ ${planet.name}` : planet.name, canvas.width / 2, boxY + 24);
+    const nameText = planet.completed ? `✓ ${planet.name}` : (isLocked ? `🔒 ${planet.name}` : planet.name);
+    ctx.fillText(nameText, canvas.width / 2, boxY + 24);
 
-    // Type badge
+    // Type badge + owner info
     const typeColors: Record<string, string> = { business: '#4ade80', product: '#5490ff', achievement: '#ffd700' };
     ctx.fillStyle = typeColors[planet.type];
     ctx.font = '10px Space Grotesk';
-    ctx.fillText(planet.type.toUpperCase(), canvas.width / 2, boxY + 40);
+    const ownerText = ownerName ? ` • ${ownerName}'s Task` : ' • Shared Task';
+    ctx.fillText(planet.type.toUpperCase() + ownerText, canvas.width / 2, boxY + 40);
 
     // Description
     if (planet.description) {
-      ctx.fillStyle = '#aaa';
+      ctx.fillStyle = isLocked ? '#777' : '#aaa';
       ctx.font = '12px Space Grotesk';
       ctx.fillText(planet.description, canvas.width / 2, boxY + 60);
     }
@@ -2004,26 +2172,29 @@ export class SpaceGame {
         'size': '📈 Ship Size Up',
         'special': '🌟 Special Upgrade',
       };
-      ctx.fillStyle = '#ffa500';
+      ctx.fillStyle = isLocked ? '#886600' : '#ffa500';
       ctx.font = 'bold 11px Space Grotesk';
       ctx.fillText(`Ship Reward: ${rewardLabels[planet.reward] || planet.reward}`, canvas.width / 2, boxY + 80);
     }
 
     // Real world reward
     if (hasRealReward) {
-      ctx.fillStyle = '#ff6b9d';
+      ctx.fillStyle = isLocked ? '#884466' : '#ff6b9d';
       ctx.font = 'bold 11px Space Grotesk';
       ctx.fillText(`🎁 Real Reward: ${planet.realWorldReward}`, canvas.width / 2, boxY + 100);
     }
 
-    // Dock prompt if close enough and not completed
-    if (canDock && !planet.completed) {
-      const promptY = boxY + boxHeight - 18;
+    // Dock prompt / locked message / completed status
+    const promptY = boxY + boxHeight - 18;
+    if (isLocked) {
+      ctx.fillStyle = '#ff4444';
+      ctx.font = '11px Space Grotesk';
+      ctx.fillText(`This is ${ownerName}'s task`, canvas.width / 2, promptY);
+    } else if (canDock && !planet.completed) {
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 12px Space Grotesk';
       ctx.fillText('[ SPACE ] to dock', canvas.width / 2, promptY);
     } else if (planet.completed) {
-      const promptY = boxY + boxHeight - 18;
       ctx.fillStyle = '#4ade80';
       ctx.font = '11px Space Grotesk';
       ctx.fillText('Completed!', canvas.width / 2, promptY);
@@ -2039,12 +2210,21 @@ export class SpaceGame {
     const mapY = 15;
     const scale = mapSize / WORLD_SIZE;
 
-    // Background
-    ctx.fillStyle = 'rgba(10, 10, 20, 0.8)';
+    // Background with subtle zone color tint
+    const zoneColor = this.getZoneColorBlend();
+    const bgR = Math.round(10 + (zoneColor.r - 10) * zoneColor.intensity * 0.5);
+    const bgG = Math.round(10 + (zoneColor.g - 10) * zoneColor.intensity * 0.5);
+    const bgB = Math.round(20 + (zoneColor.b - 20) * zoneColor.intensity * 0.5);
+    ctx.fillStyle = `rgba(${bgR}, ${bgG}, ${bgB}, 0.85)`;
     ctx.beginPath();
     ctx.roundRect(mapX, mapY, mapSize, mapSize, 8);
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+
+    // Border with subtle zone color
+    const borderColor = zoneColor.intensity > 0.03
+      ? `rgba(${zoneColor.r}, ${zoneColor.g}, ${zoneColor.b}, 0.3)`
+      : 'rgba(255, 255, 255, 0.1)';
+    ctx.strokeStyle = borderColor;
     ctx.lineWidth = 1;
     ctx.stroke();
 

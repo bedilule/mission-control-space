@@ -1189,7 +1189,7 @@ function App() {
     if (!canvasRef.current || showWelcome || showUserSelect) return;
 
     const currentShip = getCurrentUserShip();
-    const game = new SpaceGame(canvasRef.current, stableOnDock, customPlanets, currentShip.currentImage, goals, currentShip.upgrades.length, userPlanets);
+    const game = new SpaceGame(canvasRef.current, stableOnDock, customPlanets, currentShip.currentImage, goals, currentShip.upgrades.length, userPlanets, state.currentUser || 'quentin');
     gameRef.current = game;
 
     // Initialize ship effects if present

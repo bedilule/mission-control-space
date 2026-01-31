@@ -36,6 +36,7 @@ export interface Planet {
   description?: string;
   reward?: RewardType;
   realWorldReward?: string;
+  ownerId?: string | null; // null = shared, string = player-owned
 }
 
 export interface Star {
