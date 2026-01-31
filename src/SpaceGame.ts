@@ -97,15 +97,16 @@ const SHIP_FRICTION = 0.992;
 const DOCKING_DISTANCE = 50;
 const PLANET_INFO_DISTANCE = 200;
 
-// Snapshot interpolation constants for smooth multiplayer movement
-const SNAPSHOT_BUFFER_SIZE = 20;       // Keep more history for high-latency connections
-const MIN_INTERPOLATION_DELAY = 30;    // Minimum jitter buffer (ms)
-const MAX_INTERPOLATION_DELAY = 400;   // Maximum jitter buffer (ms) - handles high latency
-const DEFAULT_INTERPOLATION_DELAY = 80; // Starting delay before adaptation (lower = more responsive)
-const MAX_EXTRAPOLATION_TIME = 250;    // Max prediction time before falling back to lerp
+// Smooth multiplayer: Big buffer + Catmull-Rom spline + Dead reckoning
+const SNAPSHOT_BUFFER_SIZE = 30;       // Keep plenty of history for spline interpolation
+const RENDER_DELAY = 400;              // Fixed 400ms delay - guarantees smooth visuals
+const BLEND_CORRECTION_TIME = 150;     // Blend corrections over 150ms (no snapping)
 const SHIP_COLLISION_RADIUS = 25;      // Collision radius for ship-to-ship collision
 const COLLISION_RESTITUTION = 0.7;     // Bounce energy retention (0-1)
-const LERP_FALLBACK_FACTOR = 0.2;      // Smooth lerp when interpolation fails (higher = more responsive)
+
+// Dead reckoning physics (match local ship physics for prediction)
+const DR_FRICTION = 0.992;             // Same as SHIP_FRICTION
+const DR_MAX_SPEED = 7;                // Same as SHIP_MAX_SPEED
 
 interface BlackHole {
   x: number;
@@ -2485,21 +2486,7 @@ export class SpaceGame {
 
       // Initialize render state if this is a new player
       if (!this.renderStates.has(player.id)) {
-        this.renderStates.set(player.id, {
-          snapshots: [],
-          renderX: player.x,
-          renderY: player.y,
-          renderRotation: player.rotation,
-          renderVx: player.vx,
-          renderVy: player.vy,
-          lastUpdateTime: Date.now(),
-          adaptiveDelay: DEFAULT_INTERPOLATION_DELAY,
-          recentIntervals: [],
-          collisionOffsetX: 0,
-          collisionOffsetY: 0,
-          collisionVx: 0,
-          collisionVy: 0,
-        });
+        this.renderStates.set(player.id, this.createInitialRenderState(player.x, player.y, player.rotation, player.vx, player.vy, player.thrusting));
       }
     }
 
@@ -2516,6 +2503,45 @@ export class SpaceGame {
    * Add a position snapshot for a player (called directly from network callback).
    * This bypasses React state for lower latency.
    */
+  /**
+   * Create initial render state for a new player.
+   */
+  private createInitialRenderState(x: number, y: number, rotation: number, vx: number, vy: number, thrusting: boolean): InterpolationState {
+    return {
+      renderX: x,
+      renderY: y,
+      renderRotation: rotation,
+      renderVx: vx,
+      renderVy: vy,
+      renderThrusting: thrusting,
+      lastUpdateTime: Date.now(),
+      // Dead reckoning
+      deadReckonX: x,
+      deadReckonY: y,
+      deadReckonVx: vx,
+      deadReckonVy: vy,
+      deadReckonRotation: rotation,
+      isDeadReckoning: false,
+      // Blend correction
+      blendStartX: x,
+      blendStartY: y,
+      blendStartRotation: rotation,
+      blendTargetX: x,
+      blendTargetY: y,
+      blendTargetRotation: rotation,
+      blendProgress: 1,
+      isBlending: false,
+      // Collision
+      collisionOffsetX: 0,
+      collisionOffsetY: 0,
+      collisionVx: 0,
+      collisionVy: 0,
+    };
+  }
+
+  /**
+   * Receive position update from network. Adds to snapshot buffer.
+   */
   public onPlayerPositionUpdate(playerId: string, data: {
     x: number;
     y: number;
@@ -2526,6 +2552,14 @@ export class SpaceGame {
     timestamp: number;
   }) {
     const now = Date.now();
+
+    // Add snapshot to buffer
+    let snapshots = this.playerSnapshots.get(playerId);
+    if (!snapshots) {
+      snapshots = [];
+      this.playerSnapshots.set(playerId, snapshots);
+    }
+
     const snapshot: PositionSnapshot = {
       x: data.x,
       y: data.y,
@@ -2534,64 +2568,18 @@ export class SpaceGame {
       rotation: data.rotation,
       thrusting: data.thrusting,
       timestamp: data.timestamp,
-      receivedAt: now,  // Use local receive time for interpolation
+      receivedAt: now,
     };
 
-    // Add to snapshot buffer
-    let snapshots = this.playerSnapshots.get(playerId);
-    if (!snapshots) {
-      snapshots = [];
-      this.playerSnapshots.set(playerId, snapshots);
-    }
-
-    // Track interval between snapshots for adaptive jitter buffer
-    const renderState = this.renderStates.get(playerId);
-    if (renderState && snapshots.length > 0) {
-      const lastSnapshot = snapshots[snapshots.length - 1];
-      const interval = now - lastSnapshot.receivedAt;
-
-      // Only track reasonable intervals (ignore duplicates or very delayed packets)
-      if (interval > 5 && interval < 1000) {
-        renderState.recentIntervals.push(interval);
-        // Keep last 10 intervals
-        if (renderState.recentIntervals.length > 10) {
-          renderState.recentIntervals.shift();
-        }
-
-        // Adapt delay based on jitter
-        if (renderState.recentIntervals.length >= 3) {
-          const avgInterval = renderState.recentIntervals.reduce((a, b) => a + b, 0) / renderState.recentIntervals.length;
-          const maxInterval = Math.max(...renderState.recentIntervals);
-          // Delay = average interval + buffer for jitter (difference between max and average)
-          const jitter = maxInterval - avgInterval;
-          const targetDelay = avgInterval + jitter * 2;
-
-          // Smooth adaptation (don't change too quickly)
-          renderState.adaptiveDelay = renderState.adaptiveDelay * 0.9 +
-            Math.max(MIN_INTERPOLATION_DELAY, Math.min(MAX_INTERPOLATION_DELAY, targetDelay)) * 0.1;
-        }
-      }
-    }
-
-    // Insert in chronological order by receive time (usually at the end)
-    let inserted = false;
-    for (let i = snapshots.length - 1; i >= 0; i--) {
-      if (snapshots[i].receivedAt <= snapshot.receivedAt) {
-        snapshots.splice(i + 1, 0, snapshot);
-        inserted = true;
-        break;
-      }
-    }
-    if (!inserted) {
-      snapshots.unshift(snapshot);
-    }
+    // Add to end (assume chronological order)
+    snapshots.push(snapshot);
 
     // Keep buffer size limited
     while (snapshots.length > SNAPSHOT_BUFFER_SIZE) {
       snapshots.shift();
     }
 
-    // Update thrusting state on the player object for particle effects
+    // Update player object (for metadata)
     const player = this.otherPlayers.find(p => p.id === playerId);
     if (player) {
       player.thrusting = data.thrusting;
@@ -2604,21 +2592,7 @@ export class SpaceGame {
 
     // Initialize render state if needed
     if (!this.renderStates.has(playerId)) {
-      this.renderStates.set(playerId, {
-        snapshots: [],
-        renderX: data.x,
-        renderY: data.y,
-        renderRotation: data.rotation,
-        renderVx: data.vx,
-        renderVy: data.vy,
-        lastUpdateTime: now,
-        adaptiveDelay: DEFAULT_INTERPOLATION_DELAY,
-        recentIntervals: [],
-        collisionOffsetX: 0,
-        collisionOffsetY: 0,
-        collisionVx: 0,
-        collisionVy: 0,
-      });
+      this.renderStates.set(playerId, this.createInitialRenderState(data.x, data.y, data.rotation, data.vx, data.vy, data.thrusting));
     }
   }
 
@@ -2668,211 +2642,238 @@ export class SpaceGame {
   }
 
   /**
-   * Hermite interpolation for smooth curves using position and velocity.
+   * Catmull-Rom spline interpolation through 4 points.
+   * Creates smooth curves that pass through all control points.
    */
-  private hermiteInterpolate(
-    p0: number, v0: number,
-    p1: number, v1: number,
-    t: number, dt: number
-  ): number {
-    // Scale velocities by time interval
-    const sv0 = v0 * dt;
-    const sv1 = v1 * dt;
-
-    // Hermite basis functions
+  private catmullRomInterpolate(p0: number, p1: number, p2: number, p3: number, t: number): number {
     const t2 = t * t;
     const t3 = t2 * t;
-    const h00 = 2 * t3 - 3 * t2 + 1;
-    const h10 = t3 - 2 * t2 + t;
-    const h01 = -2 * t3 + 3 * t2;
-    const h11 = t3 - t2;
-
-    return h00 * p0 + h10 * sv0 + h01 * p1 + h11 * sv1;
+    return 0.5 * (
+      (2 * p1) +
+      (-p0 + p2) * t +
+      (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+      (-p0 + 3 * p1 - 3 * p2 + p3) * t3
+    );
   }
 
   /**
-   * Find two snapshots bracketing the render time for interpolation.
+   * Dead reckoning: simulate physics locally when no network data available.
    */
-  private getSnapshotsForInterpolation(playerId: string, renderTime: number): {
-    before: PositionSnapshot | null;
-    after: PositionSnapshot | null;
-  } {
-    const snapshots = this.playerSnapshots.get(playerId);
-    if (!snapshots || snapshots.length === 0) {
-      return { before: null, after: null };
+  private deadReckon(state: InterpolationState, deltaTime: number) {
+    // Apply friction (same as ship)
+    state.deadReckonVx *= Math.pow(DR_FRICTION, deltaTime * 60);
+    state.deadReckonVy *= Math.pow(DR_FRICTION, deltaTime * 60);
+
+    // Clamp to max speed
+    const speed = Math.sqrt(state.deadReckonVx ** 2 + state.deadReckonVy ** 2);
+    if (speed > DR_MAX_SPEED) {
+      state.deadReckonVx = (state.deadReckonVx / speed) * DR_MAX_SPEED;
+      state.deadReckonVy = (state.deadReckonVy / speed) * DR_MAX_SPEED;
     }
 
-    let before: PositionSnapshot | null = null;
-    let after: PositionSnapshot | null = null;
+    // Update position
+    state.deadReckonX += state.deadReckonVx * deltaTime * 60;
+    state.deadReckonY += state.deadReckonVy * deltaTime * 60;
 
-    // Use receivedAt (local time) for interpolation - avoids clock sync issues
-    for (let i = 0; i < snapshots.length; i++) {
-      if (snapshots[i].receivedAt <= renderTime) {
-        before = snapshots[i];
-      } else {
-        after = snapshots[i];
-        break;
-      }
-    }
-
-    return { before, after };
+    // Wrap world bounds
+    const wrapped = this.wrapPosition(state.deadReckonX, state.deadReckonY);
+    state.deadReckonX = wrapped.x;
+    state.deadReckonY = wrapped.y;
   }
 
   /**
-   * Smoothly interpolate other players' positions using snapshot interpolation.
-   * Uses adaptive jitter buffer based on network conditions.
-   * Falls back to smooth lerp when interpolation isn't possible.
+   * Start blending from current render position to a new target.
+   */
+  private startBlendCorrection(state: InterpolationState, targetX: number, targetY: number, targetRotation: number) {
+    state.blendStartX = state.renderX;
+    state.blendStartY = state.renderY;
+    state.blendStartRotation = state.renderRotation;
+    state.blendTargetX = targetX;
+    state.blendTargetY = targetY;
+    state.blendTargetRotation = targetRotation;
+    state.blendProgress = 0;
+    state.isBlending = true;
+  }
+
+  /**
+   * Main interpolation: Catmull-Rom spline + Dead reckoning + Blend corrections.
+   * Guarantees smooth visuals regardless of network conditions.
    */
   private updateOtherPlayersInterpolation() {
     const now = Date.now();
+    const renderTime = now - RENDER_DELAY; // Always render 400ms in the past
+    const deltaTime = 1 / 60; // Assume 60fps
 
     for (const player of this.otherPlayers) {
       const renderState = this.renderStates.get(player.id);
       if (!renderState) continue;
 
-      // Use per-player adaptive delay
-      const renderTime = now - renderState.adaptiveDelay;
-      const { before, after } = this.getSnapshotsForInterpolation(player.id, renderTime);
+      const snapshots = this.playerSnapshots.get(player.id) || [];
 
-      let interpolated = false;
+      // Find snapshots for Catmull-Rom spline (need 4 points ideally)
+      let p0: PositionSnapshot | null = null;
+      let p1: PositionSnapshot | null = null;
+      let p2: PositionSnapshot | null = null;
+      let p3: PositionSnapshot | null = null;
 
-      if (before && after) {
-        // Interpolate between two snapshots (ideal case)
-        const dt = after.receivedAt - before.receivedAt;
-        if (dt > 0) {
-          const t = Math.max(0, Math.min(1, (renderTime - before.receivedAt) / dt));
-
-          // Unwrap positions to be continuous across world wrap
-          const unwrappedAfter = this.unwrapPosition(before.x, before.y, after.x, after.y);
-
-          // Hermite interpolation using velocity for smooth curves
-          const interpX = this.hermiteInterpolate(
-            before.x, before.vx,
-            unwrappedAfter.x, after.vx,
-            t, dt / 1000
-          );
-          const interpY = this.hermiteInterpolate(
-            before.y, before.vy,
-            unwrappedAfter.y, after.vy,
-            t, dt / 1000
-          );
-
-          // Wrap back into world bounds
-          const wrapped = this.wrapPosition(interpX, interpY);
-          renderState.renderX = wrapped.x;
-          renderState.renderY = wrapped.y;
-
-          // Interpolate rotation (linear is fine)
-          let rotDiff = after.rotation - before.rotation;
-          while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
-          while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
-          renderState.renderRotation = before.rotation + rotDiff * t;
-
-          // Interpolate velocity for particle effects
-          renderState.renderVx = before.vx + (after.vx - before.vx) * t;
-          renderState.renderVy = before.vy + (after.vy - before.vy) * t;
-
-          interpolated = true;
-        }
-      } else if (before) {
-        // Only have past snapshot - extrapolate briefly then fall back to lerp
-        const timeSinceSnapshot = now - before.receivedAt;
-
-        if (timeSinceSnapshot < MAX_EXTRAPOLATION_TIME) {
-          // Short extrapolation with damping
-          const extrapolationTime = timeSinceSnapshot / 1000;
-          const damping = Math.max(0, 1 - timeSinceSnapshot / MAX_EXTRAPOLATION_TIME);
-
-          const extrapolatedX = before.x + before.vx * extrapolationTime * damping;
-          const extrapolatedY = before.y + before.vy * extrapolationTime * damping;
-
-          const wrapped = this.wrapPosition(extrapolatedX, extrapolatedY);
-          renderState.renderX = wrapped.x;
-          renderState.renderY = wrapped.y;
-          renderState.renderRotation = before.rotation;
-          renderState.renderVx = before.vx * damping;
-          renderState.renderVy = before.vy * damping;
-
-          interpolated = true;
-        }
-      }
-
-      // Fallback: smooth lerp toward latest known position
-      // This handles: no snapshots, old data, or initial connection
-      if (!interpolated) {
-        // Get target position (latest snapshot or player state)
-        const snapshots = this.playerSnapshots.get(player.id);
-        const latest = snapshots && snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
-
-        const targetX = latest?.x ?? player.x;
-        const targetY = latest?.y ?? player.y;
-        const targetRotation = latest?.rotation ?? player.rotation;
-        const targetVx = latest?.vx ?? player.vx;
-        const targetVy = latest?.vy ?? player.vy;
-
-        // Calculate wrapped distance for lerp
-        const { dx, dy, dist } = this.getWrappedDistance(renderState.renderX, renderState.renderY, targetX, targetY);
-
-        // If very far (world wrap), teleport
-        if (dist > WORLD_SIZE / 2) {
-          renderState.renderX = targetX;
-          renderState.renderY = targetY;
-          renderState.renderRotation = targetRotation;
+      for (let i = 0; i < snapshots.length; i++) {
+        if (snapshots[i].receivedAt <= renderTime) {
+          p0 = p1;
+          p1 = snapshots[i];
         } else {
-          // Smooth lerp with velocity prediction
-          const predictX = targetX + targetVx * 2;
-          const predictY = targetY + targetVy * 2;
-
-          // Unwrap prediction
-          const unwrappedPredict = this.unwrapPosition(renderState.renderX, renderState.renderY, predictX, predictY);
-
-          renderState.renderX += (unwrappedPredict.x - renderState.renderX) * LERP_FALLBACK_FACTOR;
-          renderState.renderY += (unwrappedPredict.y - renderState.renderY) * LERP_FALLBACK_FACTOR;
-
-          // Wrap back
-          const wrapped = this.wrapPosition(renderState.renderX, renderState.renderY);
-          renderState.renderX = wrapped.x;
-          renderState.renderY = wrapped.y;
-
-          // Smooth rotation
-          let rotDiff = targetRotation - renderState.renderRotation;
-          while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
-          while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
-          renderState.renderRotation += rotDiff * LERP_FALLBACK_FACTOR;
+          if (!p2) p2 = snapshots[i];
+          else if (!p3) p3 = snapshots[i];
         }
-
-        renderState.renderVx = targetVx;
-        renderState.renderVy = targetVy;
       }
 
-      // Update collision physics (apply velocity, decay offset)
-      // This makes other ships visually bounce when collided
+      let newX: number;
+      let newY: number;
+      let newRotation: number;
+      let newVx: number;
+      let newVy: number;
+      let newThrusting: boolean;
+      let usedSpline = false;
+
+      if (p1 && p2) {
+        // We have data to interpolate - use Catmull-Rom spline
+        const dt = p2.receivedAt - p1.receivedAt;
+        const t = dt > 0 ? Math.max(0, Math.min(1, (renderTime - p1.receivedAt) / dt)) : 0;
+
+        // Unwrap positions for continuous interpolation
+        const unwrappedP2 = this.unwrapPosition(p1.x, p1.y, p2.x, p2.y);
+
+        if (p0 && p3) {
+          // Full 4-point Catmull-Rom spline (smoothest)
+          const unwrappedP0 = this.unwrapPosition(p1.x, p1.y, p0.x, p0.y);
+          const unwrappedP3 = this.unwrapPosition(p1.x, p1.y, p3.x, p3.y);
+
+          newX = this.catmullRomInterpolate(unwrappedP0.x, p1.x, unwrappedP2.x, unwrappedP3.x, t);
+          newY = this.catmullRomInterpolate(unwrappedP0.y, p1.y, unwrappedP2.y, unwrappedP3.y, t);
+        } else {
+          // Fall back to linear interpolation with just 2 points
+          newX = p1.x + (unwrappedP2.x - p1.x) * t;
+          newY = p1.y + (unwrappedP2.y - p1.y) * t;
+        }
+
+        // Wrap result
+        const wrapped = this.wrapPosition(newX, newY);
+        newX = wrapped.x;
+        newY = wrapped.y;
+
+        // Interpolate rotation (handle wraparound)
+        let rotDiff = p2.rotation - p1.rotation;
+        while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
+        while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
+        newRotation = p1.rotation + rotDiff * t;
+
+        // Interpolate velocity
+        newVx = p1.vx + (p2.vx - p1.vx) * t;
+        newVy = p1.vy + (p2.vy - p1.vy) * t;
+        newThrusting = t < 0.5 ? p1.thrusting : p2.thrusting;
+
+        // Update dead reckoning state
+        renderState.deadReckonX = newX;
+        renderState.deadReckonY = newY;
+        renderState.deadReckonVx = newVx;
+        renderState.deadReckonVy = newVy;
+        renderState.deadReckonRotation = newRotation;
+        renderState.isDeadReckoning = false;
+        usedSpline = true;
+
+      } else if (p1) {
+        // Only have past data - use dead reckoning
+        if (!renderState.isDeadReckoning) {
+          renderState.deadReckonX = p1.x;
+          renderState.deadReckonY = p1.y;
+          renderState.deadReckonVx = p1.vx;
+          renderState.deadReckonVy = p1.vy;
+          renderState.deadReckonRotation = p1.rotation;
+          renderState.isDeadReckoning = true;
+        }
+
+        this.deadReckon(renderState, deltaTime);
+
+        newX = renderState.deadReckonX;
+        newY = renderState.deadReckonY;
+        newRotation = renderState.deadReckonRotation;
+        newVx = renderState.deadReckonVx;
+        newVy = renderState.deadReckonVy;
+        newThrusting = p1.thrusting;
+
+      } else {
+        // No data - stay at current position
+        newX = renderState.renderX;
+        newY = renderState.renderY;
+        newRotation = renderState.renderRotation;
+        newVx = renderState.renderVx;
+        newVy = renderState.renderVy;
+        newThrusting = renderState.renderThrusting;
+      }
+
+      // Check if we need to blend (coming out of dead reckoning)
+      if (usedSpline && renderState.isDeadReckoning) {
+        const errorDist = Math.sqrt(
+          Math.pow(newX - renderState.renderX, 2) +
+          Math.pow(newY - renderState.renderY, 2)
+        );
+        if (errorDist > 5) {
+          this.startBlendCorrection(renderState, newX, newY, newRotation);
+        }
+      }
+
+      // Apply blend if active
+      if (renderState.isBlending) {
+        renderState.blendProgress += deltaTime * 1000 / BLEND_CORRECTION_TIME;
+
+        if (renderState.blendProgress >= 1) {
+          renderState.blendProgress = 1;
+          renderState.isBlending = false;
+          renderState.renderX = newX;
+          renderState.renderY = newY;
+          renderState.renderRotation = newRotation;
+        } else {
+          // Ease-out curve for smooth blend
+          const easeT = 1 - Math.pow(1 - renderState.blendProgress, 3);
+
+          const blendX = renderState.blendStartX + (newX - renderState.blendStartX) * easeT;
+          const blendY = renderState.blendStartY + (newY - renderState.blendStartY) * easeT;
+
+          let rotDiff = newRotation - renderState.blendStartRotation;
+          while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
+          while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
+          const blendRot = renderState.blendStartRotation + rotDiff * easeT;
+
+          const wrapped = this.wrapPosition(blendX, blendY);
+          renderState.renderX = wrapped.x;
+          renderState.renderY = wrapped.y;
+          renderState.renderRotation = blendRot;
+        }
+      } else {
+        renderState.renderX = newX;
+        renderState.renderY = newY;
+        renderState.renderRotation = newRotation;
+      }
+
+      renderState.renderVx = newVx;
+      renderState.renderVy = newVy;
+      renderState.renderThrusting = newThrusting;
+
+      // Collision physics
       const collisionFriction = 0.9;
       const offsetDecay = 0.88;
-      const maxOffset = 60; // Cap offset to prevent crazy bouncing
+      const maxOffset = 60;
       const maxCollisionVel = 15;
 
-      // Apply collision velocity to offset
       renderState.collisionOffsetX += renderState.collisionVx;
       renderState.collisionOffsetY += renderState.collisionVy;
-
-      // Clamp collision velocity
       renderState.collisionVx = Math.max(-maxCollisionVel, Math.min(maxCollisionVel, renderState.collisionVx));
       renderState.collisionVy = Math.max(-maxCollisionVel, Math.min(maxCollisionVel, renderState.collisionVy));
-
-      // Clamp offset to prevent ships flying off screen
       renderState.collisionOffsetX = Math.max(-maxOffset, Math.min(maxOffset, renderState.collisionOffsetX));
       renderState.collisionOffsetY = Math.max(-maxOffset, Math.min(maxOffset, renderState.collisionOffsetY));
-
-      // Apply friction to collision velocity
       renderState.collisionVx *= collisionFriction;
       renderState.collisionVy *= collisionFriction;
-
-      // Decay offset back toward zero (blend back to real position)
       renderState.collisionOffsetX *= offsetDecay;
       renderState.collisionOffsetY *= offsetDecay;
-
-      // Zero out very small values to prevent drift
       if (Math.abs(renderState.collisionVx) < 0.05) renderState.collisionVx = 0;
       if (Math.abs(renderState.collisionVy) < 0.05) renderState.collisionVy = 0;
       if (Math.abs(renderState.collisionOffsetX) < 0.5) renderState.collisionOffsetX = 0;

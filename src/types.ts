@@ -139,19 +139,33 @@ export interface PositionSnapshot {
 }
 
 export interface InterpolationState {
-  snapshots: PositionSnapshot[];
+  // Current render position (what we display)
   renderX: number;
   renderY: number;
   renderRotation: number;
   renderVx: number;
   renderVy: number;
+  renderThrusting: boolean;
   lastUpdateTime: number;
-  // Adaptive jitter buffer
-  adaptiveDelay: number;           // Current interpolation delay (ms)
-  recentIntervals: number[];       // Recent time between snapshots for jitter calculation
+  // Dead reckoning state (for extrapolation when no data)
+  deadReckonX: number;
+  deadReckonY: number;
+  deadReckonVx: number;
+  deadReckonVy: number;
+  deadReckonRotation: number;
+  isDeadReckoning: boolean;
+  // Blend correction (smooth transition when prediction was wrong)
+  blendStartX: number;
+  blendStartY: number;
+  blendStartRotation: number;
+  blendTargetX: number;
+  blendTargetY: number;
+  blendTargetRotation: number;
+  blendProgress: number;           // 0 = at start, 1 = at target
+  isBlending: boolean;
   // Collision physics (visual offset that decays back to real position)
   collisionOffsetX: number;
   collisionOffsetY: number;
-  collisionVx: number;             // Velocity from collision impulse
+  collisionVx: number;
   collisionVy: number;
 }
