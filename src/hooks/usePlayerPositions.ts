@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import type { OtherPlayer, ShipEffects } from '../types';
 import type { RealtimeChannel } from '@supabase/supabase-js';
@@ -60,6 +60,12 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
   const lastBroadcastRef = useRef<number>(0);
   const lastDbUpdateRef = useRef<number>(0);
   const positionCacheRef = useRef<Map<string, CachedPosition>>(new Map());
+  const playersRef = useRef<PlayerInfo[]>(players);
+
+  // Keep players ref updated without triggering effects
+  useEffect(() => {
+    playersRef.current = players;
+  }, [players]);
 
   // Broadcast position via realtime (fast, ephemeral)
   const broadcastPosition = useCallback(() => {
@@ -109,7 +115,8 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
     if (!teamId || !playerId) return;
 
     // Get all player IDs in this team
-    const playerIds = players.map((p) => p.id);
+    const currentPlayers = playersRef.current;
+    const playerIds = currentPlayers.map((p) => p.id);
     if (playerIds.length === 0) return;
 
     const { data: positions } = await supabase
@@ -124,7 +131,7 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
       for (const pos of positions) {
         if (pos.player_id === playerId) continue; // Skip self
 
-        const playerInfo = players.find((p) => p.id === pos.player_id);
+        const playerInfo = currentPlayers.find((p) => p.id === pos.player_id);
         if (playerInfo) {
           others.push({
             id: pos.player_id,
@@ -155,7 +162,7 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
 
       setOtherPlayers(others);
     }
-  }, [teamId, playerId, players]);
+  }, [teamId, playerId]);
 
   // Set up realtime channel for position broadcasts
   useEffect(() => {
@@ -209,7 +216,7 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
 
       // Update state
       setOtherPlayers((prev) => {
-        const playerInfo = players.find((p) => p.id === data.player_id);
+        const playerInfo = playersRef.current.find((p) => p.id === data.player_id);
         if (!playerInfo) return prev;
 
         const existing = prev.findIndex((p) => p.id === data.player_id);
@@ -253,7 +260,7 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
         channelRef.current = null;
       }
     };
-  }, [teamId, playerId, players, fetchInitialPositions]);
+  }, [teamId, playerId, fetchInitialPositions]);
 
   // Update other players when player list changes (for new ship images, etc.)
   useEffect(() => {

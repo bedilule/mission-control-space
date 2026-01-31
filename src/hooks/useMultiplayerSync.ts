@@ -103,12 +103,14 @@ export function useMultiplayerSync(options: UseMultiplayerSyncOptions): UseMulti
     if (!teamId) return;
 
     // Check if player already exists in this team
-    const { data: existing } = await supabase
+    const { data: existingPlayers } = await supabase
       .from('players')
       .select()
       .eq('team_id', teamId)
       .eq('username', username)
-      .single();
+      .limit(1);
+
+    const existing = existingPlayers?.[0];
 
     if (existing) {
       // Update existing player
@@ -124,13 +126,13 @@ export function useMultiplayerSync(options: UseMultiplayerSyncOptions): UseMulti
         .eq('id', existing.id);
 
       // Also ensure ship_positions entry exists
-      const { data: posData } = await supabase
+      const { data: posDataArr } = await supabase
         .from('ship_positions')
         .select()
         .eq('player_id', existing.id)
-        .single();
+        .limit(1);
 
-      if (!posData) {
+      if (!posDataArr || posDataArr.length === 0) {
         await supabase.from('ship_positions').insert({
           player_id: existing.id,
         });

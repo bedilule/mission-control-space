@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import confetti from 'canvas-confetti';
 import { SpaceGame } from './SpaceGame';
 import { Planet, RewardType, OtherPlayer, PointTransaction as PointTx, ShipEffects as TypedShipEffects } from './types';
@@ -424,9 +424,6 @@ function App() {
   const [planetPrompts, setPlanetPrompts] = useState<PlanetPrompts>(DEFAULT_PLANET_PROMPTS);
 
   // Multiplayer state
-  const [showTeamModal, setShowTeamModal] = useState(false);
-  const [joinCode, setJoinCode] = useState('');
-  const [newTeamName, setNewTeamName] = useState('Mission Control Team');
   const [shareToast, setShareToast] = useState<string | null>(null);
   const [pointToast, setPointToast] = useState<PointTx | null>(null);
   const positionBroadcastRef = useRef<number>(0);
@@ -434,23 +431,12 @@ function App() {
   // Get local player ID (persisted in localStorage)
   const localPlayerId = useRef(getLocalPlayerId());
 
-  // Team hook - handles team creation/joining
+  // Team hook - auto-joins default team
   const {
     team,
     isLoading: isTeamLoading,
     error: teamError,
-    createTeam,
-    joinTeam,
-    getShareUrl,
-    leaveTeam,
-  } = useTeam({
-    onTeamJoined: (t) => {
-      console.log('Joined team:', t.name);
-    },
-    onError: (err) => {
-      console.error('Team error:', err);
-    },
-  });
+  } = useTeam();
 
   // Current user info for multiplayer
   const currentUserInfo = USERS.find(u => u.id === state.currentUser);
@@ -497,11 +483,14 @@ function App() {
     },
   });
 
-  // Player positions hook - handles real-time ship positions
-  const { otherPlayers, broadcastPosition } = usePlayerPositions({
-    teamId: team?.id || null,
-    playerId: teamPlayers.find(p => p.username === state.currentUser)?.id || null,
-    players: teamPlayers.map(p => ({
+  // Memoize player data for positions hook to prevent infinite loops
+  const currentDbPlayerId = useMemo(() =>
+    teamPlayers.find(p => p.username === state.currentUser)?.id || null,
+    [teamPlayers, state.currentUser]
+  );
+
+  const playersForPositions = useMemo(() =>
+    teamPlayers.map(p => ({
       id: p.id,
       username: p.username,
       displayName: p.displayName,
@@ -509,6 +498,14 @@ function App() {
       shipImage: p.shipImage,
       shipEffects: p.shipEffects,
     })),
+    [teamPlayers]
+  );
+
+  // Player positions hook - handles real-time ship positions
+  const { otherPlayers, broadcastPosition } = usePlayerPositions({
+    teamId: team?.id || null,
+    playerId: currentDbPlayerId,
+    players: playersForPositions,
     localShip: gameRef.current?.getShipState() || { x: 5000, y: 5200, vx: 0, vy: 0, rotation: -1.5708, thrusting: false },
   });
 
@@ -548,8 +545,8 @@ function App() {
 
   // Copy share URL to clipboard
   const copyShareUrl = () => {
-    const url = getShareUrl();
-    if (url) {
+    if (team?.inviteCode) {
+      const url = buildShareUrl(team.inviteCode);
       navigator.clipboard.writeText(url).then(() => {
         setShareToast('Link copied!');
         setTimeout(() => setShareToast(null), 2000);
@@ -1469,25 +1466,18 @@ function App() {
         )}
       </div>
 
-      {/* Multiplayer buttons */}
-      <div style={styles.multiplayerButtons}>
-        {team ? (
+      {/* Share button - always available when connected */}
+      {team && (
+        <div style={styles.multiplayerButtons}>
           <button
             style={styles.shareButton}
             onClick={copyShareUrl}
             title="Copy invite link"
           >
-            🔗 Share Team
+            🔗 Share
           </button>
-        ) : (
-          <button
-            style={styles.shareButton}
-            onClick={() => setShowTeamModal(true)}
-          >
-            👥 Multiplayer
-          </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Share toast */}
       {shareToast && (
@@ -2210,126 +2200,6 @@ function App() {
             )}
 
             <button style={styles.cancelButton} onClick={() => setViewingPlanetOwner(null)}>
-              Close
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Team Modal */}
-      {showTeamModal && (
-        <div style={styles.modalOverlay} onClick={() => setShowTeamModal(false)}>
-          <div style={{ ...styles.modal, maxWidth: 400 }} onClick={e => e.stopPropagation()}>
-            <h2 style={styles.modalTitle}>👥 Multiplayer</h2>
-
-            {team ? (
-              // Already in a team
-              <div>
-                <p style={{ color: '#4ade80', marginBottom: '1rem' }}>
-                  Connected to: {team.name}
-                </p>
-                <p style={{ color: '#888', fontSize: '0.85rem', marginBottom: '1rem' }}>
-                  {teamPlayers.filter(p => p.isOnline).length} players online
-                </p>
-
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Invite Link</label>
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <input
-                      type="text"
-                      style={{ ...styles.input, flex: 1, fontSize: '0.75rem' }}
-                      value={getShareUrl() || ''}
-                      readOnly
-                    />
-                    <button style={styles.saveButton} onClick={copyShareUrl}>
-                      Copy
-                    </button>
-                  </div>
-                </div>
-
-                <button
-                  style={{ ...styles.cancelButton, width: '100%', marginTop: '1rem' }}
-                  onClick={() => {
-                    leaveTeam();
-                    setShowTeamModal(false);
-                  }}
-                >
-                  Leave Team
-                </button>
-              </div>
-            ) : (
-              // No team - show join/create options
-              <div>
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Join with Invite Code</label>
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <input
-                      type="text"
-                      style={{ ...styles.input, flex: 1 }}
-                      value={joinCode}
-                      onChange={e => setJoinCode(e.target.value)}
-                      placeholder="Enter invite code..."
-                    />
-                    <button
-                      style={{
-                        ...styles.saveButton,
-                        opacity: joinCode ? 1 : 0.5,
-                      }}
-                      onClick={async () => {
-                        if (joinCode) {
-                          await joinTeam(joinCode);
-                          setJoinCode('');
-                          setShowTeamModal(false);
-                        }
-                      }}
-                      disabled={!joinCode || isTeamLoading}
-                    >
-                      Join
-                    </button>
-                  </div>
-                </div>
-
-                <div style={{ textAlign: 'center', color: '#666', margin: '1.5rem 0', fontSize: '0.85rem' }}>
-                  — or —
-                </div>
-
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Create New Team</label>
-                  <input
-                    type="text"
-                    style={styles.input}
-                    value={newTeamName}
-                    onChange={e => setNewTeamName(e.target.value)}
-                    placeholder="Team name..."
-                  />
-                  <button
-                    style={{
-                      ...styles.saveButton,
-                      width: '100%',
-                      marginTop: '0.5rem',
-                    }}
-                    onClick={async () => {
-                      await createTeam(newTeamName);
-                      setShowTeamModal(false);
-                    }}
-                    disabled={isTeamLoading}
-                  >
-                    {isTeamLoading ? 'Creating...' : 'Create Team'}
-                  </button>
-                </div>
-
-                {teamError && (
-                  <p style={{ color: '#ff4444', fontSize: '0.85rem', marginTop: '1rem' }}>
-                    {teamError}
-                  </p>
-                )}
-              </div>
-            )}
-
-            <button
-              style={{ ...styles.cancelButton, width: '100%', marginTop: '1rem' }}
-              onClick={() => setShowTeamModal(false)}
-            >
               Close
             </button>
           </div>
