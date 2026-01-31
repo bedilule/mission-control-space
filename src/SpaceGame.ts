@@ -810,6 +810,7 @@ export class SpaceGame {
 
     this.updateCamera();
     this.updateParticles();
+    this.updateUpgradeSatellites();
 
     // Check nearby and docking
     this.state.dockingPlanet = null;
@@ -1434,6 +1435,9 @@ export class SpaceGame {
 
     // Draw ship
     this.drawShip();
+
+    // Draw upgrade satellites/robots orbiting the ship
+    this.renderUpgradeSatellites();
 
     // Draw planet info panel when nearby
     if (state.nearbyPlanet) {

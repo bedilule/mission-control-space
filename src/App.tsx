@@ -528,6 +528,7 @@ function App() {
     setShowTerraform(false);
     setIsUpgrading(true);
     setUpgradeMessage('Creating your planet...');
+    gameRef.current?.startUpgradeAnimation();
 
     try {
       const config = planetPrompts.basePlanet;
@@ -583,10 +584,14 @@ function App() {
       }
 
       setIsUpgrading(false);
+      gameRef.current?.stopUpgradeAnimation();
     } catch (error) {
       console.error('Failed to generate base planet:', error);
       setUpgradeMessage('Generation failed');
-      setTimeout(() => setIsUpgrading(false), 1500);
+      setTimeout(() => {
+        setIsUpgrading(false);
+        gameRef.current?.stopUpgradeAnimation();
+      }, 1500);
     }
   };
 
@@ -603,6 +608,7 @@ function App() {
     setTerraformPrompt('');
     setIsUpgrading(true);
     setUpgradeMessage('Terraforming planet...');
+    gameRef.current?.startUpgradeAnimation();
 
     try {
       // Get current planet image
@@ -672,10 +678,14 @@ function App() {
       }
 
       setIsUpgrading(false);
+      gameRef.current?.stopUpgradeAnimation();
     } catch (error) {
       console.error('Failed to terraform:', error);
       setUpgradeMessage('Terraform failed');
-      setTimeout(() => setIsUpgrading(false), 1500);
+      setTimeout(() => {
+        setIsUpgrading(false);
+        gameRef.current?.stopUpgradeAnimation();
+      }, 1500);
     }
   };
 
@@ -805,6 +815,7 @@ function App() {
     setUpgradePrompt('');
     setIsUpgrading(true);
     setUpgradeMessage('Modifying your vessel...');
+    gameRef.current?.startUpgradeAnimation();
 
     try {
       const currentShip = getCurrentUserShip();
@@ -885,10 +896,14 @@ function App() {
       }
 
       setIsUpgrading(false);
+      gameRef.current?.stopUpgradeAnimation();
     } catch (error) {
       console.error('Failed to generate visual upgrade:', error);
       setUpgradeMessage('Upgrade failed');
-      setTimeout(() => setIsUpgrading(false), 1500);
+      setTimeout(() => {
+        setIsUpgrading(false);
+        gameRef.current?.stopUpgradeAnimation();
+      }, 1500);
     }
   };
 
