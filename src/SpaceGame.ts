@@ -98,11 +98,14 @@ const DOCKING_DISTANCE = 50;
 const PLANET_INFO_DISTANCE = 200;
 
 // Snapshot interpolation constants for smooth multiplayer movement
-const SNAPSHOT_BUFFER_SIZE = 10;       // Keep ~800ms of history at 80ms intervals
-const INTERPOLATION_DELAY = 100;       // Render 100ms behind real-time (jitter buffer)
-const MAX_EXTRAPOLATION_TIME = 200;    // Max prediction time before freezing position
-const SHIP_COLLISION_RADIUS = 20;      // Collision radius for ship-to-ship collision
-const COLLISION_RESTITUTION = 0.6;     // Bounce energy retention (0-1)
+const SNAPSHOT_BUFFER_SIZE = 20;       // Keep more history for high-latency connections
+const MIN_INTERPOLATION_DELAY = 30;    // Minimum jitter buffer (ms)
+const MAX_INTERPOLATION_DELAY = 400;   // Maximum jitter buffer (ms) - handles high latency
+const DEFAULT_INTERPOLATION_DELAY = 80; // Starting delay before adaptation (lower = more responsive)
+const MAX_EXTRAPOLATION_TIME = 250;    // Max prediction time before falling back to lerp
+const SHIP_COLLISION_RADIUS = 25;      // Collision radius for ship-to-ship collision
+const COLLISION_RESTITUTION = 0.7;     // Bounce energy retention (0-1)
+const LERP_FALLBACK_FACTOR = 0.2;      // Smooth lerp when interpolation fails (higher = more responsive)
 
 interface BlackHole {
   x: number;
@@ -846,29 +849,36 @@ export class SpaceGame {
 
     // Ship-to-ship collision with other players
     for (const otherPlayer of this.otherPlayers) {
-      // Use render state for collision (interpolated position)
+      // Use render state for collision (interpolated position + collision offset)
       const renderState = this.renderStates.get(otherPlayer.id);
-      const otherX = renderState?.renderX ?? otherPlayer.x;
-      const otherY = renderState?.renderY ?? otherPlayer.y;
-      const otherVx = renderState?.renderVx ?? otherPlayer.vx;
-      const otherVy = renderState?.renderVy ?? otherPlayer.vy;
+      if (!renderState) continue;
+
+      // Include collision offset in position for collision detection
+      const otherX = renderState.renderX + renderState.collisionOffsetX;
+      const otherY = renderState.renderY + renderState.collisionOffsetY;
+      const otherVx = renderState.renderVx + renderState.collisionVx;
+      const otherVy = renderState.renderVy + renderState.collisionVy;
 
       // Calculate wrapped distance
       const { dx, dy, dist } = this.getWrappedDistance(ship.x, ship.y, otherX, otherY);
       const minDist = SHIP_COLLISION_RADIUS * 2; // Both ships have the same radius
 
       if (dist < minDist && dist > 0) {
-        // Collision detected - push local ship out
+        // Collision detected
         const overlap = minDist - dist;
-        const nx = -dx / dist; // Normal pointing away from other ship
+        const nx = -dx / dist; // Normal pointing away from other ship (toward us)
         const ny = -dy / dist;
 
-        // Push our ship out of collision
-        ship.x += nx * overlap;
-        ship.y += ny * overlap;
+        // Push both ships out of collision (half each)
+        const pushAmount = overlap * 0.5;
+        ship.x += nx * pushAmount;
+        ship.y += ny * pushAmount;
 
-        // Elastic collision response
-        // Relative velocity
+        // Push other ship visually (opposite direction)
+        renderState.collisionOffsetX -= nx * pushAmount;
+        renderState.collisionOffsetY -= ny * pushAmount;
+
+        // Elastic collision response with equal masses
         const relVx = ship.vx - otherVx;
         const relVy = ship.vy - otherVy;
 
@@ -877,16 +887,20 @@ export class SpaceGame {
 
         // Only respond if ships are moving toward each other
         if (relVelDotNormal < 0) {
-          // Apply impulse with restitution
-          const impulse = -(1 + COLLISION_RESTITUTION) * relVelDotNormal;
+          // Apply impulse with restitution (split between both ships)
+          const impulse = -(1 + COLLISION_RESTITUTION) * relVelDotNormal * 0.5;
 
-          // Assuming equal mass, only apply to local ship (we can't control the other)
+          // Apply to local ship
           ship.vx += impulse * nx;
           ship.vy += impulse * ny;
 
+          // Apply opposite impulse to other ship's visual velocity
+          renderState.collisionVx -= impulse * nx;
+          renderState.collisionVy -= impulse * ny;
+
           // Emit collision particles at collision point
-          const collisionX = ship.x - nx * SHIP_COLLISION_RADIUS;
-          const collisionY = ship.y - ny * SHIP_COLLISION_RADIUS;
+          const collisionX = (ship.x + otherX) / 2;
+          const collisionY = (ship.y + otherY) / 2;
           this.emitShipCollisionParticles(collisionX, collisionY, '#ffffff', otherPlayer.color);
 
           // Play collision sound
@@ -2479,6 +2493,12 @@ export class SpaceGame {
           renderVx: player.vx,
           renderVy: player.vy,
           lastUpdateTime: Date.now(),
+          adaptiveDelay: DEFAULT_INTERPOLATION_DELAY,
+          recentIntervals: [],
+          collisionOffsetX: 0,
+          collisionOffsetY: 0,
+          collisionVx: 0,
+          collisionVy: 0,
         });
       }
     }
@@ -2505,6 +2525,7 @@ export class SpaceGame {
     thrusting: boolean;
     timestamp: number;
   }) {
+    const now = Date.now();
     const snapshot: PositionSnapshot = {
       x: data.x,
       y: data.y,
@@ -2513,6 +2534,7 @@ export class SpaceGame {
       rotation: data.rotation,
       thrusting: data.thrusting,
       timestamp: data.timestamp,
+      receivedAt: now,  // Use local receive time for interpolation
     };
 
     // Add to snapshot buffer
@@ -2522,10 +2544,39 @@ export class SpaceGame {
       this.playerSnapshots.set(playerId, snapshots);
     }
 
-    // Insert in chronological order (usually at the end)
+    // Track interval between snapshots for adaptive jitter buffer
+    const renderState = this.renderStates.get(playerId);
+    if (renderState && snapshots.length > 0) {
+      const lastSnapshot = snapshots[snapshots.length - 1];
+      const interval = now - lastSnapshot.receivedAt;
+
+      // Only track reasonable intervals (ignore duplicates or very delayed packets)
+      if (interval > 5 && interval < 1000) {
+        renderState.recentIntervals.push(interval);
+        // Keep last 10 intervals
+        if (renderState.recentIntervals.length > 10) {
+          renderState.recentIntervals.shift();
+        }
+
+        // Adapt delay based on jitter
+        if (renderState.recentIntervals.length >= 3) {
+          const avgInterval = renderState.recentIntervals.reduce((a, b) => a + b, 0) / renderState.recentIntervals.length;
+          const maxInterval = Math.max(...renderState.recentIntervals);
+          // Delay = average interval + buffer for jitter (difference between max and average)
+          const jitter = maxInterval - avgInterval;
+          const targetDelay = avgInterval + jitter * 2;
+
+          // Smooth adaptation (don't change too quickly)
+          renderState.adaptiveDelay = renderState.adaptiveDelay * 0.9 +
+            Math.max(MIN_INTERPOLATION_DELAY, Math.min(MAX_INTERPOLATION_DELAY, targetDelay)) * 0.1;
+        }
+      }
+    }
+
+    // Insert in chronological order by receive time (usually at the end)
     let inserted = false;
     for (let i = snapshots.length - 1; i >= 0; i--) {
-      if (snapshots[i].timestamp <= snapshot.timestamp) {
+      if (snapshots[i].receivedAt <= snapshot.receivedAt) {
         snapshots.splice(i + 1, 0, snapshot);
         inserted = true;
         break;
@@ -2560,7 +2611,13 @@ export class SpaceGame {
         renderRotation: data.rotation,
         renderVx: data.vx,
         renderVy: data.vy,
-        lastUpdateTime: Date.now(),
+        lastUpdateTime: now,
+        adaptiveDelay: DEFAULT_INTERPOLATION_DELAY,
+        recentIntervals: [],
+        collisionOffsetX: 0,
+        collisionOffsetY: 0,
+        collisionVx: 0,
+        collisionVy: 0,
       });
     }
   }
@@ -2648,8 +2705,9 @@ export class SpaceGame {
     let before: PositionSnapshot | null = null;
     let after: PositionSnapshot | null = null;
 
+    // Use receivedAt (local time) for interpolation - avoids clock sync issues
     for (let i = 0; i < snapshots.length; i++) {
-      if (snapshots[i].timestamp <= renderTime) {
+      if (snapshots[i].receivedAt <= renderTime) {
         before = snapshots[i];
       } else {
         after = snapshots[i];
@@ -2662,28 +2720,32 @@ export class SpaceGame {
 
   /**
    * Smoothly interpolate other players' positions using snapshot interpolation.
-   * Uses Hermite interpolation with jitter buffer for smooth, lag-compensated movement.
+   * Uses adaptive jitter buffer based on network conditions.
+   * Falls back to smooth lerp when interpolation isn't possible.
    */
   private updateOtherPlayersInterpolation() {
     const now = Date.now();
-    const renderTime = now - INTERPOLATION_DELAY;
 
     for (const player of this.otherPlayers) {
       const renderState = this.renderStates.get(player.id);
       if (!renderState) continue;
 
+      // Use per-player adaptive delay
+      const renderTime = now - renderState.adaptiveDelay;
       const { before, after } = this.getSnapshotsForInterpolation(player.id, renderTime);
 
-      if (before && after) {
-        // Interpolate between two snapshots
-        const dt = after.timestamp - before.timestamp;
-        if (dt > 0) {
-          const t = Math.max(0, Math.min(1, (renderTime - before.timestamp) / dt));
+      let interpolated = false;
 
-          // Unwrap positions to be continuous
+      if (before && after) {
+        // Interpolate between two snapshots (ideal case)
+        const dt = after.receivedAt - before.receivedAt;
+        if (dt > 0) {
+          const t = Math.max(0, Math.min(1, (renderTime - before.receivedAt) / dt));
+
+          // Unwrap positions to be continuous across world wrap
           const unwrappedAfter = this.unwrapPosition(before.x, before.y, after.x, after.y);
 
-          // Hermite interpolation using velocity
+          // Hermite interpolation using velocity for smooth curves
           const interpX = this.hermiteInterpolate(
             before.x, before.vx,
             unwrappedAfter.x, after.vx,
@@ -2700,7 +2762,7 @@ export class SpaceGame {
           renderState.renderX = wrapped.x;
           renderState.renderY = wrapped.y;
 
-          // Interpolate rotation (linear is fine for rotation)
+          // Interpolate rotation (linear is fine)
           let rotDiff = after.rotation - before.rotation;
           while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
           while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
@@ -2709,13 +2771,15 @@ export class SpaceGame {
           // Interpolate velocity for particle effects
           renderState.renderVx = before.vx + (after.vx - before.vx) * t;
           renderState.renderVy = before.vy + (after.vy - before.vy) * t;
+
+          interpolated = true;
         }
       } else if (before) {
-        // Extrapolate from last known position
-        const timeSinceSnapshot = renderTime - before.timestamp;
+        // Only have past snapshot - extrapolate briefly then fall back to lerp
+        const timeSinceSnapshot = now - before.receivedAt;
 
         if (timeSinceSnapshot < MAX_EXTRAPOLATION_TIME) {
-          // Extrapolate using velocity, with damping
+          // Short extrapolation with damping
           const extrapolationTime = timeSinceSnapshot / 1000;
           const damping = Math.max(0, 1 - timeSinceSnapshot / MAX_EXTRAPOLATION_TIME);
 
@@ -2728,23 +2792,81 @@ export class SpaceGame {
           renderState.renderRotation = before.rotation;
           renderState.renderVx = before.vx * damping;
           renderState.renderVy = before.vy * damping;
+
+          interpolated = true;
         }
-        // If too old, freeze at last position (already there)
-      } else if (after) {
-        // We're waiting for the jitter buffer to fill - use the first snapshot we have
-        renderState.renderX = after.x;
-        renderState.renderY = after.y;
-        renderState.renderRotation = after.rotation;
-        renderState.renderVx = after.vx;
-        renderState.renderVy = after.vy;
-      } else {
-        // No snapshots yet - fall back to player's last known position
-        renderState.renderX = player.x;
-        renderState.renderY = player.y;
-        renderState.renderRotation = player.rotation;
-        renderState.renderVx = player.vx;
-        renderState.renderVy = player.vy;
       }
+
+      // Fallback: smooth lerp toward latest known position
+      // This handles: no snapshots, old data, or initial connection
+      if (!interpolated) {
+        // Get target position (latest snapshot or player state)
+        const snapshots = this.playerSnapshots.get(player.id);
+        const latest = snapshots && snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
+
+        const targetX = latest?.x ?? player.x;
+        const targetY = latest?.y ?? player.y;
+        const targetRotation = latest?.rotation ?? player.rotation;
+        const targetVx = latest?.vx ?? player.vx;
+        const targetVy = latest?.vy ?? player.vy;
+
+        // Calculate wrapped distance for lerp
+        const { dx, dy, dist } = this.getWrappedDistance(renderState.renderX, renderState.renderY, targetX, targetY);
+
+        // If very far (world wrap), teleport
+        if (dist > WORLD_SIZE / 2) {
+          renderState.renderX = targetX;
+          renderState.renderY = targetY;
+          renderState.renderRotation = targetRotation;
+        } else {
+          // Smooth lerp with velocity prediction
+          const predictX = targetX + targetVx * 2;
+          const predictY = targetY + targetVy * 2;
+
+          // Unwrap prediction
+          const unwrappedPredict = this.unwrapPosition(renderState.renderX, renderState.renderY, predictX, predictY);
+
+          renderState.renderX += (unwrappedPredict.x - renderState.renderX) * LERP_FALLBACK_FACTOR;
+          renderState.renderY += (unwrappedPredict.y - renderState.renderY) * LERP_FALLBACK_FACTOR;
+
+          // Wrap back
+          const wrapped = this.wrapPosition(renderState.renderX, renderState.renderY);
+          renderState.renderX = wrapped.x;
+          renderState.renderY = wrapped.y;
+
+          // Smooth rotation
+          let rotDiff = targetRotation - renderState.renderRotation;
+          while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
+          while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
+          renderState.renderRotation += rotDiff * LERP_FALLBACK_FACTOR;
+        }
+
+        renderState.renderVx = targetVx;
+        renderState.renderVy = targetVy;
+      }
+
+      // Update collision physics (apply velocity, decay offset)
+      // This makes other ships visually bounce when collided
+      const collisionFriction = 0.92;
+      const offsetDecay = 0.85;
+
+      // Apply collision velocity to offset
+      renderState.collisionOffsetX += renderState.collisionVx;
+      renderState.collisionOffsetY += renderState.collisionVy;
+
+      // Apply friction to collision velocity
+      renderState.collisionVx *= collisionFriction;
+      renderState.collisionVy *= collisionFriction;
+
+      // Decay offset back toward zero (blend back to real position)
+      renderState.collisionOffsetX *= offsetDecay;
+      renderState.collisionOffsetY *= offsetDecay;
+
+      // Zero out very small values to prevent drift
+      if (Math.abs(renderState.collisionVx) < 0.01) renderState.collisionVx = 0;
+      if (Math.abs(renderState.collisionVy) < 0.01) renderState.collisionVy = 0;
+      if (Math.abs(renderState.collisionOffsetX) < 0.1) renderState.collisionOffsetX = 0;
+      if (Math.abs(renderState.collisionOffsetY) < 0.1) renderState.collisionOffsetY = 0;
 
       renderState.lastUpdateTime = now;
     }
@@ -2796,10 +2918,14 @@ export class SpaceGame {
    */
   private renderOtherPlayers() {
     for (const player of this.otherPlayers) {
-      // Use render state for smooth interpolated position
+      // Use render state for smooth interpolated position + collision offset
       const renderState = this.renderStates.get(player.id);
-      const renderX = renderState?.renderX ?? player.x;
-      const renderY = renderState?.renderY ?? player.y;
+      const baseX = renderState?.renderX ?? player.x;
+      const baseY = renderState?.renderY ?? player.y;
+      const offsetX = renderState?.collisionOffsetX ?? 0;
+      const offsetY = renderState?.collisionOffsetY ?? 0;
+      const renderX = baseX + offsetX;
+      const renderY = baseY + offsetY;
       const renderRotation = renderState?.renderRotation ?? player.rotation;
 
       // Draw at all wrapped positions for seamless world wrapping
@@ -2905,13 +3031,17 @@ export class SpaceGame {
    * Emit thrust particles for another player (simpler version).
    */
   private emitOtherPlayerThrust(player: OtherPlayer) {
-    // Use render state for interpolated position
+    // Use render state for interpolated position + collision offset
     const renderState = this.renderStates.get(player.id);
-    const px = renderState?.renderX ?? player.x;
-    const py = renderState?.renderY ?? player.y;
+    const baseX = renderState?.renderX ?? player.x;
+    const baseY = renderState?.renderY ?? player.y;
+    const offsetX = renderState?.collisionOffsetX ?? 0;
+    const offsetY = renderState?.collisionOffsetY ?? 0;
+    const px = baseX + offsetX;
+    const py = baseY + offsetY;
     const rotation = renderState?.renderRotation ?? player.rotation;
-    const vx = renderState?.renderVx ?? player.vx;
-    const vy = renderState?.renderVy ?? player.vy;
+    const vx = (renderState?.renderVx ?? player.vx) + (renderState?.collisionVx ?? 0);
+    const vy = (renderState?.renderVy ?? player.vy) + (renderState?.collisionVy ?? 0);
 
     const backAngle = rotation + Math.PI;
     const trailType = player.shipEffects?.trailType || 'default';

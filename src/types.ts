@@ -134,7 +134,8 @@ export interface PositionSnapshot {
   vy: number;
   rotation: number;
   thrusting: boolean;
-  timestamp: number;
+  timestamp: number;      // Sender's timestamp
+  receivedAt: number;     // When we received it (local time)
 }
 
 export interface InterpolationState {
@@ -145,4 +146,12 @@ export interface InterpolationState {
   renderVx: number;
   renderVy: number;
   lastUpdateTime: number;
+  // Adaptive jitter buffer
+  adaptiveDelay: number;           // Current interpolation delay (ms)
+  recentIntervals: number[];       // Recent time between snapshots for jitter calculation
+  // Collision physics (visual offset that decays back to real position)
+  collisionOffsetX: number;
+  collisionOffsetY: number;
+  collisionVx: number;             // Velocity from collision impulse
+  collisionVy: number;
 }

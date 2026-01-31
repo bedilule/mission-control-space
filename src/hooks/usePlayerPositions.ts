@@ -235,7 +235,20 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
         receivedAt: now,
       });
 
-      // Update state
+      // Call direct callback first (bypasses React for lower latency)
+      if (positionUpdateCallbackRef.current) {
+        positionUpdateCallbackRef.current(data.player_id, {
+          x: data.x,
+          y: data.y,
+          vx: data.vx,
+          vy: data.vy,
+          rotation: data.rotation,
+          thrusting: data.thrusting,
+          timestamp: data.timestamp,
+        });
+      }
+
+      // Still update React state for player metadata (but position comes from snapshots now)
       setOtherPlayers((prev) => {
         const playerInfo = playersRef.current.find((p) => p.id === data.player_id);
         if (!playerInfo) return prev;
@@ -335,5 +348,6 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
   return {
     otherPlayers,
     broadcastPosition,
+    setPositionUpdateCallback,
   };
 }
