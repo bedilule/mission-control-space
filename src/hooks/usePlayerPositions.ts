@@ -153,33 +153,34 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
         if (pos.player_id === playerId) continue; // Skip self
 
         const playerInfo = currentPlayers.find((p) => p.id === pos.player_id);
-        if (playerInfo) {
-          others.push({
-            id: pos.player_id,
-            username: playerInfo.username,
-            displayName: playerInfo.displayName,
-            color: playerInfo.color,
-            x: pos.x,
-            y: pos.y,
-            vx: pos.vx,
-            vy: pos.vy,
-            rotation: pos.rotation,
-            thrusting: pos.thrusting,
-            shipImage: playerInfo.shipImage,
-            shipEffects: playerInfo.shipEffects || defaultShipEffects,
-            shipLevel: playerInfo.shipLevel || 1,
-          });
-          positionCacheRef.current.set(pos.player_id, {
-            player_id: pos.player_id,
-            x: pos.x,
-            y: pos.y,
-            vx: pos.vx,
-            vy: pos.vy,
-            rotation: pos.rotation,
-            thrusting: pos.thrusting,
-            receivedAt: now,
-          });
-        }
+        // Skip offline players
+        if (!playerInfo || !playerInfo.isOnline) continue;
+
+        others.push({
+          id: pos.player_id,
+          username: playerInfo.username,
+          displayName: playerInfo.displayName,
+          color: playerInfo.color,
+          x: pos.x,
+          y: pos.y,
+          vx: pos.vx,
+          vy: pos.vy,
+          rotation: pos.rotation,
+          thrusting: pos.thrusting,
+          shipImage: playerInfo.shipImage,
+          shipEffects: playerInfo.shipEffects || defaultShipEffects,
+          shipLevel: playerInfo.shipLevel || 1,
+        });
+        positionCacheRef.current.set(pos.player_id, {
+          player_id: pos.player_id,
+          x: pos.x,
+          y: pos.y,
+          vx: pos.vx,
+          vy: pos.vy,
+          rotation: pos.rotation,
+          thrusting: pos.thrusting,
+          receivedAt: now,
+        });
       }
 
       setOtherPlayers(others);
