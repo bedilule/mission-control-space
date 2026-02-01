@@ -276,8 +276,11 @@ Deno.serve(async (req) => {
     const errors: string[] = [];
     let totalCreatorPoints = 0;
 
-    // Get all Notion task IDs from the API response
-    const notionTaskIds = new Set(pages.map((p: { id: string }) => p.id));
+    // Normalize UUID - remove dashes for consistent comparison
+    const normalizeId = (id: string) => id.replace(/-/g, '').toLowerCase();
+
+    // Get all Notion task IDs from the API response (normalized)
+    const notionTaskIds = new Set(pages.map((p: { id: string }) => normalizeId(p.id)));
 
     // Get all existing planets to check for deletions and existing entries
     const { data: allPlanets } = await supabase
@@ -285,17 +288,17 @@ Deno.serve(async (req) => {
       .select('id, notion_task_id, name, x, y')
       .eq('team_id', team.id);
 
-    // Build lookup map for existing planets by notion_task_id
-    const existingByTaskId = new Map<string, { id: string; name: string; x: number; y: number }>();
+    // Build lookup map for existing planets by normalized notion_task_id
+    const existingByTaskId = new Map<string, { id: string; notion_task_id: string; name: string; x: number; y: number }>();
     const existingPositions: ExistingPlanet[] = [];
     for (const planet of allPlanets || []) {
-      existingByTaskId.set(planet.notion_task_id, planet);
+      existingByTaskId.set(normalizeId(planet.notion_task_id), { ...planet });
       existingPositions.push({ x: planet.x, y: planet.y });
     }
 
     // Find planets whose Notion tasks no longer exist (deleted from Notion)
     for (const planet of allPlanets || []) {
-      if (!notionTaskIds.has(planet.notion_task_id)) {
+      if (!notionTaskIds.has(normalizeId(planet.notion_task_id))) {
         // Task was deleted from Notion - remove the planet
         const { error: deleteError } = await supabase
           .from('notion_planets')
@@ -320,20 +323,20 @@ Deno.serve(async (req) => {
 
       // Skip if status is archived (but mark as completed if exists)
       if (parsed.status === 'archived') {
-        const existing = existingByTaskId.get(parsed.id);
-        if (existing) {
+        const existingArchived = existingByTaskId.get(normalizeId(parsed.id));
+        if (existingArchived) {
           // Mark as completed
           await supabase
             .from('notion_planets')
             .update({ completed: true })
-            .eq('id', existing.id);
+            .eq('id', existingArchived.id);
           skipped.push(`${parsed.name} (archived)`);
         }
         continue;
       }
 
-      // Check if already exists
-      const existing = existingByTaskId.get(parsed.id);
+      // Check if already exists (using normalized ID for comparison)
+      const existing = existingByTaskId.get(normalizeId(parsed.id));
       if (existing) {
         // Update existing planet with latest data
         const points = calculatePoints(parsed.priority);
