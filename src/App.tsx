@@ -2179,106 +2179,57 @@ function App() {
           <div style={{ ...styles.modal, minWidth: newPlanet.type ? '400px' : '500px' }}>
             <h2 style={styles.modalTitle}>Create New Planet</h2>
 
-            {/* Planet Type Selection */}
-            {!newPlanet.type ? (
-              /* Full page selection when no type chosen */
-              <>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', padding: '20px 0' }}>
-                  <button
-                    onClick={() => setNewPlanet(p => ({ ...p, type: 'achievement' }))}
-                    style={{
-                      padding: '40px 24px',
-                      border: '2px solid #333',
-                      borderRadius: '16px',
-                      background: 'rgba(255,255,255,0.03)',
-                      color: '#ffd700',
-                      cursor: 'pointer',
-                      fontSize: '20px',
-                      fontWeight: 'bold',
-                      transition: 'all 0.2s',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      gap: '12px',
-                    }}
-                    onMouseOver={e => { e.currentTarget.style.background = 'rgba(255, 215, 0, 0.1)'; e.currentTarget.style.borderColor = '#ffd700'; }}
-                    onMouseOut={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.borderColor = '#333'; }}
-                  >
-                    <span style={{ fontSize: '48px' }}>🏆</span>
-                    Achievement
-                    <span style={{ fontSize: '12px', fontWeight: 'normal', color: '#888' }}>Local milestone</span>
-                  </button>
-                  <button
-                    onClick={() => setNewPlanet(p => ({ ...p, type: 'notion' }))}
-                    style={{
-                      padding: '40px 24px',
-                      border: '2px solid #333',
-                      borderRadius: '16px',
-                      background: 'rgba(255,255,255,0.03)',
-                      color: '#00c8ff',
-                      cursor: 'pointer',
-                      fontSize: '20px',
-                      fontWeight: 'bold',
-                      transition: 'all 0.2s',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      gap: '12px',
-                    }}
-                    onMouseOver={e => { e.currentTarget.style.background = 'rgba(0, 200, 255, 0.1)'; e.currentTarget.style.borderColor = '#00c8ff'; }}
-                    onMouseOut={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.borderColor = '#333'; }}
-                  >
-                    <span style={{ fontSize: '48px' }}>📋</span>
-                    Task
-                    <span style={{ fontSize: '12px', fontWeight: 'normal', color: '#888' }}>Syncs to Notion</span>
-                  </button>
-                </div>
-                <button
-                  style={{ ...styles.cancelButton, width: '100%', marginTop: '8px' }}
-                  onClick={() => setShowPlanetCreator(false)}
-                >
-                  Cancel
-                </button>
-              </>
-            ) : (
-              /* Compact selection + form when type is chosen */
-              <>
-                {/* Compact type switcher */}
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-                  <button
-                    onClick={() => setNewPlanet(p => ({ ...p, type: 'achievement' }))}
-                    style={{
-                      flex: 1,
-                      padding: '10px',
-                      border: newPlanet.type === 'achievement' ? '2px solid #ffd700' : '2px solid #333',
-                      borderRadius: '8px',
-                      background: newPlanet.type === 'achievement' ? 'rgba(255, 215, 0, 0.15)' : 'transparent',
-                      color: newPlanet.type === 'achievement' ? '#ffd700' : '#666',
-                      cursor: 'pointer',
-                      fontSize: '14px',
-                      fontWeight: newPlanet.type === 'achievement' ? 'bold' : 'normal',
-                    }}
-                  >
-                    🏆 Achievement
-                  </button>
-                  <button
-                    onClick={() => setNewPlanet(p => ({ ...p, type: 'notion' }))}
-                    style={{
-                      flex: 1,
-                      padding: '10px',
-                      border: newPlanet.type === 'notion' ? '2px solid #00c8ff' : '2px solid #333',
-                      borderRadius: '8px',
-                      background: newPlanet.type === 'notion' ? 'rgba(0, 200, 255, 0.15)' : 'transparent',
-                      color: newPlanet.type === 'notion' ? '#00c8ff' : '#666',
-                      cursor: 'pointer',
-                      fontSize: '14px',
-                      fontWeight: newPlanet.type === 'notion' ? 'bold' : 'normal',
-                    }}
-                  >
-                    📋 Task
-                  </button>
-                </div>
+            {/* Big Type Selection Buttons - Always visible */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', padding: '20px 0' }}>
+              <button
+                onClick={() => setNewPlanet(p => ({ ...p, type: 'achievement' }))}
+                style={{
+                  padding: '40px 24px',
+                  border: newPlanet.type === 'achievement' ? '3px solid #ffd700' : '2px solid #333',
+                  borderRadius: '16px',
+                  background: newPlanet.type === 'achievement' ? 'rgba(255, 215, 0, 0.15)' : 'rgba(255,255,255,0.03)',
+                  color: '#ffd700',
+                  cursor: 'pointer',
+                  fontSize: '20px',
+                  fontWeight: 'bold',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '12px',
+                }}
+              >
+                <span style={{ fontSize: '48px' }}>🏆</span>
+                Achievement
+                <span style={{ fontSize: '12px', fontWeight: 'normal', color: '#888' }}>Local milestone</span>
+              </button>
+              <button
+                onClick={() => setNewPlanet(p => ({ ...p, type: 'notion' }))}
+                style={{
+                  padding: '40px 24px',
+                  border: newPlanet.type === 'notion' ? '3px solid #00c8ff' : '2px solid #333',
+                  borderRadius: '16px',
+                  background: newPlanet.type === 'notion' ? 'rgba(0, 200, 255, 0.15)' : 'rgba(255,255,255,0.03)',
+                  color: '#00c8ff',
+                  cursor: 'pointer',
+                  fontSize: '20px',
+                  fontWeight: 'bold',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '12px',
+                }}
+              >
+                <span style={{ fontSize: '48px' }}>📋</span>
+                Task
+                <span style={{ fontSize: '12px', fontWeight: 'normal', color: '#888' }}>Syncs to Notion</span>
+              </button>
+            </div>
 
+            {/* Form appears below when type is selected */}
+            {newPlanet.type ? (
+              <>
                 {/* Common Fields */}
                 <div style={styles.formGroup}>
                   <label style={styles.label}>{newPlanet.type === 'notion' ? 'Task Title' : 'Planet Name'} *</label>
@@ -2414,7 +2365,7 @@ function App() {
                   </button>
                 </div>
               </>
-            )}
+            ) : null}
           </div>
         </div>
       )}

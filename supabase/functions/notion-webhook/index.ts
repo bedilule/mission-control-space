@@ -210,23 +210,6 @@ Deno.serve(async (req) => {
 
   try {
     const url = new URL(req.url);
-    const notionSecret = req.headers.get('x-notion-secret') || url.searchParams.get('secret');
-    const expectedSecret = Deno.env.get('NOTION_WEBHOOK_SECRET');
-
-    if (!expectedSecret) {
-      return new Response(
-        JSON.stringify({ error: 'Webhook not configured' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    if (notionSecret !== expectedSecret) {
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
     const rawPayload = await req.json();
     console.log('RAW PAYLOAD:', JSON.stringify(rawPayload, null, 2));
 
@@ -260,16 +243,113 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Check for duplicate
+    // Check if planet already exists
     const { data: existingPlanet } = await supabase
       .from('notion_planets')
-      .select('id')
+      .select('id, assigned_to, completed, x, y')
       .eq('notion_task_id', payload.id)
       .single();
 
+    // If planet exists, update it instead of creating a new one
     if (existingPlanet) {
+      // Calculate points based on priority
+      const points = payload.points || calculatePoints(payload.priority);
+
+      // Check if assignment changed - need to move planet
+      const assignmentChanged = existingPlanet.assigned_to !== (payload.assigned_to || null);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const updates: any = {
+        name: payload.name,
+        description: payload.description || null,
+        task_type: payload.type || null,
+        priority: payload.priority || null,
+        points: points,
+        notion_url: payload.url || null,
+      };
+
+      // If assignment changed, calculate new position
+      if (assignmentChanged) {
+        const { data: existingPlanets } = await supabase
+          .from('notion_planets')
+          .select('x, y')
+          .eq('team_id', team.id)
+          .neq('id', existingPlanet.id);
+
+        const newPosition = findNonOverlappingPosition(
+          payload.assigned_to,
+          existingPlanets || []
+        );
+        updates.assigned_to = payload.assigned_to || null;
+        updates.x = Math.round(newPosition.x);
+        updates.y = Math.round(newPosition.y);
+
+        console.log(`Moving planet "${payload.name}" to ${payload.assigned_to || 'unassigned'} zone`);
+      }
+
+      // Check if status indicates completion
+      const isCompleted = payload.status === 'done' ||
+                          payload.status === 'complete' ||
+                          payload.status?.includes('done') ||
+                          payload.status?.includes('✅');
+
+      if (isCompleted && !existingPlanet.completed) {
+        updates.completed = true;
+
+        // Award points for completion
+        if (payload.assigned_to) {
+          const { data: player } = await supabase
+            .from('players')
+            .select('id')
+            .eq('team_id', team.id)
+            .ilike('username', payload.assigned_to)
+            .single();
+
+          if (player) {
+            await supabase.from('point_transactions').insert({
+              team_id: team.id,
+              player_id: player.id,
+              source: 'notion',
+              notion_task_id: payload.id,
+              task_name: `Completed: ${payload.name}`,
+              points: points,
+            });
+
+            // Update team points
+            await supabase
+              .from('teams')
+              .update({ team_points: team.team_points + points })
+              .eq('id', team.id);
+
+            console.log(`Awarded ${points} points to ${payload.assigned_to} for completing "${payload.name}"`);
+          }
+        }
+      }
+
+      // Apply updates
+      const { error: updateError } = await supabase
+        .from('notion_planets')
+        .update(updates)
+        .eq('id', existingPlanet.id);
+
+      if (updateError) {
+        console.error('Failed to update planet:', updateError);
+        return new Response(
+          JSON.stringify({ error: 'Failed to update planet', details: updateError.message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      console.log(`Updated planet "${payload.name}" - priority: ${payload.priority}, type: ${payload.type}`);
+
       return new Response(
-        JSON.stringify({ message: 'Planet already exists', task_id: payload.id, planet_id: existingPlanet.id }),
+        JSON.stringify({
+          success: true,
+          action: 'updated',
+          planet_id: existingPlanet.id,
+          planet_name: payload.name,
+          changes: { assignmentChanged, completed: isCompleted },
+        }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

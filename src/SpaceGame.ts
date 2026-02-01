@@ -2071,8 +2071,9 @@ export class SpaceGame {
       const isCompleted = this.landedPlanet.completed;
       const isNotionPlanet = this.landedPlanet.id.startsWith('notion-');
       const isUnassigned = isNotionPlanet && (!this.landedPlanet.ownerId || this.landedPlanet.ownerId === '');
+      const isPlanetFactory = this.landedPlanet.id === 'planet-builder';
       let hint = 'SPACE Take Off';
-      if (!isCompleted) {
+      if (!isCompleted && !isPlanetFactory) {
         if (isUnassigned) {
           hint += '  •  C Claim Mission';
         } else {
@@ -2223,15 +2224,43 @@ export class SpaceGame {
     const userId = isUserPlanet ? planet.id.replace('user-planet-', '') : null;
     const userPlanetImage = userId ? this.userPlanetImages.get(userId) : null;
 
+    // Check if this is a Notion planet with special effects
+    const isNotionPlanet = planet.type === 'notion';
+    const taskType = (planet as any).taskType?.toLowerCase() || '';
+    const priority = planet.priority?.toLowerCase() || '';
+    const isCritical = priority.includes('critical') || priority.includes('🧨');
+    const isHigh = priority.includes('high') || priority.includes('🔥');
+    const isBug = taskType === 'bug';
+    const isFeature = taskType === 'feature' || taskType === 'enhancement';
+
+    // Pulsing glow for critical priority
+    const pulseIntensity = isCritical ? 0.3 + Math.sin(Date.now() * 0.005) * 0.2 : 0;
+    const glowMultiplier = isCritical ? 3.5 : (isHigh ? 3 : 2.5);
+
     // Glow
-    const glowGradient = ctx.createRadialGradient(x, y, 0, x, y, planet.radius * 2.5);
-    glowGradient.addColorStop(0, style.baseColor + '40');
+    const glowGradient = ctx.createRadialGradient(x, y, 0, x, y, planet.radius * glowMultiplier);
+    const glowAlpha = isCritical ? Math.floor((0.4 + pulseIntensity) * 255).toString(16).padStart(2, '0') : '40';
+    glowGradient.addColorStop(0, style.baseColor + glowAlpha);
     glowGradient.addColorStop(0.5, style.baseColor + '15');
     glowGradient.addColorStop(1, 'transparent');
     ctx.beginPath();
-    ctx.arc(x, y, planet.radius * 2.5, 0, Math.PI * 2);
+    ctx.arc(x, y, planet.radius * glowMultiplier, 0, Math.PI * 2);
     ctx.fillStyle = glowGradient;
     ctx.fill();
+
+    // Critical priority: pulsing outer ring
+    if (isCritical && !planet.completed) {
+      const ringPulse = 1 + Math.sin(Date.now() * 0.003) * 0.1;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(x, y, planet.radius * 1.4 * ringPulse, 0, Math.PI * 2);
+      ctx.strokeStyle = style.baseColor + '60';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([8, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
 
     // Ring (if has ring and not custom image planet)
     if ((planet as any).hasRing && !isHormoziPlanet && !hasCustomImage) {
@@ -2363,6 +2392,62 @@ export class SpaceGame {
     ctx.strokeStyle = planet.completed ? '#4ade80' : style.baseColor + '60';
     ctx.lineWidth = planet.completed ? 3 : 2;
     ctx.stroke();
+
+    // Bug planets: Draw cracks/damage effect
+    if (isBug && !planet.completed && isNotionPlanet) {
+      ctx.save();
+      ctx.strokeStyle = '#ff000080';
+      ctx.lineWidth = 2;
+      // Draw crack lines
+      for (let i = 0; i < 4; i++) {
+        const startAngle = (i / 4) * Math.PI * 2 + 0.5;
+        const startX = x + Math.cos(startAngle) * planet.radius * 0.3;
+        const startY = y + Math.sin(startAngle) * planet.radius * 0.3;
+        const endX = x + Math.cos(startAngle + 0.3) * planet.radius * 0.9;
+        const endY = y + Math.sin(startAngle + 0.2) * planet.radius * 0.85;
+        const midX = (startX + endX) / 2 + (Math.random() - 0.5) * 10;
+        const midY = (startY + endY) / 2 + (Math.random() - 0.5) * 10;
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.quadraticCurveTo(midX, midY, endX, endY);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // Feature planets: Draw sparkle/star particles
+    if (isFeature && !planet.completed && isNotionPlanet) {
+      const sparkleCount = 5;
+      const time = Date.now() * 0.002;
+      ctx.save();
+      for (let i = 0; i < sparkleCount; i++) {
+        const angle = (i / sparkleCount) * Math.PI * 2 + time;
+        const dist = planet.radius * (1.2 + Math.sin(time * 2 + i) * 0.3);
+        const sparkleX = x + Math.cos(angle) * dist;
+        const sparkleY = y + Math.sin(angle) * dist;
+        const sparkleSize = 3 + Math.sin(time * 3 + i * 2) * 2;
+
+        // Draw 4-point star sparkle
+        ctx.fillStyle = '#ffffff';
+        ctx.globalAlpha = 0.5 + Math.sin(time * 4 + i) * 0.3;
+        ctx.beginPath();
+        ctx.moveTo(sparkleX, sparkleY - sparkleSize);
+        ctx.lineTo(sparkleX + sparkleSize * 0.3, sparkleY);
+        ctx.lineTo(sparkleX, sparkleY + sparkleSize);
+        ctx.lineTo(sparkleX - sparkleSize * 0.3, sparkleY);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(sparkleX - sparkleSize, sparkleY);
+        ctx.lineTo(sparkleX, sparkleY + sparkleSize * 0.3);
+        ctx.lineTo(sparkleX + sparkleSize, sparkleY);
+        ctx.lineTo(sparkleX, sparkleY - sparkleSize * 0.3);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
 
     // Moon (if has moon)
     if ((planet as any).hasMoon && !planet.completed) {
@@ -2769,29 +2854,131 @@ export class SpaceGame {
     const typeColors: Record<string, string> = { business: '#4ade80', product: '#5490ff', achievement: '#ffd700', notion: '#94a3b8' };
     ctx.fillStyle = typeColors[planet.type] || '#94a3b8';
     ctx.font = '12px Space Grotesk';
-    const typeLabel = planet.type === 'notion' ? 'NOTION TASK' : planet.type.toUpperCase();
     const ownerName = planet.ownerId ? planet.ownerId.charAt(0).toUpperCase() + planet.ownerId.slice(1) : null;
     const isUnassigned = planet.type === 'notion' && (!planet.ownerId || planet.ownerId === '');
-    const ownerText = ownerName ? ` • ${ownerName}'s Task` : (isUnassigned ? ' • Unassigned' : ' • Shared Task');
-    const sizeLabel = ` • ${planet.size.charAt(0).toUpperCase() + planet.size.slice(1)}`;
-    ctx.fillText(typeLabel + ownerText + sizeLabel, boxX + boxWidth / 2, boxY + 65);
+    const ownerText = ownerName ? `${ownerName}'s Task` : (isUnassigned ? 'Unassigned' : 'Shared Task');
+    ctx.fillText(ownerText, boxX + boxWidth / 2, boxY + 65);
 
-    let currentY = boxY + 90;
+    let currentY = boxY + 85;
 
-    // Priority badge (for notion tasks)
-    if (hasPriority) {
-      const priorityColors: Record<string, string> = {
-        'urgent': '#ff4444',
-        'high': '#ff8c00',
-        'medium': '#ffd700',
-        'low': '#4ade80',
-        'none': '#666'
+    // Task type and priority badges (for notion tasks)
+    const taskType = (planet as any).taskType?.toLowerCase() || '';
+    if (planet.type === 'notion' && (taskType || hasPriority)) {
+      // Task type badge with icon
+      const typeIcons: Record<string, string> = {
+        'bug': '🐛',
+        'feature': '✨',
+        'enhancement': '✨',
+        'task': '📋',
+        'epic': '🎯',
       };
-      const priorityColor = priorityColors[planet.priority?.toLowerCase() || 'none'] || '#666';
-      ctx.fillStyle = priorityColor;
-      ctx.font = 'bold 11px Space Grotesk';
-      ctx.fillText(`Priority: ${planet.priority?.toUpperCase()}`, boxX + boxWidth / 2, currentY);
-      currentY += 22;
+      const typeLabels: Record<string, string> = {
+        'bug': 'Bug',
+        'feature': 'Feature',
+        'enhancement': 'Enhancement',
+        'task': 'Task',
+        'epic': 'Epic',
+      };
+      const typeBgColors: Record<string, string> = {
+        'bug': '#ff4444',
+        'feature': '#4ecdc4',
+        'enhancement': '#60a5fa',
+        'task': '#fbbf24',
+        'epic': '#a855f7',
+      };
+
+      // Priority badge colors and icons
+      const priorityIcons: Record<string, string> = {
+        'critical': '🧨',
+        'high': '🔥',
+        'medium': '⚡',
+        'low': '💡',
+      };
+      const priorityLabels: Record<string, string> = {
+        'critical': 'Critical',
+        'high': 'High',
+        'medium': 'Medium',
+        'low': 'Low',
+      };
+      const priorityBgColors: Record<string, string> = {
+        'critical': '#dc2626',
+        'high': '#ea580c',
+        'medium': '#ca8a04',
+        'low': '#16a34a',
+      };
+
+      const priorityKey = planet.priority?.toLowerCase().replace(/[🧨🔥⚡💡\s]/g, '').trim() || '';
+
+      // Calculate badge positions
+      const badgeGap = 10;
+      const badges: { icon: string; label: string; bg: string }[] = [];
+
+      if (taskType && typeLabels[taskType]) {
+        badges.push({
+          icon: typeIcons[taskType] || '📋',
+          label: typeLabels[taskType],
+          bg: typeBgColors[taskType] || '#666',
+        });
+      }
+
+      if (priorityKey && priorityLabels[priorityKey]) {
+        badges.push({
+          icon: priorityIcons[priorityKey] || '',
+          label: priorityLabels[priorityKey],
+          bg: priorityBgColors[priorityKey] || '#666',
+        });
+      }
+
+      if (badges.length > 0) {
+        // Calculate total width
+        ctx.font = 'bold 11px Space Grotesk';
+        let totalWidth = 0;
+        const badgeWidths: number[] = [];
+        for (const badge of badges) {
+          const textWidth = ctx.measureText(badge.icon + ' ' + badge.label).width + 20;
+          badgeWidths.push(textWidth);
+          totalWidth += textWidth;
+        }
+        totalWidth += (badges.length - 1) * badgeGap;
+
+        let badgeX = boxX + boxWidth / 2 - totalWidth / 2;
+        for (let i = 0; i < badges.length; i++) {
+          const badge = badges[i];
+          const bw = badgeWidths[i];
+
+          // Badge background
+          ctx.fillStyle = badge.bg;
+          ctx.beginPath();
+          ctx.roundRect(badgeX, currentY - 10, bw, 22, 6);
+          ctx.fill();
+
+          // Badge text
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 11px Space Grotesk';
+          ctx.textAlign = 'center';
+          ctx.fillText(badge.icon + ' ' + badge.label, badgeX + bw / 2, currentY + 5);
+
+          badgeX += bw + badgeGap;
+        }
+        ctx.textAlign = 'center';
+        currentY += 28;
+      }
+
+      // Points display
+      if (planet.points) {
+        ctx.fillStyle = '#ffd700';
+        ctx.font = 'bold 12px Space Grotesk';
+        ctx.fillText(`💎 ${planet.points} pts`, boxX + boxWidth / 2, currentY + 5);
+        currentY += 22;
+      }
+    } else if (planet.type !== 'notion') {
+      // Non-notion planets: show type and size
+      const typeLabel = planet.type.toUpperCase();
+      const sizeLabel = planet.size.charAt(0).toUpperCase() + planet.size.slice(1);
+      ctx.fillStyle = typeColors[planet.type] || '#94a3b8';
+      ctx.font = '11px Space Grotesk';
+      ctx.fillText(`${typeLabel} • ${sizeLabel}`, boxX + boxWidth / 2, currentY);
+      currentY += 20;
     }
 
     // Description
@@ -2860,7 +3047,8 @@ export class SpaceGame {
     // Action hints at the bottom
     currentY = boxY + boxHeight - 35;
 
-    if (!planet.completed) {
+    const isPlanetFactory = planet.id === 'planet-builder';
+    if (!planet.completed && !isPlanetFactory) {
       const isNotionPlanet = planet.type === 'notion';
       const isUnassignedNotion = isNotionPlanet && (!planet.ownerId || planet.ownerId === '');
 

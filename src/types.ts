@@ -43,6 +43,7 @@ export interface Planet {
   // Notion-specific fields
   notionTaskId?: string;
   notionUrl?: string;
+  taskType?: string | null; // bug, feature, task, etc.
 }
 
 export interface NotionPlanet {
