@@ -279,9 +279,37 @@ Deno.serve(async (req) => {
     const existingPositions: ExistingPlanet[] = (existingPlanets || []).map(p => ({ x: p.x, y: p.y }));
 
     const created: string[] = [];
+    const updated: string[] = [];
+    const deleted: string[] = [];
     const skipped: string[] = [];
     const errors: string[] = [];
     let totalCreatorPoints = 0;
+
+    // Get all Notion task IDs from the API response
+    const notionTaskIds = new Set(pages.map((p: { id: string }) => p.id));
+
+    // Find planets whose Notion tasks no longer exist (deleted from Notion)
+    const { data: allPlanets } = await supabase
+      .from('notion_planets')
+      .select('id, notion_task_id, name')
+      .eq('team_id', team.id);
+
+    for (const planet of allPlanets || []) {
+      if (!notionTaskIds.has(planet.notion_task_id)) {
+        // Task was deleted from Notion - remove the planet
+        const { error: deleteError } = await supabase
+          .from('notion_planets')
+          .delete()
+          .eq('id', planet.id);
+
+        if (deleteError) {
+          errors.push(`Failed to delete ${planet.name}: ${deleteError.message}`);
+        } else {
+          deleted.push(planet.name);
+          console.log(`Deleted planet "${planet.name}" - Notion task no longer exists`);
+        }
+      }
+    }
 
     for (const page of pages) {
       const parsed = parseNotionPage(page);
@@ -368,7 +396,7 @@ Deno.serve(async (req) => {
         .eq('id', team.id);
     }
 
-    console.log(`Sync complete: ${created.length} created, ${skipped.length} skipped, ${errors.length} errors`);
+    console.log(`Sync complete: ${created.length} created, ${deleted.length} deleted, ${skipped.length} skipped, ${errors.length} errors`);
 
     return new Response(
       JSON.stringify({
@@ -376,11 +404,13 @@ Deno.serve(async (req) => {
         summary: {
           total_in_notion: pages.length,
           created: created.length,
+          deleted: deleted.length,
           skipped: skipped.length,
           errors: errors.length,
           creator_points_awarded: totalCreatorPoints,
         },
         created,
+        deleted,
         skipped,
         errors,
       }),

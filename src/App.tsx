@@ -7,7 +7,7 @@ import { useTeam } from './hooks/useTeam';
 import { useMultiplayerSync } from './hooks/useMultiplayerSync';
 import { usePlayerPositions } from './hooks/usePlayerPositions';
 import { useNotionPlanets } from './hooks/useNotionPlanets';
-import { getLocalPlayerId, getShareUrl as buildShareUrl } from './lib/supabase';
+import { getLocalPlayerId, getShareUrl as buildShareUrl, supabase } from './lib/supabase';
 
 const FAL_API_KEY = 'c2df5aba-75d9-4626-95bb-aa366317d09e:8f90bb335a773f0ce3f261354107daa6';
 const STORAGE_KEY = 'mission-control-space-state';
@@ -392,12 +392,14 @@ function App() {
     onColonize: (planet: Planet) => void;
     onOpenNotion: (url: string) => void;
     onTerraform: (planet: Planet) => void;
+    onDestroyPlanet: (planet: Planet) => void;
   }>({
     onLand: () => {},
     onTakeoff: () => {},
     onColonize: () => {},
     onOpenNotion: () => {},
     onTerraform: () => {},
+    onDestroyPlanet: () => {},
   });
   const [state, setState] = useState<SavedState>(loadState);
   const [customPlanets, setCustomPlanets] = useState<CustomPlanet[]>(loadCustomPlanets);
@@ -651,31 +653,206 @@ function App() {
     saveUserPlanets(userPlanets);
   }, [userPlanets]);
 
-  // Reset everything
-  const resetEverything = () => {
+  // Reset Points (local + Supabase)
+  const resetPoints = async () => {
+    if (!confirm('Reset all points and transaction history? This cannot be undone!')) return;
+
+    try {
+      // Reset Supabase
+      if (team?.id) {
+        // Delete all point transactions for this team
+        await supabase
+          .from('point_transactions')
+          .delete()
+          .eq('team_id', team.id);
+
+        // Reset team points to 0
+        await supabase
+          .from('teams')
+          .update({ team_points: 0 })
+          .eq('id', team.id);
+      }
+
+      // Reset local state
+      localStorage.removeItem(TEAM_POINTS_KEY);
+      setTeamPoints(0);
+
+      alert('Points have been reset!');
+    } catch (err) {
+      console.error('Failed to reset points:', err);
+      alert('Failed to reset points. Check console for details.');
+    }
+  };
+
+  // Reset Ship Upgrades (local + Supabase)
+  const resetShipUpgrades = async () => {
+    if (!confirm('Reset all ship upgrades for all players? This cannot be undone!')) return;
+
+    try {
+      // Reset Supabase - all players in this team
+      if (team?.id) {
+        await supabase
+          .from('players')
+          .update({
+            ship_current_image: '/ship-base.png',
+            ship_effects: { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, ownedGlows: [], ownedTrails: [] },
+            ship_upgrades: [],
+          })
+          .eq('team_id', team.id);
+      }
+
+      // Reset local state
+      localStorage.removeItem(USER_SHIPS_KEY);
+      localStorage.removeItem(MASCOT_HISTORY_KEY);
+      setUserShips({});
+      setMascotHistory([]);
+      setState(prev => ({
+        ...prev,
+        robotImage: '/ship-base.png',
+        robotDescription: 'A small friendly spaceship',
+        upgradeCount: 0,
+      }));
+
+      alert('Ship upgrades have been reset!');
+    } catch (err) {
+      console.error('Failed to reset ship upgrades:', err);
+      alert('Failed to reset ship upgrades. Check console for details.');
+    }
+  };
+
+  // Reset Planet Progress (completed planets - local + Supabase)
+  const resetPlanetProgress = async () => {
+    if (!confirm('Reset all planet completion progress? This cannot be undone!')) return;
+
+    try {
+      // Reset Supabase
+      if (team?.id) {
+        await supabase
+          .from('teams')
+          .update({ completed_planets: [] })
+          .eq('id', team.id);
+      }
+
+      // Reset local state
+      setState(prev => ({ ...prev, completedPlanets: [] }));
+
+      alert('Planet progress has been reset!');
+    } catch (err) {
+      console.error('Failed to reset planet progress:', err);
+      alert('Failed to reset planet progress. Check console for details.');
+    }
+  };
+
+  // Reset Planet Upgrades (terraform levels - local + Supabase)
+  const resetPlanetUpgrades = async () => {
+    if (!confirm('Reset all planet upgrades (terraform levels) for all players? This cannot be undone!')) return;
+
+    try {
+      // Reset Supabase - all players in this team
+      if (team?.id) {
+        await supabase
+          .from('players')
+          .update({
+            planet_image_url: null,
+            planet_terraform_count: 0,
+            planet_size_level: 0,
+          })
+          .eq('team_id', team.id);
+      }
+
+      // Reset local state
+      localStorage.removeItem(USER_PLANETS_KEY);
+      setUserPlanets({});
+
+      alert('Planet upgrades have been reset!');
+    } catch (err) {
+      console.error('Failed to reset planet upgrades:', err);
+      alert('Failed to reset planet upgrades. Check console for details.');
+    }
+  };
+
+  // Reset Custom Planets (local only)
+  const resetCustomPlanets = () => {
+    if (!confirm('Delete all custom planets? This cannot be undone!')) return;
+
+    localStorage.removeItem(CUSTOM_PLANETS_KEY);
+    setCustomPlanets([]);
+
+    alert('Custom planets have been deleted!');
+  };
+
+  // Reset Goals (local only)
+  const resetGoals = () => {
+    if (!confirm('Reset all goals to defaults? This cannot be undone!')) return;
+
+    localStorage.removeItem(GOALS_KEY);
+    setGoals(DEFAULT_GOALS as Goals);
+
+    alert('Goals have been reset to defaults!');
+  };
+
+  // Reset everything (all of the above)
+  const resetEverything = async () => {
     if (!confirm('Are you sure you want to reset EVERYTHING? This cannot be undone!')) return;
 
-    localStorage.removeItem(STORAGE_KEY);
-    localStorage.removeItem(CUSTOM_PLANETS_KEY);
-    localStorage.removeItem(TEAM_POINTS_KEY);
-    localStorage.removeItem(USER_SHIPS_KEY);
-    localStorage.removeItem(MASCOT_HISTORY_KEY);
-    localStorage.removeItem(GOALS_KEY);
-    localStorage.removeItem(USER_PLANETS_KEY);
+    try {
+      // Reset Supabase
+      if (team?.id) {
+        // Delete all point transactions
+        await supabase
+          .from('point_transactions')
+          .delete()
+          .eq('team_id', team.id);
 
-    // Reset all state
-    setState({ completedPlanets: [], robotImage: '/ship-base.png', robotDescription: 'A small friendly spaceship', upgradeCount: 0 });
-    setCustomPlanets([]);
-    setTeamPoints(0);
-    setUserShips({});
-    setMascotHistory([]);
-    setGoals(DEFAULT_GOALS as Goals);
-    setUserPlanets({});
-    setShowSettings(false);
-    setShowWelcome(true);
-    setShowUserSelect(true);
+        // Reset team data
+        await supabase
+          .from('teams')
+          .update({
+            team_points: 0,
+            completed_planets: [],
+          })
+          .eq('id', team.id);
 
-    alert('Everything has been reset!');
+        // Reset all players
+        await supabase
+          .from('players')
+          .update({
+            ship_current_image: '/ship-base.png',
+            ship_effects: { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, ownedGlows: [], ownedTrails: [] },
+            ship_upgrades: [],
+            planet_image_url: null,
+            planet_terraform_count: 0,
+            planet_size_level: 0,
+          })
+          .eq('team_id', team.id);
+      }
+
+      // Reset all local storage
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(CUSTOM_PLANETS_KEY);
+      localStorage.removeItem(TEAM_POINTS_KEY);
+      localStorage.removeItem(USER_SHIPS_KEY);
+      localStorage.removeItem(MASCOT_HISTORY_KEY);
+      localStorage.removeItem(GOALS_KEY);
+      localStorage.removeItem(USER_PLANETS_KEY);
+
+      // Reset all state
+      setState({ completedPlanets: [], robotImage: '/ship-base.png', robotDescription: 'A small friendly spaceship', upgradeCount: 0 });
+      setCustomPlanets([]);
+      setTeamPoints(0);
+      setUserShips({});
+      setMascotHistory([]);
+      setGoals(DEFAULT_GOALS as Goals);
+      setUserPlanets({});
+      setShowSettings(false);
+      setShowWelcome(true);
+      setShowUserSelect(true);
+
+      alert('Everything has been reset!');
+    } catch (err) {
+      console.error('Failed to reset everything:', err);
+      alert('Failed to reset everything. Check console for details.');
+    }
   };
 
   // Update a goal
@@ -1211,6 +1388,49 @@ function App() {
     }
   }, [state.currentUser]);
 
+  // Handle destroying a completed planet (cleanup feature)
+  const handleDestroyPlanet = useCallback(async (planet: Planet) => {
+    if (!planet.completed) return;
+
+    // Special planets cannot be destroyed
+    const specialPlanets = ['memory-lane', 'shop-station', 'planet-builder'];
+    if (specialPlanets.includes(planet.id) || planet.id.startsWith('user-planet-')) {
+      return;
+    }
+
+    // Clear landed state
+    setLandedPlanet(null);
+
+    // Handle Notion planets - delete from database
+    if (planet.id.startsWith('notion-')) {
+      const actualId = planet.id.replace('notion-', '');
+      try {
+        const { error } = await supabase
+          .from('notion_planets')
+          .delete()
+          .eq('id', actualId);
+
+        if (error) {
+          console.error('Failed to delete planet:', error);
+        } else {
+          console.log(`Destroyed planet: ${planet.name}`);
+        }
+      } catch (err) {
+        console.error('Error destroying planet:', err);
+      }
+      return;
+    }
+
+    // Handle custom planets - remove from local state
+    setCustomPlanets(prev => prev.filter(p => p.id !== planet.id));
+
+    // Remove from completed planets
+    setState(prev => ({
+      ...prev,
+      completedPlanets: prev.completedPlanets.filter(id => id !== planet.id),
+    }));
+  }, []);
+
   // Keep landing callbacks ref updated
   useEffect(() => {
     landingCallbacksRef.current = {
@@ -1219,8 +1439,9 @@ function App() {
       onColonize: handleColonize,
       onOpenNotion: handleOpenNotion,
       onTerraform: handleTerraform,
+      onDestroyPlanet: handleDestroyPlanet,
     };
-  }, [handleLand, handleTakeoff, handleColonize, handleOpenNotion, handleTerraform]);
+  }, [handleLand, handleTakeoff, handleColonize, handleOpenNotion, handleTerraform, handleDestroyPlanet]);
 
   // Close modals with Space or Escape key
   useEffect(() => {
@@ -1667,6 +1888,7 @@ function App() {
       onColonize: (planet) => landingCallbacksRef.current.onColonize(planet),
       onOpenNotion: (url) => landingCallbacksRef.current.onOpenNotion(url),
       onTerraform: (planet) => landingCallbacksRef.current.onTerraform(planet),
+      onDestroyPlanet: (planet) => landingCallbacksRef.current.onDestroyPlanet(planet),
     });
 
     // Sync notion planets immediately if already loaded
@@ -2676,13 +2898,38 @@ function App() {
                   </div>
                 ))}
 
-                {/* Reset button */}
+                {/* Reset Section */}
                 <div style={styles.resetSection}>
+                  <h3 style={styles.resetSectionTitle}>Reset Options</h3>
+
+                  <div style={styles.resetGrid}>
+                    <button style={styles.resetButtonSmall} onClick={resetPoints}>
+                      💰 Reset Points
+                    </button>
+                    <button style={styles.resetButtonSmall} onClick={resetShipUpgrades}>
+                      🚀 Reset Ships
+                    </button>
+                    <button style={styles.resetButtonSmall} onClick={resetPlanetProgress}>
+                      🌍 Reset Progress
+                    </button>
+                    <button style={styles.resetButtonSmall} onClick={resetPlanetUpgrades}>
+                      🔧 Reset Planet Upgrades
+                    </button>
+                    <button style={styles.resetButtonSmall} onClick={resetCustomPlanets}>
+                      🪐 Delete Custom Planets
+                    </button>
+                    <button style={styles.resetButtonSmall} onClick={resetGoals}>
+                      🎯 Reset Goals
+                    </button>
+                  </div>
+
+                  <div style={styles.resetDivider} />
+
                   <button style={styles.resetButton} onClick={resetEverything}>
                     🗑️ Reset Everything
                   </button>
                   <p style={styles.resetWarning}>
-                    This will delete all progress, ships, custom planets, and goals
+                    Resets all of the above (points, ships, planets, goals)
                   </p>
                 </div>
 
@@ -3064,6 +3311,21 @@ const styles: Record<string, React.CSSProperties> = {
   },
   resetSection: {
     marginTop: '2rem', paddingTop: '1.5rem', borderTop: '1px solid #333', textAlign: 'center',
+  },
+  resetSectionTitle: {
+    color: '#ff6666', fontSize: '0.9rem', fontWeight: 600, marginBottom: '1rem', textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+  },
+  resetGrid: {
+    display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem', marginBottom: '1rem',
+  },
+  resetButtonSmall: {
+    background: 'rgba(255, 68, 68, 0.15)', border: '1px solid #ff4444', borderRadius: 6,
+    color: '#ff6666', fontSize: '0.75rem', padding: '0.5rem 0.5rem', cursor: 'pointer', fontWeight: 500,
+    transition: 'background 0.2s, border-color 0.2s',
+  },
+  resetDivider: {
+    height: 1, background: '#333', margin: '1rem 0',
   },
   resetButton: {
     background: '#ff4444', border: 'none', borderRadius: 8,

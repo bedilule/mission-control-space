@@ -231,13 +231,8 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Skip if status is "archived" (already done)
-    if (payload.status === 'archived') {
-      return new Response(
-        JSON.stringify({ message: 'Task already archived, skipping', task_id: payload.id }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    // Archived status = completed (planet stays as trophy)
+    const isArchived = payload.status === 'archived' || payload.status?.includes('archived');
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -287,8 +282,9 @@ Deno.serve(async (req) => {
         console.log(`Moving planet "${payload.name}" to ${payload.assigned_to || 'unassigned'} zone`);
       }
 
-      // Check if status indicates completion
-      const isCompleted = payload.status === 'done' ||
+      // Check if status indicates completion (archived = done)
+      const isCompleted = isArchived ||
+                          payload.status === 'done' ||
                           payload.status === 'complete' ||
                           payload.status?.includes('done') ||
                           payload.status?.includes('✅');

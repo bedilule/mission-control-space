@@ -144,6 +144,13 @@ export class SpaceGame {
   private onColonize: ((planet: Planet) => void) | null = null;
   private onOpenNotion: ((url: string) => void) | null = null;
   private onTerraform: ((planet: Planet) => void) | null = null;
+  private onDestroyPlanet: ((planet: Planet) => void) | null = null;
+
+  // Destroy animation state (explosion effect)
+  private isDestroying: boolean = false;
+  private destroyProgress: number = 0;
+  private destroyPlanet: Planet | null = null;
+  private destroyParticles: { x: number; y: number; vx: number; vy: number; life: number; color: string; size: number }[] = [];
 
   // Claim animation state (laser beam + planet teleport)
   private isClaiming: boolean = false;
@@ -595,12 +602,14 @@ export class SpaceGame {
     onColonize?: (planet: Planet) => void;
     onOpenNotion?: (url: string) => void;
     onTerraform?: (planet: Planet) => void;
+    onDestroyPlanet?: (planet: Planet) => void;
   }) {
     this.onLand = callbacks.onLand || null;
     this.onTakeoff = callbacks.onTakeoff || null;
     this.onColonize = callbacks.onColonize || null;
     this.onOpenNotion = callbacks.onOpenNotion || null;
     this.onTerraform = callbacks.onTerraform || null;
+    this.onDestroyPlanet = callbacks.onDestroyPlanet || null;
   }
 
   public isPlayerLanded(): boolean {
@@ -818,6 +827,14 @@ export class SpaceGame {
     // Handle claim animation
     if (this.isClaiming) {
       this.updateClaimAnimation();
+      this.updateCamera();
+      this.updateParticles();
+      return;
+    }
+
+    // Handle destroy animation
+    if (this.isDestroying) {
+      this.updateDestroyAnimation();
       this.updateCamera();
       this.updateParticles();
       return;
@@ -1296,6 +1313,18 @@ export class SpaceGame {
       }
       return;
     }
+
+    // Handle X key - destroy completed planet
+    if (this.keys.has('x')) {
+      this.keys.delete('x');
+      const specialPlanets = ['memory-lane', 'shop-station', 'planet-builder'];
+      const isSpecial = specialPlanets.includes(planet.id) || planet.id.startsWith('user-planet-');
+      // Can only destroy completed non-special planets
+      if (planet.completed && !isSpecial && this.onDestroyPlanet) {
+        this.startDestroyAnimation(planet);
+      }
+      return;
+    }
   }
 
   private emitOrbitTrail() {
@@ -1580,6 +1609,216 @@ export class SpaceGame {
       ctx.fillStyle = p.color;
       ctx.globalAlpha = Math.min(1, alpha);
       ctx.shadowBlur = 10;
+      ctx.shadowColor = p.color;
+      ctx.fill();
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+
+  // Start destroy animation (for cleaning up completed planets)
+  private startDestroyAnimation(planet: Planet) {
+    this.isDestroying = true;
+    this.destroyProgress = 0;
+    this.destroyPlanet = planet;
+    this.destroyParticles = [];
+
+    // Clear landed state
+    this.isLanded = false;
+    this.landedPlanet = null;
+
+    // Play sound
+    soundManager.playDockingSound();
+  }
+
+  // Update destroy animation
+  private updateDestroyAnimation() {
+    if (!this.isDestroying || !this.destroyPlanet) return;
+
+    const planet = this.destroyPlanet;
+    this.destroyProgress += 0.025; // ~2 second animation
+
+    const { ship } = this.state;
+
+    // Keep ship in position
+    ship.x = planet.x;
+    ship.y = planet.y - planet.radius - 25;
+    ship.vx = 0;
+    ship.vy = 0;
+    ship.rotation = -Math.PI / 2;
+
+    // Phase 1: Charging red laser (0-0.3)
+    if (this.destroyProgress < 0.3) {
+      if (Math.random() < 0.4) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 60 + Math.random() * 30;
+        this.destroyParticles.push({
+          x: ship.x + Math.cos(angle) * dist,
+          y: ship.y + Math.sin(angle) * dist,
+          vx: -Math.cos(angle) * 4,
+          vy: -Math.sin(angle) * 4,
+          life: 15,
+          color: '#ff4444',
+          size: 3 + Math.random() * 2,
+        });
+      }
+    }
+    // Phase 2: Red beam hits planet, planet cracks (0.3-0.6)
+    else if (this.destroyProgress < 0.6) {
+      for (let i = 0; i < 4; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        this.destroyParticles.push({
+          x: planet.x + Math.cos(angle) * planet.radius * 0.8,
+          y: planet.y + Math.sin(angle) * planet.radius * 0.8,
+          vx: Math.cos(angle) * (1 + Math.random()),
+          vy: Math.sin(angle) * (1 + Math.random()),
+          life: 25,
+          color: Math.random() < 0.5 ? '#ff6600' : '#ffaa00',
+          size: 2 + Math.random() * 3,
+        });
+      }
+    }
+    // Phase 3: Massive explosion (0.6-0.85)
+    else if (this.destroyProgress < 0.85) {
+      if (this.destroyProgress < 0.7) {
+        for (let i = 0; i < 20; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const speed = 4 + Math.random() * 8;
+          this.destroyParticles.push({
+            x: planet.x + (Math.random() - 0.5) * planet.radius,
+            y: planet.y + (Math.random() - 0.5) * planet.radius,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: 50 + Math.random() * 40,
+            color: ['#ff4444', '#ff8800', '#ffcc00', '#ffffff'][Math.floor(Math.random() * 4)],
+            size: 4 + Math.random() * 6,
+          });
+        }
+      }
+    }
+
+    // Update destroy particles
+    for (let i = this.destroyParticles.length - 1; i >= 0; i--) {
+      const p = this.destroyParticles[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vx *= 0.98;
+      p.vy *= 0.98;
+      p.life--;
+      if (p.life <= 0) {
+        this.destroyParticles.splice(i, 1);
+      }
+    }
+
+    // Animation complete
+    if (this.destroyProgress >= 1) {
+      this.isDestroying = false;
+      this.destroyParticles = [];
+
+      // Remove planet from state
+      this.state.planets = this.state.planets.filter(p => p.id !== this.destroyPlanet?.id);
+
+      // Call the destroy callback
+      if (this.onDestroyPlanet && this.destroyPlanet) {
+        this.onDestroyPlanet(this.destroyPlanet);
+      }
+      this.destroyPlanet = null;
+    }
+  }
+
+  // Render destroy animation effects
+  private renderDestroyAnimation() {
+    if (!this.isDestroying || !this.destroyPlanet) return;
+
+    const { ctx } = this;
+    const planet = this.destroyPlanet;
+    const { ship } = this.state;
+
+    ctx.save();
+    ctx.translate(-this.state.camera.x + this.canvas.width / 2, -this.state.camera.y + this.canvas.height / 2);
+
+    // Phase 1: Red charging glow
+    if (this.destroyProgress < 0.3) {
+      const chargeIntensity = this.destroyProgress / 0.3;
+      ctx.beginPath();
+      ctx.arc(ship.x, ship.y, 25 + chargeIntensity * 25, 0, Math.PI * 2);
+      const gradient = ctx.createRadialGradient(ship.x, ship.y, 5, ship.x, ship.y, 50);
+      gradient.addColorStop(0, `rgba(255, 68, 68, ${chargeIntensity * 0.6})`);
+      gradient.addColorStop(1, 'rgba(255, 68, 68, 0)');
+      ctx.fillStyle = gradient;
+      ctx.fill();
+    }
+
+    // Phase 2: Red destruction beam
+    if (this.destroyProgress >= 0.3 && this.destroyProgress < 0.6) {
+      const beamProgress = (this.destroyProgress - 0.3) / 0.3;
+      const beamWidth = 12 + Math.sin(this.destroyProgress * 60) * 3;
+
+      ctx.strokeStyle = '#ff4444';
+      ctx.lineWidth = beamWidth;
+      ctx.shadowColor = '#ff4444';
+      ctx.shadowBlur = 25;
+      ctx.beginPath();
+      ctx.moveTo(ship.x, ship.y + 20);
+      ctx.lineTo(planet.x, planet.y);
+      ctx.stroke();
+
+      // Inner bright beam
+      ctx.strokeStyle = '#ffaa00';
+      ctx.lineWidth = beamWidth * 0.3;
+      ctx.beginPath();
+      ctx.moveTo(ship.x, ship.y + 20);
+      ctx.lineTo(planet.x, planet.y);
+      ctx.stroke();
+
+      // Draw cracking planet
+      const crackIntensity = beamProgress;
+      ctx.shadowBlur = 20;
+      ctx.shadowColor = '#ff4444';
+      ctx.beginPath();
+      ctx.arc(planet.x, planet.y, planet.radius, 0, Math.PI * 2);
+      ctx.fillStyle = planet.color;
+      ctx.globalAlpha = 1 - crackIntensity * 0.4;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+
+      // Draw cracks
+      ctx.strokeStyle = `rgba(255, 100, 0, ${crackIntensity})`;
+      ctx.lineWidth = 3;
+      for (let i = 0; i < 5; i++) {
+        const angle = (i / 5) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(planet.x, planet.y);
+        ctx.lineTo(
+          planet.x + Math.cos(angle) * planet.radius * (0.8 + crackIntensity * 0.3),
+          planet.y + Math.sin(angle) * planet.radius * (0.8 + crackIntensity * 0.3)
+        );
+        ctx.stroke();
+      }
+    }
+
+    // Phase 3: Massive flash and explosion
+    if (this.destroyProgress >= 0.6 && this.destroyProgress < 0.8) {
+      const flashIntensity = 1 - (this.destroyProgress - 0.6) / 0.2;
+      ctx.fillStyle = `rgba(255, 200, 100, ${flashIntensity * 0.9})`;
+      ctx.fillRect(
+        planet.x - 300,
+        planet.y - 300,
+        600,
+        600
+      );
+    }
+
+    // Draw destroy particles
+    for (const p of this.destroyParticles) {
+      const alpha = p.life / 60;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = Math.min(1, alpha);
+      ctx.shadowBlur = 8;
       ctx.shadowColor = p.color;
       ctx.fill();
     }
@@ -2032,6 +2271,11 @@ export class SpaceGame {
       this.renderClaimAnimation();
     }
 
+    // Draw destroy animation (explosion effect)
+    if (this.isDestroying) {
+      this.renderDestroyAnimation();
+    }
+
     // Draw planet info panel when nearby OR landed panel when on planet
     if (this.isLanded && this.landedPlanet) {
       this.drawLandedPanel(this.landedPlanet);
@@ -2072,6 +2316,8 @@ export class SpaceGame {
       const isNotionPlanet = this.landedPlanet.id.startsWith('notion-');
       const isUnassigned = isNotionPlanet && (!this.landedPlanet.ownerId || this.landedPlanet.ownerId === '');
       const isPlanetFactory = this.landedPlanet.id === 'planet-builder';
+      const specialPlanets = ['memory-lane', 'shop-station', 'planet-builder'];
+      const isSpecial = specialPlanets.includes(this.landedPlanet.id) || this.landedPlanet.id.startsWith('user-planet-');
       let hint = 'SPACE Take Off';
       if (!isCompleted && !isPlanetFactory) {
         if (isUnassigned) {
@@ -2079,6 +2325,9 @@ export class SpaceGame {
         } else {
           hint += '  •  C Complete';
         }
+      }
+      if (isCompleted && !isSpecial) {
+        hint += '  •  X Destroy';
       }
       if (hasNotion) {
         hint += '  •  N Open in Notion';
@@ -3048,6 +3297,9 @@ export class SpaceGame {
     currentY = boxY + boxHeight - 35;
 
     const isPlanetFactory = planet.id === 'planet-builder';
+    const specialPlanets = ['memory-lane', 'shop-station', 'planet-builder'];
+    const isSpecialPlanet = specialPlanets.includes(planet.id) || planet.id.startsWith('user-planet-');
+
     if (!planet.completed && !isPlanetFactory) {
       const isNotionPlanet = planet.type === 'notion';
       const isUnassignedNotion = isNotionPlanet && (!planet.ownerId || planet.ownerId === '');
@@ -3057,6 +3309,17 @@ export class SpaceGame {
       ctx.font = 'bold 14px Space Grotesk';
       const actionText = isUnassignedNotion ? '[ C ] Claim Mission' : '[ C ] Complete';
       ctx.fillText(actionText, boxX + boxWidth / 2 - (hasNotionUrl ? 80 : 0), currentY);
+
+      // Notion hint
+      if (hasNotionUrl) {
+        ctx.fillStyle = '#5490ff';
+        ctx.fillText('[ N ] Open Notion', boxX + boxWidth / 2 + 80, currentY);
+      }
+    } else if (planet.completed && !isSpecialPlanet) {
+      // Destroy hint for completed planets
+      ctx.fillStyle = '#ff4444';
+      ctx.font = 'bold 14px Space Grotesk';
+      ctx.fillText('[ X ] Destroy Planet', boxX + boxWidth / 2 - (hasNotionUrl ? 80 : 0), currentY);
 
       // Notion hint
       if (hasNotionUrl) {
