@@ -1840,11 +1840,10 @@ export class SpaceGame {
     if (this.isLanded && this.landedPlanet) {
       const hasNotion = this.landedPlanet.notionUrl;
       const isCompleted = this.landedPlanet.completed;
-      const isUserPlanet = this.landedPlanet.id.startsWith('user-planet-');
       const isNotionPlanet = this.landedPlanet.id.startsWith('notion-');
       const isUnassigned = isNotionPlanet && !this.landedPlanet.ownerId;
       let hint = 'SPACE Take Off';
-      if (!isCompleted && !isUserPlanet) {
+      if (!isCompleted) {
         if (isUnassigned) {
           hint += '  •  C Claim Mission';
         } else {
@@ -1853,9 +1852,6 @@ export class SpaceGame {
       }
       if (hasNotion) {
         hint += '  •  N Open in Notion';
-      }
-      if (isUserPlanet) {
-        hint += '  •  T Terraform';
       }
       ctx.fillText(hint, 20, canvas.height - 15);
     } else {
@@ -2635,18 +2631,11 @@ export class SpaceGame {
     // Action hints at the bottom
     currentY = boxY + boxHeight - 35;
 
-    const isUserPlanet = planet.id.startsWith('user-planet-');
-
-    if (isUserPlanet) {
-      // Terraform hint for user planets
-      ctx.fillStyle = '#ffa500';
-      ctx.font = 'bold 14px Space Grotesk';
-      ctx.fillText('[ T ] Terraform', boxX + boxWidth / 2, currentY);
-    } else if (!planet.completed) {
-      // Colonize hint for regular planets
+    if (!planet.completed) {
+      // Colonize/Complete hint
       ctx.fillStyle = '#4ade80';
       ctx.font = 'bold 14px Space Grotesk';
-      ctx.fillText('[ C ] Colonize', boxX + boxWidth / 2 - (hasNotionUrl ? 80 : 0), currentY);
+      ctx.fillText('[ C ] Complete', boxX + boxWidth / 2 - (hasNotionUrl ? 80 : 0), currentY);
 
       // Notion hint
       if (hasNotionUrl) {
