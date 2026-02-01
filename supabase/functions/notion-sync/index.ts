@@ -269,15 +269,6 @@ Deno.serve(async (req) => {
 
     console.log(`Found ${pages.length} non-archived tickets in Notion`);
 
-    // Get existing notion_task_ids to avoid duplicates
-    const { data: existingPlanets } = await supabase
-      .from('notion_planets')
-      .select('notion_task_id, x, y')
-      .eq('team_id', team.id);
-
-    const existingTaskIds = new Set((existingPlanets || []).map(p => p.notion_task_id));
-    const existingPositions: ExistingPlanet[] = (existingPlanets || []).map(p => ({ x: p.x, y: p.y }));
-
     const created: string[] = [];
     const updated: string[] = [];
     const deleted: string[] = [];
@@ -288,12 +279,21 @@ Deno.serve(async (req) => {
     // Get all Notion task IDs from the API response
     const notionTaskIds = new Set(pages.map((p: { id: string }) => p.id));
 
-    // Find planets whose Notion tasks no longer exist (deleted from Notion)
+    // Get all existing planets to check for deletions and existing entries
     const { data: allPlanets } = await supabase
       .from('notion_planets')
-      .select('id, notion_task_id, name')
+      .select('id, notion_task_id, name, x, y')
       .eq('team_id', team.id);
 
+    // Build lookup map for existing planets by notion_task_id
+    const existingByTaskId = new Map<string, { id: string; name: string; x: number; y: number }>();
+    const existingPositions: ExistingPlanet[] = [];
+    for (const planet of allPlanets || []) {
+      existingByTaskId.set(planet.notion_task_id, planet);
+      existingPositions.push({ x: planet.x, y: planet.y });
+    }
+
+    // Find planets whose Notion tasks no longer exist (deleted from Notion)
     for (const planet of allPlanets || []) {
       if (!notionTaskIds.has(planet.notion_task_id)) {
         // Task was deleted from Notion - remove the planet
@@ -318,28 +318,56 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      // Skip if already exists
-      if (existingTaskIds.has(parsed.id)) {
-        skipped.push(parsed.name);
+      // Skip if status is archived (but mark as completed if exists)
+      if (parsed.status === 'archived') {
+        const existing = existingByTaskId.get(parsed.id);
+        if (existing) {
+          // Mark as completed
+          await supabase
+            .from('notion_planets')
+            .update({ completed: true })
+            .eq('id', existing.id);
+          skipped.push(`${parsed.name} (archived)`);
+        }
         continue;
       }
 
-      // Skip if status is archived
-      if (parsed.status === 'archived') {
-        skipped.push(`${parsed.name} (archived)`);
+      // Check if already exists
+      const existing = existingByTaskId.get(parsed.id);
+      if (existing) {
+        // Update existing planet with latest data
+        const points = calculatePoints(parsed.priority);
+        const { error: updateError } = await supabase
+          .from('notion_planets')
+          .update({
+            name: parsed.name,
+            description: parsed.description || null,
+            assigned_to: parsed.assigned_to || null,
+            task_type: parsed.type || null,
+            priority: parsed.priority || null,
+            points: points,
+            notion_url: parsed.url || null,
+          })
+          .eq('id', existing.id);
+
+        if (updateError) {
+          errors.push(`Failed to update ${parsed.name}: ${updateError.message}`);
+        } else {
+          updated.push(parsed.name);
+        }
         continue;
       }
 
       // Calculate points based on priority
       const points = calculatePoints(parsed.priority);
 
-      // Find position
+      // Find position for new planet
       const position = findNonOverlappingPosition(parsed.assigned_to, existingPositions);
 
       // Add to existing positions for next iteration
       existingPositions.push(position);
 
-      // Create planet
+      // Create new planet
       const { error: insertError } = await supabase
         .from('notion_planets')
         .insert({
@@ -396,7 +424,7 @@ Deno.serve(async (req) => {
         .eq('id', team.id);
     }
 
-    console.log(`Sync complete: ${created.length} created, ${deleted.length} deleted, ${skipped.length} skipped, ${errors.length} errors`);
+    console.log(`Sync complete: ${created.length} created, ${updated.length} updated, ${deleted.length} deleted, ${skipped.length} skipped, ${errors.length} errors`);
 
     return new Response(
       JSON.stringify({
@@ -404,12 +432,14 @@ Deno.serve(async (req) => {
         summary: {
           total_in_notion: pages.length,
           created: created.length,
+          updated: updated.length,
           deleted: deleted.length,
           skipped: skipped.length,
           errors: errors.length,
           creator_points_awarded: totalCreatorPoints,
         },
         created,
+        updated,
         deleted,
         skipped,
         errors,

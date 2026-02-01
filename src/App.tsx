@@ -441,6 +441,7 @@ function App() {
   const [isSyncingNotion, setIsSyncingNotion] = useState(false);
   const [syncResult, setSyncResult] = useState<{
     created: string[];
+    updated: string[];
     deleted: string[];
     errors: string[];
     skipped: number;
@@ -881,6 +882,7 @@ function App() {
         console.error('Notion sync failed:', error);
         setSyncResult({
           created: [],
+          updated: [],
           deleted: [],
           errors: [error.error || 'Unknown error'],
           skipped: 0,
@@ -890,6 +892,7 @@ function App() {
         console.log('Notion sync result:', result);
         setSyncResult({
           created: result.created || [],
+          updated: result.updated || [],
           deleted: result.deleted || [],
           errors: result.errors || [],
           skipped: result.summary?.skipped || 0,
@@ -2891,7 +2894,7 @@ function App() {
                         onClick={() => setShowSyncDetails(!showSyncDetails)}
                       >
                         <span style={{ fontSize: '12px', color: '#aaa' }}>
-                          ✅ {syncResult.created.length} | 🗑️ {syncResult.deleted.length} | ❌ {syncResult.errors.length} | ⏭️ {syncResult.skipped}
+                          ✅ {syncResult.created.length} | 🔄 {syncResult.updated.length} | 🗑️ {syncResult.deleted.length} | ❌ {syncResult.errors.length}
                         </span>
                         <span style={{ color: '#888' }}>{showSyncDetails ? '▲' : '▼'}</span>
                       </div>
@@ -2907,29 +2910,37 @@ function App() {
                         }}>
                           {syncResult.created.length > 0 && (
                             <div style={{ marginBottom: '8px' }}>
-                              <div style={{ color: '#4ade80', fontWeight: 'bold', marginBottom: '4px' }}>✅ Created:</div>
+                              <div style={{ color: '#4ade80', fontWeight: 'bold', marginBottom: '4px' }}>✅ Created ({syncResult.created.length}):</div>
                               {syncResult.created.map((name, i) => (
+                                <div key={i} style={{ color: '#888', paddingLeft: '10px' }}>• {name}</div>
+                              ))}
+                            </div>
+                          )}
+                          {syncResult.updated.length > 0 && (
+                            <div style={{ marginBottom: '8px' }}>
+                              <div style={{ color: '#60a5fa', fontWeight: 'bold', marginBottom: '4px' }}>🔄 Updated ({syncResult.updated.length}):</div>
+                              {syncResult.updated.map((name, i) => (
                                 <div key={i} style={{ color: '#888', paddingLeft: '10px' }}>• {name}</div>
                               ))}
                             </div>
                           )}
                           {syncResult.deleted.length > 0 && (
                             <div style={{ marginBottom: '8px' }}>
-                              <div style={{ color: '#f97316', fontWeight: 'bold', marginBottom: '4px' }}>🗑️ Deleted:</div>
+                              <div style={{ color: '#f97316', fontWeight: 'bold', marginBottom: '4px' }}>🗑️ Deleted ({syncResult.deleted.length}):</div>
                               {syncResult.deleted.map((name, i) => (
                                 <div key={i} style={{ color: '#888', paddingLeft: '10px' }}>• {name}</div>
                               ))}
                             </div>
                           )}
                           {syncResult.errors.length > 0 && (
-                            <div>
-                              <div style={{ color: '#ef4444', fontWeight: 'bold', marginBottom: '4px' }}>❌ Errors:</div>
+                            <div style={{ marginBottom: '8px' }}>
+                              <div style={{ color: '#ef4444', fontWeight: 'bold', marginBottom: '4px' }}>❌ Errors ({syncResult.errors.length}):</div>
                               {syncResult.errors.map((err, i) => (
                                 <div key={i} style={{ color: '#888', paddingLeft: '10px', wordBreak: 'break-word' }}>• {err}</div>
                               ))}
                             </div>
                           )}
-                          {syncResult.created.length === 0 && syncResult.deleted.length === 0 && syncResult.errors.length === 0 && (
+                          {syncResult.created.length === 0 && syncResult.updated.length === 0 && syncResult.deleted.length === 0 && syncResult.errors.length === 0 && (
                             <div style={{ color: '#888' }}>Everything is in sync!</div>
                           )}
                         </div>
