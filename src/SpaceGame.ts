@@ -134,6 +134,20 @@ export class SpaceGame {
   private landingPlanet: Planet | null = null;
   private landingStartPos: { x: number; y: number; rotation: number } | null = null;
 
+  // Landed state (player is on planet, showing details)
+  private isLanded: boolean = false;
+  private landedPlanet: Planet | null = null;
+
+  // Takeoff animation state
+  private isTakingOff: boolean = false;
+  private takeoffProgress: number = 0;
+
+  // Callbacks for landing interactions
+  private onLand: ((planet: Planet) => void) | null = null;
+  private onTakeoff: (() => void) | null = null;
+  private onColonize: ((planet: Planet) => void) | null = null;
+  private onOpenNotion: ((url: string) => void) | null = null;
+
   // Upgrading animation state (orbiting satellites/robots)
   private isUpgrading: boolean = false;
   private upgradeTargetPlanetId: string | null = null; // null = orbit ship, string = orbit planet
@@ -572,6 +586,26 @@ export class SpaceGame {
     }
   }
 
+  public setLandingCallbacks(callbacks: {
+    onLand?: (planet: Planet) => void;
+    onTakeoff?: () => void;
+    onColonize?: (planet: Planet) => void;
+    onOpenNotion?: (url: string) => void;
+  }) {
+    this.onLand = callbacks.onLand || null;
+    this.onTakeoff = callbacks.onTakeoff || null;
+    this.onColonize = callbacks.onColonize || null;
+    this.onOpenNotion = callbacks.onOpenNotion || null;
+  }
+
+  public isPlayerLanded(): boolean {
+    return this.isLanded;
+  }
+
+  public getLandedPlanet(): Planet | null {
+    return this.landedPlanet;
+  }
+
   private setupInput() {
     window.addEventListener('keydown', (e) => {
       // Don't capture keys when typing in input fields
@@ -581,7 +615,7 @@ export class SpaceGame {
       }
 
       this.keys.add(e.key.toLowerCase());
-      if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(e.key.toLowerCase())) {
+      if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'c', 'n'].includes(e.key.toLowerCase())) {
         e.preventDefault();
       }
     });
@@ -763,6 +797,22 @@ export class SpaceGame {
     if (this.isLanding) {
       this.updateLandingAnimation();
       // Still update camera and particles
+      this.updateCamera();
+      this.updateParticles();
+      return;
+    }
+
+    // Handle takeoff animation
+    if (this.isTakingOff) {
+      this.updateTakeoffAnimation();
+      this.updateCamera();
+      this.updateParticles();
+      return;
+    }
+
+    // Handle landed state (player is on planet, showing details)
+    if (this.isLanded && this.landedPlanet) {
+      this.updateLandedState();
       this.updateCamera();
       this.updateParticles();
       return;
@@ -1152,7 +1202,20 @@ export class SpaceGame {
       setTimeout(() => {
         if (this.landingPlanet) {
           soundManager.playDockingSound();
-          this.onDock(this.landingPlanet);
+
+          // Set landed state (player is now on planet)
+          this.isLanded = true;
+          this.landedPlanet = this.landingPlanet;
+
+          // Call onLand callback if set
+          if (this.onLand) {
+            this.onLand(this.landingPlanet);
+          } else {
+            // Fallback to old behavior if no landing callbacks set
+            this.onDock(this.landingPlanet);
+            this.isLanded = false;
+            this.landedPlanet = null;
+          }
         }
         this.isLanding = false;
         this.landingPlanet = null;
@@ -1163,6 +1226,107 @@ export class SpaceGame {
         delete (this as any).orbitArcLength;
         delete (this as any).orbitRadius;
       }, 100);
+    }
+  }
+
+  private updateLandedState() {
+    if (!this.isLanded || !this.landedPlanet) return;
+
+    const planet = this.landedPlanet;
+
+    // Keep ship positioned on planet
+    this.state.ship.x = planet.x;
+    this.state.ship.y = planet.y - planet.radius - 25;
+    this.state.ship.vx = 0;
+    this.state.ship.vy = 0;
+    this.state.ship.rotation = -Math.PI / 2; // Pointing up
+
+    // Handle Space key - takeoff
+    if (this.keys.has(' ')) {
+      this.keys.delete(' ');
+      this.startTakeoffAnimation();
+      return;
+    }
+
+    // Handle C key - colonize (complete the task)
+    if (this.keys.has('c')) {
+      this.keys.delete('c');
+      if (!planet.completed && this.onColonize) {
+        this.onColonize(planet);
+      }
+      return;
+    }
+
+    // Handle N key - open Notion URL
+    if (this.keys.has('n')) {
+      this.keys.delete('n');
+      if (planet.notionUrl && this.onOpenNotion) {
+        this.onOpenNotion(planet.notionUrl);
+      }
+      return;
+    }
+  }
+
+  private startTakeoffAnimation() {
+    if (!this.landedPlanet) return;
+
+    this.isTakingOff = true;
+    this.takeoffProgress = 0;
+
+    // Store the planet for animation
+    (this as any).takeoffPlanet = this.landedPlanet;
+
+    // Clear landed state
+    this.isLanded = false;
+    this.landedPlanet = null;
+
+    // Call takeoff callback
+    if (this.onTakeoff) {
+      this.onTakeoff();
+    }
+
+    // Sound effect
+    soundManager.startThrust(true);
+  }
+
+  private updateTakeoffAnimation() {
+    if (!this.isTakingOff) return;
+
+    const planet = (this as any).takeoffPlanet as Planet | null;
+    if (!planet) {
+      this.isTakingOff = false;
+      return;
+    }
+
+    // ~1.5 second takeoff animation
+    this.takeoffProgress += 0.012;
+    const progress = Math.min(this.takeoffProgress, 1);
+
+    const startY = planet.y - planet.radius - 25;
+    const endY = planet.y - planet.radius - 150; // Lift off to 150 above landing spot
+
+    // Ease out for smooth lift-off
+    const easeProgress = 1 - Math.pow(1 - progress, 3);
+
+    // Position ship
+    this.state.ship.x = planet.x;
+    this.state.ship.y = startY + (endY - startY) * easeProgress;
+    this.state.ship.rotation = -Math.PI / 2; // Pointing up
+
+    // Emit thrust particles during takeoff
+    if (progress < 0.8) {
+      this.emitRetroThrustFlames(1 - progress);
+    }
+
+    // Animation complete
+    if (this.takeoffProgress >= 1) {
+      soundManager.stopThrust();
+      this.isTakingOff = false;
+      this.takeoffProgress = 0;
+      delete (this as any).takeoffPlanet;
+
+      // Give ship a small upward velocity to continue flying
+      this.state.ship.vy = -2;
     }
   }
 
@@ -1697,8 +1861,10 @@ export class SpaceGame {
     // Draw upgrade satellites/robots orbiting the ship
     this.renderUpgradeSatellites();
 
-    // Draw planet info panel when nearby
-    if (state.nearbyPlanet) {
+    // Draw planet info panel when nearby OR landed panel when on planet
+    if (this.isLanded && this.landedPlanet) {
+      this.drawLandedPanel(this.landedPlanet);
+    } else if (state.nearbyPlanet) {
       this.drawPlanetInfo(state.nearbyPlanet, state.dockingPlanet !== null);
     }
 
@@ -1725,11 +1891,24 @@ export class SpaceGame {
       ctx.restore();
     }
 
-    // Draw controls hint
+    // Draw controls hint (different controls when landed)
     ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
     ctx.font = '11px Space Grotesk';
     ctx.textAlign = 'left';
-    ctx.fillText('W/↑ Thrust  •  A/← D/→ Rotate  •  S/↓ Brake  •  SHIFT Boost  •  SPACE Dock', 20, canvas.height - 15);
+    if (this.isLanded && this.landedPlanet) {
+      const hasNotion = this.landedPlanet.notionUrl;
+      const isCompleted = this.landedPlanet.completed;
+      let hint = 'SPACE Take Off';
+      if (!isCompleted) {
+        hint += '  •  C Colonize';
+      }
+      if (hasNotion) {
+        hint += '  •  N Open in Notion';
+      }
+      ctx.fillText(hint, 20, canvas.height - 15);
+    } else {
+      ctx.fillText('W/↑ Thrust  •  A/← D/→ Rotate  •  S/↓ Brake  •  SHIFT Boost  •  SPACE Dock', 20, canvas.height - 15);
+    }
   }
 
   // Get the current zone color blend based on ship position

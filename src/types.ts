@@ -37,8 +37,9 @@ export interface Planet {
   reward?: RewardType;
   realWorldReward?: string;
   ownerId?: string | null; // null = shared, string = player-owned (assigned_to)
-  createdBy?: string | null; // Who created it (gets points)
+  createdBy?: string | null; // Who created it (gets creation bonus)
   priority?: string | null; // For notion planets
+  points?: number; // Completion points (for notion planets, based on priority)
   // Notion-specific fields
   notionTaskId?: string;
   notionUrl?: string;

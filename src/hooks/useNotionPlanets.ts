@@ -70,6 +70,7 @@ export const notionPlanetToGamePlanet = (np: NotionPlanet): Planet => {
     ownerId: np.assigned_to, // Assigned player can complete the planet
     createdBy: np.created_by, // Creator gets the points
     priority: np.priority,
+    points: np.points,
     notionTaskId: np.notion_task_id,
     notionUrl: np.notion_url || undefined,
   };

@@ -1019,8 +1019,8 @@ function App() {
       // Mark as completed in database
       completeNotionPlanet(planet.id);
 
-      // Award points
-      const pointsEarned = POINTS_PER_SIZE[planet.size];
+      // Award points (use notion task points if available, fallback to size-based)
+      const pointsEarned = planet.points || POINTS_PER_SIZE[planet.size];
       setTeamPoints(prev => prev + pointsEarned);
 
       gameRef.current?.completePlanet(planet.id);

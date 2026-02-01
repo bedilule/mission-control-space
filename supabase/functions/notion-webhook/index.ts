@@ -333,7 +333,38 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log(`Created planet "${payload.name}" for ${payload.assigned_to || 'unassigned'}, points to ${payload.created_by || 'unknown'}`);
+    // Award 10 points to the creator for creating the task
+    if (payload.created_by) {
+      // Find the player by username
+      const { data: creator } = await supabase
+        .from('players')
+        .select('id')
+        .eq('team_id', team.id)
+        .ilike('username', payload.created_by)
+        .single();
+
+      if (creator) {
+        // Insert point transaction for creation
+        await supabase.from('point_transactions').insert({
+          team_id: team.id,
+          player_id: creator.id,
+          source: 'notion',
+          notion_task_id: payload.id,
+          task_name: `Created: ${payload.name}`,
+          points: 10,
+        });
+
+        // Update team points
+        await supabase
+          .from('teams')
+          .update({ team_points: team.team_points + 10 })
+          .eq('id', team.id);
+
+        console.log(`Awarded 10 points to ${payload.created_by} for creating "${payload.name}"`);
+      }
+    }
+
+    console.log(`Created planet "${payload.name}" for ${payload.assigned_to || 'unassigned'}`);
 
     return new Response(
       JSON.stringify({
