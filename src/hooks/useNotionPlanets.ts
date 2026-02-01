@@ -116,7 +116,6 @@ export function useNotionPlanets(options: UseNotionPlanetsOptions): UseNotionPla
 
     // Fetch initial data
     const fetchNotionPlanets = async () => {
-      console.log('[useNotionPlanets] Fetching for team:', teamId);
       setIsLoading(true);
       const { data, error } = await supabase
         .from('notion_planets')
@@ -125,10 +124,9 @@ export function useNotionPlanets(options: UseNotionPlanetsOptions): UseNotionPla
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.error('[useNotionPlanets] Error fetching:', error);
+        console.error('Error fetching notion planets:', error);
         setNotionPlanets([]);
       } else {
-        console.log('[useNotionPlanets] Fetched planets:', data?.length, data);
         setNotionPlanets((data || []).map(rowToNotionPlanet));
       }
       setIsLoading(false);

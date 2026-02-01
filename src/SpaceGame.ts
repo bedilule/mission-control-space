@@ -563,14 +563,12 @@ export class SpaceGame {
   }
 
   public syncNotionPlanets(notionPlanets: Planet[]) {
-    console.log('[SpaceGame] syncNotionPlanets:', notionPlanets.length, 'planets');
     // Remove old notion planets
     this.state.planets = this.state.planets.filter(p => !p.id.startsWith('notion-'));
 
     // Add new notion planets
     for (const planet of notionPlanets) {
       this.state.planets.push(planet);
-      console.log('[SpaceGame] Added:', planet.name, 'at', planet.x, planet.y);
     }
   }
 

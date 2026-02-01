@@ -522,9 +522,11 @@ function App() {
     teamId: team?.id || null,
   });
 
-  // Sync notion planets to game
+  // Sync notion planets to game (store ref for immediate sync on game init)
+  const notionPlanetsRef = useRef(notionGamePlanets);
+  notionPlanetsRef.current = notionGamePlanets;
+
   useEffect(() => {
-    console.log('[App] Syncing notion planets to game:', notionGamePlanets.length, notionGamePlanets);
     if (gameRef.current) {
       gameRef.current.syncNotionPlanets(notionGamePlanets);
     }
@@ -1418,6 +1420,11 @@ function App() {
     const currentShip = getCurrentUserShip();
     const game = new SpaceGame(canvasRef.current, stableOnDock, customPlanets, currentShip.currentImage, goals, currentShip.upgrades.length, userPlanets, state.currentUser || 'quentin');
     gameRef.current = game;
+
+    // Sync notion planets immediately if already loaded
+    if (notionPlanetsRef.current.length > 0) {
+      game.syncNotionPlanets(notionPlanetsRef.current);
+    }
 
     // Initialize ship effects if present
     if (currentShip.effects) {
