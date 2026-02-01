@@ -1260,7 +1260,7 @@ export class SpaceGame {
     if (this.keys.has('c')) {
       this.keys.delete('c');
       // Special planets cannot be completed
-      const specialPlanets = ['memory-lane', 'shop-station', 'planet-builder'];
+      const specialPlanets = ['shop-station', 'planet-builder'];
       const isSpecial = specialPlanets.includes(planet.id) || planet.id.startsWith('user-planet-');
       if (!planet.completed && !isSpecial && this.onColonize) {
         const isNotionPlanet = planet.id.startsWith('notion-');
@@ -1298,7 +1298,7 @@ export class SpaceGame {
     // Handle X key - destroy completed planet
     if (this.keys.has('x')) {
       this.keys.delete('x');
-      const specialPlanets = ['memory-lane', 'shop-station', 'planet-builder'];
+      const specialPlanets = ['shop-station', 'planet-builder'];
       const isSpecial = specialPlanets.includes(planet.id) || planet.id.startsWith('user-planet-');
       // Can only destroy completed non-special planets
       if (planet.completed && !isSpecial && this.onDestroyPlanet) {
@@ -2297,7 +2297,7 @@ export class SpaceGame {
       const isNotionPlanet = this.landedPlanet.id.startsWith('notion-');
       const isUnassigned = isNotionPlanet && (!this.landedPlanet.ownerId || this.landedPlanet.ownerId === '');
       const isPlanetFactory = this.landedPlanet.id === 'planet-builder';
-      const specialPlanets = ['memory-lane', 'shop-station', 'planet-builder'];
+      const specialPlanets = ['shop-station', 'planet-builder'];
       const isSpecial = specialPlanets.includes(this.landedPlanet.id) || this.landedPlanet.id.startsWith('user-planet-');
       let hint = 'SPACE Take Off';
       if (!isCompleted && !isPlanetFactory) {
@@ -3278,7 +3278,7 @@ export class SpaceGame {
     currentY = boxY + boxHeight - 35;
 
     const isPlanetFactory = planet.id === 'planet-builder';
-    const specialPlanets = ['memory-lane', 'shop-station', 'planet-builder'];
+    const specialPlanets = ['shop-station', 'planet-builder'];
     const isSpecialPlanet = specialPlanets.includes(planet.id) || planet.id.startsWith('user-planet-');
 
     if (!planet.completed && !isPlanetFactory) {

@@ -418,7 +418,6 @@ function App() {
   const [showUserSelect, setShowUserSelect] = useState(!state.currentUser);
   const [showPlanetCreator, setShowPlanetCreator] = useState(false);
   const [showShop, setShowShop] = useState(false);
-  const [showMemoryGallery, setShowMemoryGallery] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [upgradePrompt, setUpgradePrompt] = useState('');
   const [showSettings, setShowSettings] = useState(false);
@@ -439,6 +438,8 @@ function App() {
   const [notionAssignedTo, setNotionAssignedTo] = useState<string>('');
   const [notionTaskType, setNotionTaskType] = useState<'task' | 'bug' | 'feature'>('task');
   const [isCreatingPlanet, setIsCreatingPlanet] = useState(false);
+  const [isSyncingNotion, setIsSyncingNotion] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ created: number; deleted: number; errors: number } | null>(null);
 
   // Prompt configs (loaded from JSON)
   const [shipPrompts, setShipPrompts] = useState<ShipPrompts>(DEFAULT_SHIP_PROMPTS);
@@ -855,6 +856,41 @@ function App() {
     }
   };
 
+  // Sync with Notion (admin only)
+  const syncWithNotion = async () => {
+    setIsSyncingNotion(true);
+    setSyncResult(null);
+
+    try {
+      const response = await fetch(
+        'https://qdizfhhsqolvuddoxugj.supabase.co/functions/v1/notion-sync',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        console.error('Notion sync failed:', error);
+        alert('Sync failed: ' + (error.error || 'Unknown error'));
+      } else {
+        const result = await response.json();
+        console.log('Notion sync result:', result);
+        setSyncResult({
+          created: result.summary?.created || 0,
+          deleted: result.summary?.deleted || 0,
+          errors: result.summary?.errors || 0,
+        });
+      }
+    } catch (err) {
+      console.error('Notion sync error:', err);
+      alert('Sync failed: Network error');
+    } finally {
+      setIsSyncingNotion(false);
+    }
+  };
+
   // Update a goal
   const updateGoal = (type: 'business' | 'product' | 'achievement', goalId: string, updates: Partial<Goal>) => {
     setGoals(prev => ({
@@ -1170,12 +1206,6 @@ function App() {
 
   // Handle docking at a planet
   const handleDock = useCallback((planet: Planet) => {
-    // Check if this is the Memory planet
-    if (planet.id === 'memory-lane') {
-      setShowMemoryGallery(true);
-      return;
-    }
-
     // Check if this is the Shop planet
     if (planet.id === 'shop-station') {
       setShowShop(true);
@@ -1268,10 +1298,6 @@ function App() {
   // Handle landing on a planet (new system - shows details panel)
   const handleLand = useCallback((planet: Planet) => {
     // Special station planets open modals instead of showing landed panel
-    if (planet.id === 'memory-lane') {
-      setShowMemoryGallery(true);
-      return;
-    }
     if (planet.id === 'shop-station') {
       setShowShop(true);
       return;
@@ -1305,7 +1331,7 @@ function App() {
     if (planet.completed) return;
 
     // Special planets cannot be completed
-    const specialPlanets = ['memory-lane', 'shop-station', 'planet-builder'];
+    const specialPlanets = ['shop-station', 'planet-builder'];
     if (specialPlanets.includes(planet.id) || planet.id.startsWith('user-planet-')) {
       return;
     }
@@ -1393,7 +1419,7 @@ function App() {
     if (!planet.completed) return;
 
     // Special planets cannot be destroyed
-    const specialPlanets = ['memory-lane', 'shop-station', 'planet-builder'];
+    const specialPlanets = ['shop-station', 'planet-builder'];
     if (specialPlanets.includes(planet.id) || planet.id.startsWith('user-planet-')) {
       return;
     }
@@ -1477,18 +1503,12 @@ function App() {
           setShowPlanetCreator(false);
           return;
         }
-        // Close memory gallery modal
-        if (showMemoryGallery) {
-          e.preventDefault();
-          setShowMemoryGallery(false);
-          return;
-        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showTerraform, viewingPlanetOwner, showShop, showPlanetCreator, showMemoryGallery, isUpgrading]);
+  }, [showTerraform, viewingPlanetOwner, showShop, showPlanetCreator, isUpgrading]);
 
   // Buy visual upgrade from shop (AI-generated changes to ship appearance)
   const buyVisualUpgrade = async () => {
@@ -2095,12 +2115,8 @@ function App() {
         </div>
       </div>
 
-      {/* Ship preview - clickable to show evolution */}
-      <div
-        style={styles.robotPreview}
-        onClick={() => setShowMemoryGallery(true)}
-        title="View ship evolution"
-      >
+      {/* Ship preview */}
+      <div style={styles.robotPreview}>
         <img src={currentShip.currentImage} alt="Ship" style={styles.robotImage} />
       </div>
 
@@ -2320,81 +2336,6 @@ function App() {
             </div>
 
             <button style={{ ...styles.cancelButton, width: '100%', marginTop: '1rem' }} onClick={() => setShowShop(false)}>
-              Close
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Memory Gallery Modal */}
-      {showMemoryGallery && (
-        <div style={styles.modalOverlay} onClick={() => setShowMemoryGallery(false)}>
-          <div style={{ ...styles.modal, maxWidth: 700 }} onClick={e => e.stopPropagation()}>
-            <h2 style={styles.modalTitle}>📸 Ship Evolution Gallery</h2>
-            <p style={{ color: '#888', marginBottom: '1rem' }}>
-              {mascotHistory.length} versions • Click to select
-            </p>
-
-            {mascotHistory.length === 0 ? (
-              <p style={{ color: '#666', textAlign: 'center', padding: '2rem' }}>
-                Complete milestones or buy upgrades to see your ship evolve!
-              </p>
-            ) : (
-              <div style={styles.galleryGrid}>
-                {mascotHistory.map((entry, i) => {
-                  const isCurrentShip = getCurrentUserShip().currentImage === entry.imageUrl;
-                  return (
-                    <div
-                      key={i}
-                      style={{
-                        ...styles.galleryItem,
-                        border: isCurrentShip ? '2px solid #ffa500' : '1px solid #333',
-                        cursor: 'pointer',
-                      }}
-                      onClick={() => {
-                        if (!isCurrentShip) {
-                          const userId = state.currentUser || 'default';
-                          setUserShips(prev => ({
-                            ...prev,
-                            [userId]: {
-                              ...prev[userId],
-                              currentImage: entry.imageUrl,
-                            }
-                          }));
-                          gameRef.current?.updateShipImage(entry.imageUrl);
-                          soundManager.playUIClick();
-                        }
-                      }}
-                    >
-                      <div style={styles.galleryImageWrapper}>
-                        <img src={entry.imageUrl} alt={entry.planetName} style={styles.galleryImage} />
-                        {isCurrentShip && (
-                          <div style={styles.currentShipBadge}>Current</div>
-                        )}
-                        <button
-                          style={styles.downloadButton}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            downloadImage(entry.imageUrl, `ship-${entry.earnedBy}-${i + 1}`);
-                          }}
-                          title="Download"
-                        >
-                          ⬇
-                        </button>
-                      </div>
-                      <div style={styles.galleryInfo}>
-                        <span style={styles.galleryPlanet}>{entry.planetName}</span>
-                        <span style={styles.galleryMeta}>
-                          by {USERS.find(u => u.id === entry.earnedBy)?.name || entry.earnedBy}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            <button style={styles.cancelButton} onClick={() => setShowMemoryGallery(false)}>
               Close
             </button>
           </div>
@@ -2903,6 +2844,31 @@ function App() {
                     </div>
                   </div>
                 ))}
+
+                {/* Notion Sync Section */}
+                <div style={{ ...styles.resetSection, borderColor: '#00c8ff' }}>
+                  <h3 style={{ ...styles.resetSectionTitle, color: '#00c8ff' }}>📋 Notion Sync</h3>
+                  <p style={{ color: '#888', fontSize: '12px', marginBottom: '12px' }}>
+                    Sync planets with Notion database. Creates missing planets and removes deleted ones.
+                  </p>
+                  <button
+                    style={{
+                      ...styles.resetButtonSmall,
+                      background: isSyncingNotion ? '#333' : 'linear-gradient(135deg, #00c8ff, #0088cc)',
+                      color: '#fff',
+                      width: '100%',
+                    }}
+                    onClick={syncWithNotion}
+                    disabled={isSyncingNotion}
+                  >
+                    {isSyncingNotion ? '🔄 Syncing...' : '🔄 Sync with Notion'}
+                  </button>
+                  {syncResult && (
+                    <div style={{ marginTop: '10px', fontSize: '12px', color: '#aaa' }}>
+                      ✅ Created: {syncResult.created} | 🗑️ Deleted: {syncResult.deleted} | ❌ Errors: {syncResult.errors}
+                    </div>
+                  )}
+                </div>
 
                 {/* Reset Section */}
                 <div style={styles.resetSection}>
