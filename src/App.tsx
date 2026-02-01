@@ -433,6 +433,11 @@ function App() {
   const [planetImagePreview, setPlanetImagePreview] = useState<string | null>(null);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [imagePrompt, setImagePrompt] = useState('');
+  // Notion sync options for planet creator
+  const [syncToNotion, setSyncToNotion] = useState(false);
+  const [notionPriority, setNotionPriority] = useState<'low' | 'medium' | 'high' | 'critical'>('medium');
+  const [notionAssignedTo, setNotionAssignedTo] = useState<string>('');
+  const [isCreatingPlanet, setIsCreatingPlanet] = useState(false);
 
   // Prompt configs (loaded from JSON)
   const [shipPrompts, setShipPrompts] = useState<ShipPrompts>(DEFAULT_SHIP_PROMPTS);
@@ -1123,6 +1128,12 @@ function App() {
   const handleColonize = useCallback(async (planet: Planet) => {
     if (planet.completed) return;
 
+    // Special planets cannot be completed
+    const specialPlanets = ['memory-lane', 'shop-station', 'planet-builder'];
+    if (specialPlanets.includes(planet.id) || planet.id.startsWith('user-planet-')) {
+      return;
+    }
+
     // Handle Notion planets
     if (planet.id.startsWith('notion-')) {
       // Check if unassigned - then CLAIM instead of complete
@@ -1554,29 +1565,74 @@ function App() {
     setIsGeneratingImage(false);
   };
 
-  // Save new planet
-  const savePlanet = () => {
+  // Save new planet (either locally or sync to Notion)
+  const savePlanet = async () => {
     if (!newPlanet.name || !newPlanet.description) return;
 
-    const planet: CustomPlanet = {
-      id: `custom-${Date.now()}`,
-      name: newPlanet.name,
-      description: newPlanet.description,
-      type: newPlanet.type || 'business',
-      size: newPlanet.size || 'medium',
-      reward: newPlanet.reward || 'glow',
-      realWorldReward: newPlanet.realWorldReward,
-      imageUrl: planetImagePreview || undefined,
-      createdBy: state.currentUser || 'unknown',
-    };
+    // If syncing to Notion, create via edge function
+    if (syncToNotion) {
+      setIsCreatingPlanet(true);
+      try {
+        const notionType = newPlanet.type === 'achievement' ? 'achievement' :
+                          newPlanet.type === 'business' ? 'business' :
+                          newPlanet.type === 'product' ? 'roadmap' : 'task';
 
-    setCustomPlanets(prev => [...prev, planet]);
-    gameRef.current?.addCustomPlanet(planet);
+        const response = await fetch(
+          'https://qdizfhhsqolvuddoxugj.supabase.co/functions/v1/notion-create',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: newPlanet.name,
+              description: newPlanet.description,
+              type: notionType,
+              priority: notionPriority,
+              assigned_to: notionAssignedTo || null,
+              created_by: state.currentUser || 'unknown',
+            }),
+          }
+        );
 
+        if (!response.ok) {
+          const error = await response.json();
+          console.error('Failed to create Notion task:', error);
+          alert('Failed to create task in Notion');
+        } else {
+          const result = await response.json();
+          console.log('Created Notion task:', result);
+          // Planet will appear via realtime subscription
+        }
+      } catch (error) {
+        console.error('Error creating Notion task:', error);
+        alert('Error creating task in Notion');
+      }
+      setIsCreatingPlanet(false);
+    } else {
+      // Local-only planet (not synced to Notion)
+      const planet: CustomPlanet = {
+        id: `custom-${Date.now()}`,
+        name: newPlanet.name,
+        description: newPlanet.description,
+        type: newPlanet.type || 'business',
+        size: newPlanet.size || 'medium',
+        reward: newPlanet.reward || 'glow',
+        realWorldReward: newPlanet.realWorldReward,
+        imageUrl: planetImagePreview || undefined,
+        createdBy: state.currentUser || 'unknown',
+      };
+
+      setCustomPlanets(prev => [...prev, planet]);
+      gameRef.current?.addCustomPlanet(planet);
+    }
+
+    // Reset form
     setNewPlanet({ type: 'business', size: 'medium', reward: 'glow' });
     setPlanetImageFile(null);
     setPlanetImagePreview(null);
     setImagePrompt('');
+    setSyncToNotion(false);
+    setNotionPriority('medium');
+    setNotionAssignedTo('');
     setShowPlanetCreator(false);
   };
 
@@ -2168,8 +2224,59 @@ function App() {
               />
             </div>
 
+            {/* Notion Sync Toggle */}
+            <div style={{ ...styles.formGroup, display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', background: syncToNotion ? 'rgba(0, 200, 255, 0.1)' : 'rgba(255,255,255,0.03)', borderRadius: '8px', border: syncToNotion ? '1px solid rgba(0, 200, 255, 0.3)' : '1px solid transparent' }}>
+              <input
+                type="checkbox"
+                id="sync-notion"
+                checked={syncToNotion}
+                onChange={e => setSyncToNotion(e.target.checked)}
+                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+              />
+              <label htmlFor="sync-notion" style={{ ...styles.label, margin: 0, cursor: 'pointer', flex: 1 }}>
+                Sync to Notion
+              </label>
+              {syncToNotion && <span style={{ fontSize: '12px', color: '#00c8ff' }}>Task will appear in Notion board</span>}
+            </div>
+
+            {/* Notion-specific options */}
+            {syncToNotion && (
+              <div style={{ background: 'rgba(0, 200, 255, 0.05)', padding: '12px', borderRadius: '8px', marginBottom: '12px' }}>
+                <div style={styles.formRow}>
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Priority</label>
+                    <select
+                      style={styles.select}
+                      value={notionPriority}
+                      onChange={e => setNotionPriority(e.target.value as any)}
+                    >
+                      <option value="low">Low (25 pts)</option>
+                      <option value="medium">Medium (50 pts)</option>
+                      <option value="high">High (100 pts)</option>
+                      <option value="critical">Critical (150 pts)</option>
+                    </select>
+                  </div>
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Assign To</label>
+                    <select
+                      style={styles.select}
+                      value={notionAssignedTo}
+                      onChange={e => setNotionAssignedTo(e.target.value)}
+                    >
+                      <option value="">Unassigned (Center)</option>
+                      <option value="quentin">Quentin</option>
+                      <option value="alex">Alex</option>
+                      <option value="armel">Armel</option>
+                      <option value="melia">Melia</option>
+                      <option value="hugue">Hugue</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div style={styles.formGroup}>
-              <label style={styles.label}>Planet Image</label>
+              <label style={styles.label}>Planet Image {syncToNotion && '(local only)'}</label>
               <div style={styles.imageOptions}>
                 <div style={styles.imageUpload}>
                   <input
@@ -2209,15 +2316,18 @@ function App() {
             </div>
 
             <div style={styles.modalButtons}>
-              <button style={styles.cancelButton} onClick={() => setShowPlanetCreator(false)}>
+              <button style={styles.cancelButton} onClick={() => setShowPlanetCreator(false)} disabled={isCreatingPlanet}>
                 Cancel
               </button>
               <button
-                style={styles.saveButton}
+                style={{
+                  ...styles.saveButton,
+                  background: syncToNotion ? 'linear-gradient(135deg, #00c8ff, #0088cc)' : styles.saveButton.background,
+                }}
                 onClick={savePlanet}
-                disabled={!newPlanet.name || !newPlanet.description}
+                disabled={!newPlanet.name || !newPlanet.description || isCreatingPlanet}
               >
-                Create Planet
+                {isCreatingPlanet ? 'Creating...' : syncToNotion ? 'Create & Sync to Notion' : 'Create Planet'}
               </button>
             </div>
           </div>
