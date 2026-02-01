@@ -439,7 +439,13 @@ function App() {
   const [notionTaskType, setNotionTaskType] = useState<'task' | 'bug' | 'feature'>('task');
   const [isCreatingPlanet, setIsCreatingPlanet] = useState(false);
   const [isSyncingNotion, setIsSyncingNotion] = useState(false);
-  const [syncResult, setSyncResult] = useState<{ created: number; deleted: number; errors: number } | null>(null);
+  const [syncResult, setSyncResult] = useState<{
+    created: string[];
+    deleted: string[];
+    errors: string[];
+    skipped: number;
+  } | null>(null);
+  const [showSyncDetails, setShowSyncDetails] = useState(false);
 
   // Prompt configs (loaded from JSON)
   const [shipPrompts, setShipPrompts] = useState<ShipPrompts>(DEFAULT_SHIP_PROMPTS);
@@ -873,15 +879,22 @@ function App() {
       if (!response.ok) {
         const error = await response.json();
         console.error('Notion sync failed:', error);
-        alert('Sync failed: ' + (error.error || 'Unknown error'));
+        setSyncResult({
+          created: [],
+          deleted: [],
+          errors: [error.error || 'Unknown error'],
+          skipped: 0,
+        });
       } else {
         const result = await response.json();
         console.log('Notion sync result:', result);
         setSyncResult({
-          created: result.summary?.created || 0,
-          deleted: result.summary?.deleted || 0,
-          errors: result.summary?.errors || 0,
+          created: result.created || [],
+          deleted: result.deleted || [],
+          errors: result.errors || [],
+          skipped: result.summary?.skipped || 0,
         });
+        setShowSyncDetails(true);
       }
     } catch (err) {
       console.error('Notion sync error:', err);
@@ -2864,8 +2877,63 @@ function App() {
                     {isSyncingNotion ? '🔄 Syncing...' : '🔄 Sync with Notion'}
                   </button>
                   {syncResult && (
-                    <div style={{ marginTop: '10px', fontSize: '12px', color: '#aaa' }}>
-                      ✅ Created: {syncResult.created} | 🗑️ Deleted: {syncResult.deleted} | ❌ Errors: {syncResult.errors}
+                    <div style={{ marginTop: '12px' }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          cursor: 'pointer',
+                          padding: '8px',
+                          background: 'rgba(255,255,255,0.05)',
+                          borderRadius: '6px',
+                        }}
+                        onClick={() => setShowSyncDetails(!showSyncDetails)}
+                      >
+                        <span style={{ fontSize: '12px', color: '#aaa' }}>
+                          ✅ {syncResult.created.length} | 🗑️ {syncResult.deleted.length} | ❌ {syncResult.errors.length} | ⏭️ {syncResult.skipped}
+                        </span>
+                        <span style={{ color: '#888' }}>{showSyncDetails ? '▲' : '▼'}</span>
+                      </div>
+                      {showSyncDetails && (
+                        <div style={{
+                          marginTop: '8px',
+                          padding: '10px',
+                          background: 'rgba(0,0,0,0.3)',
+                          borderRadius: '6px',
+                          maxHeight: '200px',
+                          overflowY: 'auto',
+                          fontSize: '11px',
+                        }}>
+                          {syncResult.created.length > 0 && (
+                            <div style={{ marginBottom: '8px' }}>
+                              <div style={{ color: '#4ade80', fontWeight: 'bold', marginBottom: '4px' }}>✅ Created:</div>
+                              {syncResult.created.map((name, i) => (
+                                <div key={i} style={{ color: '#888', paddingLeft: '10px' }}>• {name}</div>
+                              ))}
+                            </div>
+                          )}
+                          {syncResult.deleted.length > 0 && (
+                            <div style={{ marginBottom: '8px' }}>
+                              <div style={{ color: '#f97316', fontWeight: 'bold', marginBottom: '4px' }}>🗑️ Deleted:</div>
+                              {syncResult.deleted.map((name, i) => (
+                                <div key={i} style={{ color: '#888', paddingLeft: '10px' }}>• {name}</div>
+                              ))}
+                            </div>
+                          )}
+                          {syncResult.errors.length > 0 && (
+                            <div>
+                              <div style={{ color: '#ef4444', fontWeight: 'bold', marginBottom: '4px' }}>❌ Errors:</div>
+                              {syncResult.errors.map((err, i) => (
+                                <div key={i} style={{ color: '#888', paddingLeft: '10px', wordBreak: 'break-word' }}>• {err}</div>
+                              ))}
+                            </div>
+                          )}
+                          {syncResult.created.length === 0 && syncResult.deleted.length === 0 && syncResult.errors.length === 0 && (
+                            <div style={{ color: '#888' }}>Everything is in sync!</div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
