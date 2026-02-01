@@ -5,7 +5,7 @@ interface CustomPlanetData {
   id: string;
   name: string;
   description: string;
-  type: 'business' | 'product' | 'achievement';
+  type: 'business' | 'product' | 'achievement' | 'notion';
   size: 'small' | 'medium' | 'big';
   reward: RewardType;
   realWorldReward?: string;

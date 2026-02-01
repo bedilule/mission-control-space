@@ -199,7 +199,7 @@ interface CustomPlanet {
   id: string;
   name: string;
   description: string;
-  type: 'business' | 'product' | 'achievement';
+  type: 'business' | 'product' | 'achievement' | 'notion';
   size: 'small' | 'medium' | 'big';
   reward: RewardType;
   realWorldReward?: string;
@@ -433,10 +433,10 @@ function App() {
   const [planetImagePreview, setPlanetImagePreview] = useState<string | null>(null);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [imagePrompt, setImagePrompt] = useState('');
-  // Notion sync options for planet creator
-  const [syncToNotion, setSyncToNotion] = useState(false);
+  // Notion task options for planet creator
   const [notionPriority, setNotionPriority] = useState<'low' | 'medium' | 'high' | 'critical'>('medium');
   const [notionAssignedTo, setNotionAssignedTo] = useState<string>('');
+  const [notionTaskType, setNotionTaskType] = useState<'task' | 'bug' | 'feature'>('task');
   const [isCreatingPlanet, setIsCreatingPlanet] = useState(false);
 
   // Prompt configs (loaded from JSON)
@@ -1583,17 +1583,16 @@ function App() {
     setIsGeneratingImage(false);
   };
 
-  // Save new planet (either locally or sync to Notion)
+  // Save new planet (Notion tasks sync automatically, others are local)
   const savePlanet = async () => {
     if (!newPlanet.name || !newPlanet.description) return;
 
-    // If syncing to Notion, create via edge function
-    if (syncToNotion) {
+    const isNotionTask = newPlanet.type === 'notion';
+
+    if (isNotionTask) {
+      // Create Notion task via edge function
       setIsCreatingPlanet(true);
       try {
-        const notionType = newPlanet.type === 'achievement' ? 'achievement' :
-                          newPlanet.type === 'business' ? 'business' :
-                          newPlanet.type === 'product' ? 'roadmap' : 'task';
 
         const response = await fetch(
           'https://qdizfhhsqolvuddoxugj.supabase.co/functions/v1/notion-create',
@@ -1603,7 +1602,7 @@ function App() {
             body: JSON.stringify({
               name: newPlanet.name,
               description: newPlanet.description,
-              type: notionType,
+              type: notionTaskType,
               priority: notionPriority,
               assigned_to: notionAssignedTo || null,
               created_by: state.currentUser || 'unknown',
@@ -1626,7 +1625,7 @@ function App() {
       }
       setIsCreatingPlanet(false);
     } else {
-      // Local-only planet (not synced to Notion)
+      // Local planet (Achievement, Business, Product)
       const planet: CustomPlanet = {
         id: `custom-${Date.now()}`,
         name: newPlanet.name,
@@ -1648,9 +1647,9 @@ function App() {
     setPlanetImageFile(null);
     setPlanetImagePreview(null);
     setImagePrompt('');
-    setSyncToNotion(false);
     setNotionPriority('medium');
     setNotionAssignedTo('');
+    setNotionTaskType('task');
     setShowPlanetCreator(false);
   };
 
@@ -2279,17 +2278,12 @@ function App() {
                     <label style={styles.label}>Task Type</label>
                     <select
                       style={styles.select}
-                      value={notionAssignedTo === 'bug' ? 'bug' : notionAssignedTo === 'feature' ? 'feature' : 'task'}
-                      onChange={e => {
-                        const val = e.target.value;
-                        if (val === 'bug' || val === 'feature' || val === 'task') {
-                          setNewPlanet(p => ({ ...p, reward: val as any }));
-                        }
-                      }}
+                      value={notionTaskType}
+                      onChange={e => setNotionTaskType(e.target.value as any)}
                     >
-                      <option value="task">Task</option>
-                      <option value="bug">Bug</option>
-                      <option value="feature">Feature</option>
+                      <option value="task">📋 Task</option>
+                      <option value="bug">🐛 Bug</option>
+                      <option value="feature">✨ Feature</option>
                     </select>
                   </div>
                   <div style={styles.formGroup}>
