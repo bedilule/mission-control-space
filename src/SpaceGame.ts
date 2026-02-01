@@ -145,6 +145,12 @@ export class SpaceGame {
   private onOpenNotion: ((url: string) => void) | null = null;
   private onTerraform: ((planet: Planet) => void) | null = null;
 
+  // Claim animation state (laser beam + planet teleport)
+  private isClaiming: boolean = false;
+  private claimProgress: number = 0;
+  private claimPlanet: Planet | null = null;
+  private claimParticles: { x: number; y: number; vx: number; vy: number; life: number; color: string; size: number }[] = [];
+
   // Upgrading animation state (orbiting satellites/robots)
   private isUpgrading: boolean = false;
   private upgradeTargetPlanetId: string | null = null; // null = orbit ship, string = orbit planet
@@ -809,6 +815,14 @@ export class SpaceGame {
       return;
     }
 
+    // Handle claim animation
+    if (this.isClaiming) {
+      this.updateClaimAnimation();
+      this.updateCamera();
+      this.updateParticles();
+      return;
+    }
+
     // Handle rotation
     if (this.keys.has('a') || this.keys.has('arrowleft')) {
       ship.rotation -= SHIP_ROTATION_SPEED;
@@ -1244,11 +1258,20 @@ export class SpaceGame {
       return;
     }
 
-    // Handle C key - colonize (complete the task)
+    // Handle C key - colonize (complete) or claim (unassigned)
     if (this.keys.has('c')) {
       this.keys.delete('c');
       if (!planet.completed && this.onColonize) {
-        this.onColonize(planet);
+        const isNotionPlanet = planet.id.startsWith('notion-');
+        const isUnassigned = isNotionPlanet && (!planet.ownerId || planet.ownerId === '');
+
+        if (isUnassigned) {
+          // Start claim animation for unassigned notion planets
+          this.startClaimAnimation(planet);
+        } else {
+          // Direct complete for assigned planets
+          this.onColonize(planet);
+        }
       }
       return;
     }
@@ -1363,6 +1386,204 @@ export class SpaceGame {
         color: colors[Math.floor(Math.random() * colors.length)],
       });
     }
+  }
+
+  // Start claim animation (laser beam + teleport effect)
+  private startClaimAnimation(planet: Planet) {
+    this.isClaiming = true;
+    this.claimProgress = 0;
+    this.claimPlanet = planet;
+    this.claimParticles = [];
+
+    // Clear landed state
+    this.isLanded = false;
+    this.landedPlanet = null;
+
+    // Play a sound
+    soundManager.playDockingSound();
+  }
+
+  // Update claim animation
+  private updateClaimAnimation() {
+    if (!this.isClaiming || !this.claimPlanet) return;
+
+    const planet = this.claimPlanet;
+    this.claimProgress += 0.02; // ~2.5 second animation
+
+    const { ship } = this.state;
+
+    // Keep ship in position
+    ship.x = planet.x;
+    ship.y = planet.y - planet.radius - 25;
+    ship.vx = 0;
+    ship.vy = 0;
+    ship.rotation = -Math.PI / 2;
+
+    // Phase 1: Laser beam charging (0-0.3)
+    // Phase 2: Beam hits planet, planet shrinks (0.3-0.7)
+    // Phase 3: Planet explodes into particles, flash (0.7-1.0)
+
+    if (this.claimProgress < 0.3) {
+      // Charging - emit energy particles toward ship
+      if (Math.random() < 0.3) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 80 + Math.random() * 40;
+        this.claimParticles.push({
+          x: ship.x + Math.cos(angle) * dist,
+          y: ship.y + Math.sin(angle) * dist,
+          vx: -Math.cos(angle) * 3,
+          vy: -Math.sin(angle) * 3,
+          life: 20,
+          color: '#00ffff',
+          size: 3 + Math.random() * 2,
+        });
+      }
+    } else if (this.claimProgress < 0.7) {
+      // Planet shrinking - emit particles from planet surface
+      const shrinkProgress = (this.claimProgress - 0.3) / 0.4;
+      for (let i = 0; i < 3; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const currentRadius = planet.radius * (1 - shrinkProgress * 0.8);
+        this.claimParticles.push({
+          x: planet.x + Math.cos(angle) * currentRadius,
+          y: planet.y + Math.sin(angle) * currentRadius,
+          vx: Math.cos(angle) * (2 + Math.random() * 2),
+          vy: Math.sin(angle) * (2 + Math.random() * 2),
+          life: 30 + Math.random() * 20,
+          color: Math.random() < 0.5 ? planet.color : '#ffffff',
+          size: 2 + Math.random() * 4,
+        });
+      }
+    } else if (this.claimProgress < 0.85) {
+      // Explosion burst
+      if (this.claimProgress < 0.75) {
+        for (let i = 0; i < 10; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const speed = 3 + Math.random() * 5;
+          this.claimParticles.push({
+            x: planet.x,
+            y: planet.y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: 40 + Math.random() * 30,
+            color: ['#ffffff', '#00ffff', '#ffff00', planet.color][Math.floor(Math.random() * 4)],
+            size: 3 + Math.random() * 5,
+          });
+        }
+      }
+    }
+
+    // Update claim particles
+    for (let i = this.claimParticles.length - 1; i >= 0; i--) {
+      const p = this.claimParticles[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      p.life--;
+      if (p.life <= 0) {
+        this.claimParticles.splice(i, 1);
+      }
+    }
+
+    // Animation complete
+    if (this.claimProgress >= 1) {
+      this.isClaiming = false;
+      this.claimParticles = [];
+
+      // Call the colonize callback to actually claim
+      if (this.onColonize && this.claimPlanet) {
+        this.onColonize(this.claimPlanet);
+      }
+      this.claimPlanet = null;
+    }
+  }
+
+  // Render claim animation effects
+  private renderClaimAnimation() {
+    if (!this.isClaiming || !this.claimPlanet) return;
+
+    const { ctx } = this;
+    const planet = this.claimPlanet;
+    const { ship } = this.state;
+
+    ctx.save();
+
+    // Transform to world coordinates
+    ctx.translate(-this.state.camera.x + this.canvas.width / 2, -this.state.camera.y + this.canvas.height / 2);
+
+    // Phase 1: Charging glow around ship
+    if (this.claimProgress < 0.3) {
+      const chargeIntensity = this.claimProgress / 0.3;
+      ctx.beginPath();
+      ctx.arc(ship.x, ship.y, 30 + chargeIntensity * 20, 0, Math.PI * 2);
+      const gradient = ctx.createRadialGradient(ship.x, ship.y, 10, ship.x, ship.y, 50);
+      gradient.addColorStop(0, `rgba(0, 255, 255, ${chargeIntensity * 0.5})`);
+      gradient.addColorStop(1, 'rgba(0, 255, 255, 0)');
+      ctx.fillStyle = gradient;
+      ctx.fill();
+    }
+
+    // Phase 2: Laser beam + shrinking planet
+    if (this.claimProgress >= 0.3 && this.claimProgress < 0.7) {
+      const beamProgress = (this.claimProgress - 0.3) / 0.4;
+
+      // Draw laser beam from ship to planet
+      const beamWidth = 8 + Math.sin(this.claimProgress * 50) * 2;
+      ctx.strokeStyle = '#00ffff';
+      ctx.lineWidth = beamWidth;
+      ctx.shadowColor = '#00ffff';
+      ctx.shadowBlur = 20;
+      ctx.beginPath();
+      ctx.moveTo(ship.x, ship.y + 20);
+      ctx.lineTo(planet.x, planet.y);
+      ctx.stroke();
+
+      // Inner bright beam
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = beamWidth * 0.4;
+      ctx.beginPath();
+      ctx.moveTo(ship.x, ship.y + 20);
+      ctx.lineTo(planet.x, planet.y);
+      ctx.stroke();
+
+      // Draw shrinking planet
+      const shrinkScale = 1 - beamProgress * 0.8;
+      ctx.shadowBlur = 30;
+      ctx.shadowColor = '#00ffff';
+      ctx.beginPath();
+      ctx.arc(planet.x, planet.y, planet.radius * shrinkScale, 0, Math.PI * 2);
+      ctx.fillStyle = planet.color;
+      ctx.globalAlpha = 1 - beamProgress * 0.3;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // Phase 3: Flash and explosion
+    if (this.claimProgress >= 0.7 && this.claimProgress < 0.85) {
+      const flashIntensity = 1 - (this.claimProgress - 0.7) / 0.15;
+      ctx.fillStyle = `rgba(255, 255, 255, ${flashIntensity * 0.8})`;
+      ctx.fillRect(
+        planet.x - 200,
+        planet.y - 200,
+        400,
+        400
+      );
+    }
+
+    // Draw claim particles
+    for (const p of this.claimParticles) {
+      const alpha = p.life / 50;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = Math.min(1, alpha);
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = p.color;
+      ctx.fill();
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+    ctx.restore();
   }
 
   // Additional easing functions for the landing
@@ -1802,6 +2023,11 @@ export class SpaceGame {
 
     // Draw upgrade satellites/robots orbiting the ship
     this.renderUpgradeSatellites();
+
+    // Draw claim animation (laser beam + teleport effect)
+    if (this.isClaiming) {
+      this.renderClaimAnimation();
+    }
 
     // Draw planet info panel when nearby OR landed panel when on planet
     if (this.isLanded && this.landedPlanet) {
@@ -2632,10 +2858,14 @@ export class SpaceGame {
     currentY = boxY + boxHeight - 35;
 
     if (!planet.completed) {
-      // Colonize/Complete hint
-      ctx.fillStyle = '#4ade80';
+      const isNotionPlanet = planet.type === 'notion';
+      const isUnassignedNotion = isNotionPlanet && (!planet.ownerId || planet.ownerId === '');
+
+      // Claim or Complete hint
+      ctx.fillStyle = isUnassignedNotion ? '#ffd700' : '#4ade80';
       ctx.font = 'bold 14px Space Grotesk';
-      ctx.fillText('[ C ] Complete', boxX + boxWidth / 2 - (hasNotionUrl ? 80 : 0), currentY);
+      const actionText = isUnassignedNotion ? '[ C ] Claim Mission' : '[ C ] Complete';
+      ctx.fillText(actionText, boxX + boxWidth / 2 - (hasNotionUrl ? 80 : 0), currentY);
 
       // Notion hint
       if (hasNotionUrl) {
