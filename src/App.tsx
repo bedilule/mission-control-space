@@ -1239,12 +1239,30 @@ function App() {
           setViewingPlanetOwner(null);
           return;
         }
+        // Close shop modal
+        if (showShop) {
+          e.preventDefault();
+          setShowShop(false);
+          return;
+        }
+        // Close planet creator modal
+        if (showPlanetCreator) {
+          e.preventDefault();
+          setShowPlanetCreator(false);
+          return;
+        }
+        // Close memory gallery modal
+        if (showMemoryGallery) {
+          e.preventDefault();
+          setShowMemoryGallery(false);
+          return;
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showTerraform, viewingPlanetOwner, isUpgrading]);
+  }, [showTerraform, viewingPlanetOwner, showShop, showPlanetCreator, showMemoryGallery, isUpgrading]);
 
   // Buy visual upgrade from shop (AI-generated changes to ship appearance)
   const buyVisualUpgrade = async () => {
@@ -2163,14 +2181,51 @@ function App() {
           <div style={styles.modal}>
             <h2 style={styles.modalTitle}>Create New Planet</h2>
 
+            {/* Planet Type Selection - First Choice */}
             <div style={styles.formGroup}>
-              <label style={styles.label}>Planet Name *</label>
+              <label style={styles.label}>Planet Type</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                {[
+                  { value: 'achievement', label: '🏆 Achievement', color: '#ffd700' },
+                  { value: 'business', label: '💼 Business', color: '#4ade80' },
+                  { value: 'product', label: '🚀 Product', color: '#5490ff' },
+                  { value: 'notion', label: '📋 Notion Task', color: '#00c8ff' },
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setNewPlanet(p => ({ ...p, type: opt.value as any }))}
+                    style={{
+                      padding: '12px',
+                      border: newPlanet.type === opt.value ? `2px solid ${opt.color}` : '2px solid #333',
+                      borderRadius: '8px',
+                      background: newPlanet.type === opt.value ? `${opt.color}20` : 'transparent',
+                      color: newPlanet.type === opt.value ? opt.color : '#888',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      fontWeight: newPlanet.type === opt.value ? 'bold' : 'normal',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              {newPlanet.type === 'notion' && (
+                <div style={{ marginTop: '8px', fontSize: '12px', color: '#00c8ff' }}>
+                  Will sync to Notion board automatically
+                </div>
+              )}
+            </div>
+
+            {/* Common Fields */}
+            <div style={styles.formGroup}>
+              <label style={styles.label}>{newPlanet.type === 'notion' ? 'Task Title' : 'Planet Name'} *</label>
               <input
                 type="text"
                 style={styles.input}
                 value={newPlanet.name || ''}
                 onChange={e => setNewPlanet(p => ({ ...p, name: e.target.value }))}
-                placeholder="e.g., $1M ARR"
+                placeholder={newPlanet.type === 'notion' ? 'e.g., Fix login bug' : 'e.g., $1M ARR'}
               />
             </div>
 
@@ -2181,68 +2236,62 @@ function App() {
                 style={styles.input}
                 value={newPlanet.description || ''}
                 onChange={e => setNewPlanet(p => ({ ...p, description: e.target.value }))}
-                placeholder="e.g., Reach one million in annual recurring revenue"
+                placeholder={newPlanet.type === 'notion' ? 'What needs to be done?' : 'What does this milestone represent?'}
               />
             </div>
 
-            <div style={styles.formRow}>
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Type</label>
-                <select
-                  style={styles.select}
-                  value={newPlanet.type}
-                  onChange={e => setNewPlanet(p => ({ ...p, type: e.target.value as any }))}
-                >
-                  <option value="business">Business</option>
-                  <option value="product">Product</option>
-                  <option value="achievement">Achievement</option>
-                </select>
-              </div>
+            {/* Fields for Achievement/Business/Product */}
+            {newPlanet.type !== 'notion' && (
+              <>
+                <div style={styles.formRow}>
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Size (Points)</label>
+                    <select
+                      style={styles.select}
+                      value={newPlanet.size}
+                      onChange={e => setNewPlanet(p => ({ ...p, size: e.target.value as any }))}
+                    >
+                      <option value="small">Small (50 pts)</option>
+                      <option value="medium">Medium (100 pts)</option>
+                      <option value="big">Big (200 pts)</option>
+                    </select>
+                  </div>
+                </div>
 
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Size</label>
-                <select
-                  style={styles.select}
-                  value={newPlanet.size}
-                  onChange={e => setNewPlanet(p => ({ ...p, size: e.target.value as any }))}
-                >
-                  <option value="small">Small (50 pts)</option>
-                  <option value="medium">Medium (100 pts)</option>
-                  <option value="big">Big (200 pts)</option>
-                </select>
-              </div>
-            </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Real World Reward (optional)</label>
+                  <input
+                    type="text"
+                    style={styles.input}
+                    value={newPlanet.realWorldReward || ''}
+                    onChange={e => setNewPlanet(p => ({ ...p, realWorldReward: e.target.value }))}
+                    placeholder="e.g., Team dinner, +$2,000 bonus"
+                  />
+                </div>
+              </>
+            )}
 
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Real World Reward (optional)</label>
-              <input
-                type="text"
-                style={styles.input}
-                value={newPlanet.realWorldReward || ''}
-                onChange={e => setNewPlanet(p => ({ ...p, realWorldReward: e.target.value }))}
-                placeholder="e.g., +$2,000/month salary increase"
-              />
-            </div>
-
-            {/* Notion Sync Toggle */}
-            <div style={{ ...styles.formGroup, display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', background: syncToNotion ? 'rgba(0, 200, 255, 0.1)' : 'rgba(255,255,255,0.03)', borderRadius: '8px', border: syncToNotion ? '1px solid rgba(0, 200, 255, 0.3)' : '1px solid transparent' }}>
-              <input
-                type="checkbox"
-                id="sync-notion"
-                checked={syncToNotion}
-                onChange={e => setSyncToNotion(e.target.checked)}
-                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-              />
-              <label htmlFor="sync-notion" style={{ ...styles.label, margin: 0, cursor: 'pointer', flex: 1 }}>
-                Sync to Notion
-              </label>
-              {syncToNotion && <span style={{ fontSize: '12px', color: '#00c8ff' }}>Task will appear in Notion board</span>}
-            </div>
-
-            {/* Notion-specific options */}
-            {syncToNotion && (
+            {/* Fields for Notion Task */}
+            {newPlanet.type === 'notion' && (
               <div style={{ background: 'rgba(0, 200, 255, 0.05)', padding: '12px', borderRadius: '8px', marginBottom: '12px' }}>
                 <div style={styles.formRow}>
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Task Type</label>
+                    <select
+                      style={styles.select}
+                      value={notionAssignedTo === 'bug' ? 'bug' : notionAssignedTo === 'feature' ? 'feature' : 'task'}
+                      onChange={e => {
+                        const val = e.target.value;
+                        if (val === 'bug' || val === 'feature' || val === 'task') {
+                          setNewPlanet(p => ({ ...p, reward: val as any }));
+                        }
+                      }}
+                    >
+                      <option value="task">Task</option>
+                      <option value="bug">Bug</option>
+                      <option value="feature">Feature</option>
+                    </select>
+                  </div>
                   <div style={styles.formGroup}>
                     <label style={styles.label}>Priority</label>
                     <select
@@ -2250,67 +2299,57 @@ function App() {
                       value={notionPriority}
                       onChange={e => setNotionPriority(e.target.value as any)}
                     >
-                      <option value="low">Low (25 pts)</option>
-                      <option value="medium">Medium (50 pts)</option>
-                      <option value="high">High (100 pts)</option>
-                      <option value="critical">Critical (150 pts)</option>
+                      <option value="low">💡 Low (25 pts)</option>
+                      <option value="medium">⚡ Medium (50 pts)</option>
+                      <option value="high">🔥 High (100 pts)</option>
+                      <option value="critical">🧨 Critical (150 pts)</option>
                     </select>
                   </div>
-                  <div style={styles.formGroup}>
-                    <label style={styles.label}>Assign To</label>
-                    <select
-                      style={styles.select}
-                      value={notionAssignedTo}
-                      onChange={e => setNotionAssignedTo(e.target.value)}
-                    >
-                      <option value="">Unassigned (Center)</option>
-                      <option value="quentin">Quentin</option>
-                      <option value="alex">Alex</option>
-                      <option value="armel">Armel</option>
-                      <option value="melia">Melia</option>
-                      <option value="hugue">Hugue</option>
-                    </select>
-                  </div>
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Assign To</label>
+                  <select
+                    style={styles.select}
+                    value={notionAssignedTo}
+                    onChange={e => setNotionAssignedTo(e.target.value)}
+                  >
+                    <option value="">Unassigned (Center Zone)</option>
+                    <option value="quentin">Quentin</option>
+                    <option value="alex">Alex</option>
+                    <option value="armel">Armel</option>
+                    <option value="melia">Melia</option>
+                    <option value="hugue">Hugue</option>
+                  </select>
                 </div>
               </div>
             )}
 
+            {/* AI Image Generation (always available) */}
             <div style={styles.formGroup}>
-              <label style={styles.label}>Planet Image {syncToNotion && '(local only)'}</label>
-              <div style={styles.imageOptions}>
-                <div style={styles.imageUpload}>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageSelect}
-                    style={{ display: 'none' }}
-                    id="planet-image"
-                  />
-                  <label htmlFor="planet-image" style={styles.uploadButton}>
-                    Upload
-                  </label>
-                </div>
-                <span style={{ color: '#666' }}>or</span>
-                <div style={styles.aiGenerate}>
-                  <input
-                    type="text"
-                    style={{ ...styles.input, flex: 1 }}
-                    value={imagePrompt}
-                    onChange={e => setImagePrompt(e.target.value)}
-                    placeholder="Describe..."
-                  />
-                  <button
-                    style={styles.generateButton}
-                    onClick={generatePlanetImage}
-                    disabled={isGeneratingImage || !imagePrompt}
-                  >
-                    {isGeneratingImage ? '...' : 'AI'}
-                  </button>
-                </div>
+              <label style={styles.label}>AI Planet Image (optional)</label>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input
+                  type="text"
+                  style={{ ...styles.input, flex: 1 }}
+                  value={imagePrompt}
+                  onChange={e => setImagePrompt(e.target.value)}
+                  placeholder="Describe the planet look..."
+                />
+                <button
+                  style={{
+                    ...styles.generateButton,
+                    padding: '8px 16px',
+                    opacity: isGeneratingImage || !imagePrompt ? 0.5 : 1,
+                  }}
+                  onClick={generatePlanetImage}
+                  disabled={isGeneratingImage || !imagePrompt}
+                >
+                  {isGeneratingImage ? 'Generating...' : 'Generate'}
+                </button>
               </div>
               {planetImagePreview && (
-                <div style={styles.imagePreview}>
-                  <img src={planetImagePreview} alt="Preview" style={styles.previewImage} />
+                <div style={{ marginTop: '12px', textAlign: 'center' }}>
+                  <img src={planetImagePreview} alt="Preview" style={{ width: 80, height: 80, borderRadius: '50%', border: '2px solid #444' }} />
                 </div>
               )}
             </div>
@@ -2322,12 +2361,14 @@ function App() {
               <button
                 style={{
                   ...styles.saveButton,
-                  background: syncToNotion ? 'linear-gradient(135deg, #00c8ff, #0088cc)' : styles.saveButton.background,
+                  background: newPlanet.type === 'notion'
+                    ? 'linear-gradient(135deg, #00c8ff, #0088cc)'
+                    : styles.saveButton.background,
                 }}
                 onClick={savePlanet}
                 disabled={!newPlanet.name || !newPlanet.description || isCreatingPlanet}
               >
-                {isCreatingPlanet ? 'Creating...' : syncToNotion ? 'Create & Sync to Notion' : 'Create Planet'}
+                {isCreatingPlanet ? 'Creating...' : newPlanet.type === 'notion' ? 'Create Notion Task' : 'Create Planet'}
               </button>
             </div>
           </div>
