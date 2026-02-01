@@ -533,6 +533,7 @@ function App() {
   const {
     gamePlanets: notionGamePlanets,
     completePlanet: completeNotionPlanet,
+    claimPlanet: claimNotionPlanet,
   } = useNotionPlanets({
     teamId: team?.id || null,
   });
@@ -1098,26 +1099,48 @@ function App() {
       setShowPlanetCreator(true);
       return;
     }
+    // User planets open terraform modal
+    if (planet.id.startsWith('user-planet-')) {
+      const planetOwnerId = planet.id.replace('user-planet-', '');
+      if (planetOwnerId === state.currentUser) {
+        setShowTerraform(true);
+      } else {
+        setViewingPlanetOwner(planetOwnerId);
+      }
+      return;
+    }
 
-    // For all other planets (including user planets), show the landed panel
+    // For all other planets, show the landed panel
     setLandedPlanet(planet);
-  }, []);
+  }, [state.currentUser]);
 
   // Handle takeoff from a planet
   const handleTakeoff = useCallback(() => {
     setLandedPlanet(null);
   }, []);
 
-  // Handle colonizing a planet (completing it)
-  const handleColonize = useCallback((planet: Planet) => {
+  // Handle colonizing a planet (completing it) or claiming an unassigned mission
+  const handleColonize = useCallback(async (planet: Planet) => {
     if (planet.completed) return;
-
-    // Fire confetti and sound
-    fireConfetti(planet.size);
-    soundManager.playDockingSound();
 
     // Handle Notion planets
     if (planet.id.startsWith('notion-')) {
+      // Check if unassigned - then CLAIM instead of complete
+      if (!planet.ownerId && state.currentUser) {
+        // Claim the mission (moves it to player's zone)
+        const success = await claimNotionPlanet(planet.id, state.currentUser);
+        if (success) {
+          soundManager.playDockingSound();
+          // Planet will be updated via realtime subscription
+          setLandedPlanet(null);
+        }
+        return;
+      }
+
+      // Already assigned - complete it
+      fireConfetti(planet.size);
+      soundManager.playDockingSound();
+
       // Mark as completed in database
       completeNotionPlanet(planet.id);
 
@@ -1133,6 +1156,9 @@ function App() {
     } else {
       // Regular planets
       if (state.completedPlanets.includes(planet.id)) return;
+
+      fireConfetti(planet.size);
+      soundManager.playDockingSound();
 
       const pointsEarned = POINTS_PER_SIZE[planet.size];
       setTeamPoints(prev => prev + pointsEarned);
@@ -1152,7 +1178,7 @@ function App() {
 
     // Clear landed state after colonizing
     setLandedPlanet(null);
-  }, [state.completedPlanets, team, completeRemotePlanet, completeNotionPlanet]);
+  }, [state.completedPlanets, state.currentUser, team, completeRemotePlanet, completeNotionPlanet, claimNotionPlanet]);
 
   // Handle opening Notion URL
   const handleOpenNotion = useCallback((url: string) => {
@@ -1185,6 +1211,29 @@ function App() {
       onTerraform: handleTerraform,
     };
   }, [handleLand, handleTakeoff, handleColonize, handleOpenNotion, handleTerraform]);
+
+  // Close modals with Space key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === ' ' && !isUpgrading) {
+        // Close terraform modal
+        if (showTerraform) {
+          e.preventDefault();
+          setShowTerraform(false);
+          return;
+        }
+        // Close viewing planet owner modal
+        if (viewingPlanetOwner) {
+          e.preventDefault();
+          setViewingPlanetOwner(null);
+          return;
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showTerraform, viewingPlanetOwner, isUpgrading]);
 
   // Buy visual upgrade from shop (AI-generated changes to ship appearance)
   const buyVisualUpgrade = async () => {

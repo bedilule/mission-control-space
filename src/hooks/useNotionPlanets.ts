@@ -87,6 +87,7 @@ interface UseNotionPlanetsReturn {
   gamePlanets: Planet[];
   isLoading: boolean;
   completePlanet: (notionPlanetId: string) => Promise<void>;
+  claimPlanet: (notionPlanetId: string, playerUsername: string) => Promise<boolean>;
 }
 
 export function useNotionPlanets(options: UseNotionPlanetsOptions): UseNotionPlanetsReturn {
@@ -135,6 +136,43 @@ export function useNotionPlanets(options: UseNotionPlanetsOptions): UseNotionPla
       }
     } catch (error) {
       console.error('Error completing notion planet:', error);
+    }
+  }, [teamId]);
+
+  // Claim an unassigned notion planet (moves it to player's zone)
+  const claimPlanet = useCallback(async (notionPlanetId: string, playerUsername: string): Promise<boolean> => {
+    if (!teamId) return false;
+
+    // Extract the actual ID (remove 'notion-' prefix if present)
+    const actualId = notionPlanetId.startsWith('notion-')
+      ? notionPlanetId.slice(7)
+      : notionPlanetId;
+
+    try {
+      const response = await fetch(
+        'https://qdizfhhsqolvuddoxugj.supabase.co/functions/v1/notion-claim',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            notion_planet_id: actualId,
+            player_username: playerUsername,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        console.error('Error claiming notion planet:', error);
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error claiming notion planet:', error);
+      return false;
     }
   }, [teamId]);
 
@@ -215,5 +253,6 @@ export function useNotionPlanets(options: UseNotionPlanetsOptions): UseNotionPla
     gamePlanets,
     isLoading,
     completePlanet,
+    claimPlanet,
   };
 }
