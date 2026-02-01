@@ -193,7 +193,9 @@ export interface Database {
           description: string | null;
           notion_url: string | null;
           assigned_to: string | null;
+          created_by: string | null;
           task_type: string | null;
+          priority: string | null;
           points: number;
           x: number;
           y: number;
@@ -208,7 +210,9 @@ export interface Database {
           description?: string | null;
           notion_url?: string | null;
           assigned_to?: string | null;
+          created_by?: string | null;
           task_type?: string | null;
+          priority?: string | null;
           points?: number;
           x?: number;
           y?: number;
@@ -223,7 +227,9 @@ export interface Database {
           description?: string | null;
           notion_url?: string | null;
           assigned_to?: string | null;
+          created_by?: string | null;
           task_type?: string | null;
+          priority?: string | null;
           points?: number;
           x?: number;
           y?: number;

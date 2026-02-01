@@ -23,7 +23,9 @@ const rowToNotionPlanet = (row: any): NotionPlanet => ({
   description: row.description,
   notion_url: row.notion_url,
   assigned_to: row.assigned_to,
+  created_by: row.created_by,
   task_type: row.task_type,
+  priority: row.priority,
   points: row.points,
   x: row.x,
   y: row.y,
@@ -36,21 +38,38 @@ export const notionPlanetToGamePlanet = (np: NotionPlanet): Planet => {
   const taskType = np.task_type?.toLowerCase() || 'default';
   const colors = TASK_TYPE_COLORS[taskType] || TASK_TYPE_COLORS.default;
 
+  // Determine size based on priority
+  let size: 'small' | 'medium' | 'big' = 'medium';
+  let radius = 40;
+  const priority = np.priority?.toLowerCase() || '';
+  if (priority.includes('critical') || priority.includes('🧨')) {
+    size = 'big';
+    radius = 55;
+  } else if (priority.includes('high') || priority.includes('🔥')) {
+    size = 'medium';
+    radius = 45;
+  } else if (priority.includes('low') || priority.includes('💡')) {
+    size = 'small';
+    radius = 32;
+  }
+
   return {
     id: `notion-${np.id}`,
     name: np.name,
     x: np.x,
     y: np.y,
-    radius: 40, // Medium size for notion planets
+    radius: radius,
     color: colors.color,
     glowColor: colors.glowColor,
     completed: np.completed,
     type: 'notion',
-    size: 'medium',
+    size: size,
     description: np.description || undefined,
-    hasRing: taskType === 'epic', // Epics get rings
-    hasMoon: taskType === 'feature', // Features get moons
-    ownerId: np.assigned_to, // Assigned player owns the planet
+    hasRing: priority.includes('critical') || priority.includes('🧨'),
+    hasMoon: taskType === 'enhancement',
+    ownerId: np.assigned_to, // Assigned player can complete the planet
+    createdBy: np.created_by, // Creator gets the points
+    priority: np.priority,
     notionTaskId: np.notion_task_id,
     notionUrl: np.notion_url || undefined,
   };
@@ -87,7 +106,7 @@ export function useNotionPlanets(options: UseNotionPlanetsOptions): UseNotionPla
     onPlanetCompletedRef.current = options.onPlanetCompleted;
   }, [options.onPlanetCreated, options.onPlanetCompleted]);
 
-  // Mark a notion planet as completed
+  // Mark a notion planet as completed (also updates Notion)
   const completePlanet = useCallback(async (notionPlanetId: string) => {
     if (!teamId) return;
 
@@ -96,12 +115,24 @@ export function useNotionPlanets(options: UseNotionPlanetsOptions): UseNotionPla
       ? notionPlanetId.slice(7)
       : notionPlanetId;
 
-    const { error } = await supabase
-      .from('notion_planets')
-      .update({ completed: true })
-      .eq('id', actualId);
+    try {
+      // Call edge function to complete in both our DB and Notion
+      const response = await fetch(
+        'https://qdizfhhsqolvuddoxugj.supabase.co/functions/v1/notion-complete',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ notion_planet_id: actualId }),
+        }
+      );
 
-    if (error) {
+      if (!response.ok) {
+        const error = await response.json();
+        console.error('Error completing notion planet:', error);
+      }
+    } catch (error) {
       console.error('Error completing notion planet:', error);
     }
   }, [teamId]);
