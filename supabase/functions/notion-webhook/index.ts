@@ -9,15 +9,69 @@ const corsHeaders = {
 };
 
 interface NotionWebhookPayload {
-  // Notion task data
+  // Simplified format (manual/Zapier)
   id: string;
   name: string;
   description?: string;
-  type?: string; // bug, feature, epic, etc.
-  points?: number; // Custom points property
-  assigned_to?: string; // Username of assigned person
+  type?: string;
+  points?: number;
+  assigned_to?: string;
   status?: string;
   url?: string;
+}
+
+// Parse native Notion automation payload into our simplified format
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parseNativeNotionPayload(raw: any): NotionWebhookPayload | null {
+  // Check if this is a native Notion payload (has data.properties)
+  if (!raw.data?.properties) {
+    return null; // Not a native Notion payload
+  }
+
+  const data = raw.data;
+  const props = data.properties;
+
+  // Extract title - look for title type property
+  let name = '';
+  for (const key of Object.keys(props)) {
+    if (props[key].type === 'title' && props[key].title?.[0]?.plain_text) {
+      name = props[key].title[0].plain_text;
+      break;
+    }
+  }
+
+  // Extract assigned person - look for people type property
+  let assignedTo = '';
+  for (const key of Object.keys(props)) {
+    if (props[key].type === 'people' && props[key].people?.[0]?.name) {
+      assignedTo = props[key].people[0].name.toLowerCase();
+      break;
+    }
+  }
+
+  // Extract description - look for rich_text type property named Description
+  let description = '';
+  if (props['Description']?.rich_text?.[0]?.plain_text) {
+    description = props['Description'].rich_text[0].plain_text;
+  }
+
+  // Extract type - look for select property
+  let type = '';
+  for (const key of Object.keys(props)) {
+    if (props[key].type === 'select' && props[key].select?.name) {
+      type = props[key].select.name.toLowerCase();
+      break;
+    }
+  }
+
+  return {
+    id: data.id,
+    name: name || 'Untitled',
+    description: description || undefined,
+    type: type || undefined,
+    assigned_to: assignedTo || undefined,
+    url: data.url || undefined,
+  };
 }
 
 interface ExistingPlanet {
@@ -109,8 +163,9 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Verify webhook secret
-    const notionSecret = req.headers.get('x-notion-secret');
+    // Verify webhook secret (from header or query param)
+    const url = new URL(req.url);
+    const notionSecret = req.headers.get('x-notion-secret') || url.searchParams.get('secret');
     const expectedSecret = Deno.env.get('NOTION_WEBHOOK_SECRET');
 
     if (!expectedSecret) {
@@ -130,8 +185,20 @@ Deno.serve(async (req) => {
     }
 
     // Parse webhook payload
-    const payload: NotionWebhookPayload = await req.json();
-    console.log('Received Notion webhook:', JSON.stringify(payload));
+    const rawPayload = await req.json();
+    console.log('RAW PAYLOAD:', JSON.stringify(rawPayload, null, 2));
+
+    // Debug mode: if ?debug=true, just return what we received
+    if (url.searchParams.get('debug') === 'true') {
+      const parsed = parseNativeNotionPayload(rawPayload);
+      return new Response(
+        JSON.stringify({ received: rawPayload, parsed: parsed }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Try to parse as native Notion payload first, fall back to simple format
+    const payload: NotionWebhookPayload = parseNativeNotionPayload(rawPayload) || rawPayload;
 
     // Validate required fields
     if (!payload.id || !payload.name) {

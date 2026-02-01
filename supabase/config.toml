@@ -1,0 +1,2 @@
+[functions.notion-webhook]
+verify_jwt = false
