@@ -425,7 +425,6 @@ function App() {
 
   // Planet creator form state
   const [newPlanet, setNewPlanet] = useState<Partial<CustomPlanet>>({
-    type: 'business',
     size: 'medium',
     reward: 'glow',
   });
@@ -1643,7 +1642,7 @@ function App() {
     }
 
     // Reset form
-    setNewPlanet({ type: 'achievement', size: 'medium', reward: 'glow' });
+    setNewPlanet({ size: 'medium', reward: 'glow' });
     setPlanetImageFile(null);
     setPlanetImagePreview(null);
     setImagePrompt('');
@@ -2177,84 +2176,134 @@ function App() {
       {/* Planet Creator Modal */}
       {showPlanetCreator && (
         <div style={styles.modalOverlay}>
-          <div style={styles.modal}>
+          <div style={{ ...styles.modal, minWidth: newPlanet.type ? '400px' : '500px' }}>
             <h2 style={styles.modalTitle}>Create New Planet</h2>
 
-            {/* Planet Type Selection - Two Big Buttons */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
-              <button
-                onClick={() => setNewPlanet(p => ({ ...p, type: 'achievement' }))}
-                style={{
-                  padding: '24px 16px',
-                  border: newPlanet.type === 'achievement' ? '3px solid #ffd700' : '2px solid #333',
-                  borderRadius: '12px',
-                  background: newPlanet.type === 'achievement' ? 'rgba(255, 215, 0, 0.15)' : 'rgba(255,255,255,0.03)',
-                  color: newPlanet.type === 'achievement' ? '#ffd700' : '#888',
-                  cursor: 'pointer',
-                  fontSize: '18px',
-                  fontWeight: 'bold',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '8px',
-                }}
-              >
-                <span style={{ fontSize: '32px' }}>🏆</span>
-                Achievement
-                <span style={{ fontSize: '11px', fontWeight: 'normal', opacity: 0.7 }}>Local milestone</span>
-              </button>
-              <button
-                onClick={() => setNewPlanet(p => ({ ...p, type: 'notion' }))}
-                style={{
-                  padding: '24px 16px',
-                  border: newPlanet.type === 'notion' ? '3px solid #00c8ff' : '2px solid #333',
-                  borderRadius: '12px',
-                  background: newPlanet.type === 'notion' ? 'rgba(0, 200, 255, 0.15)' : 'rgba(255,255,255,0.03)',
-                  color: newPlanet.type === 'notion' ? '#00c8ff' : '#888',
-                  cursor: 'pointer',
-                  fontSize: '18px',
-                  fontWeight: 'bold',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '8px',
-                }}
-              >
-                <span style={{ fontSize: '32px' }}>📋</span>
-                Task
-                <span style={{ fontSize: '11px', fontWeight: 'normal', opacity: 0.7 }}>Syncs to Notion</span>
-              </button>
-            </div>
-
-            {/* Common Fields */}
-            <div style={styles.formGroup}>
-              <label style={styles.label}>{newPlanet.type === 'notion' ? 'Task Title' : 'Planet Name'} *</label>
-              <input
-                type="text"
-                style={styles.input}
-                value={newPlanet.name || ''}
-                onChange={e => setNewPlanet(p => ({ ...p, name: e.target.value }))}
-                placeholder={newPlanet.type === 'notion' ? 'e.g., Fix login bug' : 'e.g., $1M ARR'}
-              />
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Description *</label>
-              <input
-                type="text"
-                style={styles.input}
-                value={newPlanet.description || ''}
-                onChange={e => setNewPlanet(p => ({ ...p, description: e.target.value }))}
-                placeholder={newPlanet.type === 'notion' ? 'What needs to be done?' : 'What does this milestone represent?'}
-              />
-            </div>
-
-            {/* Fields for Achievement/Business/Product */}
-            {newPlanet.type !== 'notion' && (
+            {/* Planet Type Selection */}
+            {!newPlanet.type ? (
+              /* Full page selection when no type chosen */
               <>
-                <div style={styles.formRow}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', padding: '20px 0' }}>
+                  <button
+                    onClick={() => setNewPlanet(p => ({ ...p, type: 'achievement' }))}
+                    style={{
+                      padding: '40px 24px',
+                      border: '2px solid #333',
+                      borderRadius: '16px',
+                      background: 'rgba(255,255,255,0.03)',
+                      color: '#ffd700',
+                      cursor: 'pointer',
+                      fontSize: '20px',
+                      fontWeight: 'bold',
+                      transition: 'all 0.2s',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '12px',
+                    }}
+                    onMouseOver={e => { e.currentTarget.style.background = 'rgba(255, 215, 0, 0.1)'; e.currentTarget.style.borderColor = '#ffd700'; }}
+                    onMouseOut={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.borderColor = '#333'; }}
+                  >
+                    <span style={{ fontSize: '48px' }}>🏆</span>
+                    Achievement
+                    <span style={{ fontSize: '12px', fontWeight: 'normal', color: '#888' }}>Local milestone</span>
+                  </button>
+                  <button
+                    onClick={() => setNewPlanet(p => ({ ...p, type: 'notion' }))}
+                    style={{
+                      padding: '40px 24px',
+                      border: '2px solid #333',
+                      borderRadius: '16px',
+                      background: 'rgba(255,255,255,0.03)',
+                      color: '#00c8ff',
+                      cursor: 'pointer',
+                      fontSize: '20px',
+                      fontWeight: 'bold',
+                      transition: 'all 0.2s',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '12px',
+                    }}
+                    onMouseOver={e => { e.currentTarget.style.background = 'rgba(0, 200, 255, 0.1)'; e.currentTarget.style.borderColor = '#00c8ff'; }}
+                    onMouseOut={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.borderColor = '#333'; }}
+                  >
+                    <span style={{ fontSize: '48px' }}>📋</span>
+                    Task
+                    <span style={{ fontSize: '12px', fontWeight: 'normal', color: '#888' }}>Syncs to Notion</span>
+                  </button>
+                </div>
+                <button
+                  style={{ ...styles.cancelButton, width: '100%', marginTop: '8px' }}
+                  onClick={() => setShowPlanetCreator(false)}
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              /* Compact selection + form when type is chosen */
+              <>
+                {/* Compact type switcher */}
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                  <button
+                    onClick={() => setNewPlanet(p => ({ ...p, type: 'achievement' }))}
+                    style={{
+                      flex: 1,
+                      padding: '10px',
+                      border: newPlanet.type === 'achievement' ? '2px solid #ffd700' : '2px solid #333',
+                      borderRadius: '8px',
+                      background: newPlanet.type === 'achievement' ? 'rgba(255, 215, 0, 0.15)' : 'transparent',
+                      color: newPlanet.type === 'achievement' ? '#ffd700' : '#666',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      fontWeight: newPlanet.type === 'achievement' ? 'bold' : 'normal',
+                    }}
+                  >
+                    🏆 Achievement
+                  </button>
+                  <button
+                    onClick={() => setNewPlanet(p => ({ ...p, type: 'notion' }))}
+                    style={{
+                      flex: 1,
+                      padding: '10px',
+                      border: newPlanet.type === 'notion' ? '2px solid #00c8ff' : '2px solid #333',
+                      borderRadius: '8px',
+                      background: newPlanet.type === 'notion' ? 'rgba(0, 200, 255, 0.15)' : 'transparent',
+                      color: newPlanet.type === 'notion' ? '#00c8ff' : '#666',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      fontWeight: newPlanet.type === 'notion' ? 'bold' : 'normal',
+                    }}
+                  >
+                    📋 Task
+                  </button>
+                </div>
+
+                {/* Common Fields */}
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>{newPlanet.type === 'notion' ? 'Task Title' : 'Planet Name'} *</label>
+                  <input
+                    type="text"
+                    style={styles.input}
+                    value={newPlanet.name || ''}
+                    onChange={e => setNewPlanet(p => ({ ...p, name: e.target.value }))}
+                    placeholder={newPlanet.type === 'notion' ? 'e.g., Fix login bug' : 'e.g., $1M ARR'}
+                  />
+                </div>
+
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Description *</label>
+                  <input
+                    type="text"
+                    style={styles.input}
+                    value={newPlanet.description || ''}
+                    onChange={e => setNewPlanet(p => ({ ...p, description: e.target.value }))}
+                    placeholder={newPlanet.type === 'notion' ? 'What needs to be done?' : 'What does this milestone represent?'}
+                  />
+                </div>
+
+                {/* Fields for Achievement */}
+                {newPlanet.type === 'achievement' && (
                   <div style={styles.formGroup}>
                     <label style={styles.label}>Size (Points)</label>
                     <select
@@ -2267,116 +2316,105 @@ function App() {
                       <option value="big">Big (200 pts)</option>
                     </select>
                   </div>
+                )}
+
+                {/* Fields for Notion Task */}
+                {newPlanet.type === 'notion' && (
+                  <div style={{ background: 'rgba(0, 200, 255, 0.05)', padding: '12px', borderRadius: '8px', marginBottom: '12px' }}>
+                    <div style={styles.formRow}>
+                      <div style={styles.formGroup}>
+                        <label style={styles.label}>Task Type</label>
+                        <select
+                          style={styles.select}
+                          value={notionTaskType}
+                          onChange={e => setNotionTaskType(e.target.value as any)}
+                        >
+                          <option value="task">📋 Task</option>
+                          <option value="bug">🐛 Bug</option>
+                          <option value="feature">✨ Feature</option>
+                        </select>
+                      </div>
+                      <div style={styles.formGroup}>
+                        <label style={styles.label}>Priority</label>
+                        <select
+                          style={styles.select}
+                          value={notionPriority}
+                          onChange={e => setNotionPriority(e.target.value as any)}
+                        >
+                          <option value="low">💡 Low (25 pts)</option>
+                          <option value="medium">⚡ Medium (50 pts)</option>
+                          <option value="high">🔥 High (100 pts)</option>
+                          <option value="critical">🧨 Critical (150 pts)</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div style={styles.formGroup}>
+                      <label style={styles.label}>Assign To</label>
+                      <select
+                        style={styles.select}
+                        value={notionAssignedTo}
+                        onChange={e => setNotionAssignedTo(e.target.value)}
+                      >
+                        <option value="">Unassigned (Center Zone)</option>
+                        <option value="quentin">Quentin</option>
+                        <option value="alex">Alex</option>
+                        <option value="armel">Armel</option>
+                        <option value="melia">Melia</option>
+                        <option value="hugue">Hugue</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {/* AI Image Generation */}
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>AI Planet Image (optional)</label>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input
+                      type="text"
+                      style={{ ...styles.input, flex: 1 }}
+                      value={imagePrompt}
+                      onChange={e => setImagePrompt(e.target.value)}
+                      placeholder="Describe the planet look..."
+                    />
+                    <button
+                      style={{
+                        ...styles.generateButton,
+                        padding: '8px 16px',
+                        opacity: isGeneratingImage || !imagePrompt ? 0.5 : 1,
+                      }}
+                      onClick={generatePlanetImage}
+                      disabled={isGeneratingImage || !imagePrompt}
+                    >
+                      {isGeneratingImage ? 'Generating...' : 'Generate'}
+                    </button>
+                  </div>
+                  {planetImagePreview && (
+                    <div style={{ marginTop: '12px', textAlign: 'center' }}>
+                      <img src={planetImagePreview} alt="Preview" style={{ width: 80, height: 80, borderRadius: '50%', border: '2px solid #444' }} />
+                    </div>
+                  )}
                 </div>
 
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Real World Reward (optional)</label>
-                  <input
-                    type="text"
-                    style={styles.input}
-                    value={newPlanet.realWorldReward || ''}
-                    onChange={e => setNewPlanet(p => ({ ...p, realWorldReward: e.target.value }))}
-                    placeholder="e.g., Team dinner, +$2,000 bonus"
-                  />
+                <div style={styles.modalButtons}>
+                  <button style={styles.cancelButton} onClick={() => setShowPlanetCreator(false)} disabled={isCreatingPlanet}>
+                    Cancel
+                  </button>
+                  <button
+                    style={{
+                      ...styles.saveButton,
+                      background: newPlanet.type === 'notion'
+                        ? 'linear-gradient(135deg, #00c8ff, #0088cc)'
+                        : styles.saveButton.background,
+                    }}
+                    onClick={savePlanet}
+                    disabled={!newPlanet.name || !newPlanet.description || isCreatingPlanet}
+                  >
+                    {isCreatingPlanet ? 'Creating...' : newPlanet.type === 'notion' ? 'Create Notion Task' : 'Create Planet'}
+                  </button>
                 </div>
               </>
             )}
-
-            {/* Fields for Notion Task */}
-            {newPlanet.type === 'notion' && (
-              <div style={{ background: 'rgba(0, 200, 255, 0.05)', padding: '12px', borderRadius: '8px', marginBottom: '12px' }}>
-                <div style={styles.formRow}>
-                  <div style={styles.formGroup}>
-                    <label style={styles.label}>Task Type</label>
-                    <select
-                      style={styles.select}
-                      value={notionTaskType}
-                      onChange={e => setNotionTaskType(e.target.value as any)}
-                    >
-                      <option value="task">📋 Task</option>
-                      <option value="bug">🐛 Bug</option>
-                      <option value="feature">✨ Feature</option>
-                    </select>
-                  </div>
-                  <div style={styles.formGroup}>
-                    <label style={styles.label}>Priority</label>
-                    <select
-                      style={styles.select}
-                      value={notionPriority}
-                      onChange={e => setNotionPriority(e.target.value as any)}
-                    >
-                      <option value="low">💡 Low (25 pts)</option>
-                      <option value="medium">⚡ Medium (50 pts)</option>
-                      <option value="high">🔥 High (100 pts)</option>
-                      <option value="critical">🧨 Critical (150 pts)</option>
-                    </select>
-                  </div>
-                </div>
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Assign To</label>
-                  <select
-                    style={styles.select}
-                    value={notionAssignedTo}
-                    onChange={e => setNotionAssignedTo(e.target.value)}
-                  >
-                    <option value="">Unassigned (Center Zone)</option>
-                    <option value="quentin">Quentin</option>
-                    <option value="alex">Alex</option>
-                    <option value="armel">Armel</option>
-                    <option value="melia">Melia</option>
-                    <option value="hugue">Hugue</option>
-                  </select>
-                </div>
-              </div>
-            )}
-
-            {/* AI Image Generation (always available) */}
-            <div style={styles.formGroup}>
-              <label style={styles.label}>AI Planet Image (optional)</label>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <input
-                  type="text"
-                  style={{ ...styles.input, flex: 1 }}
-                  value={imagePrompt}
-                  onChange={e => setImagePrompt(e.target.value)}
-                  placeholder="Describe the planet look..."
-                />
-                <button
-                  style={{
-                    ...styles.generateButton,
-                    padding: '8px 16px',
-                    opacity: isGeneratingImage || !imagePrompt ? 0.5 : 1,
-                  }}
-                  onClick={generatePlanetImage}
-                  disabled={isGeneratingImage || !imagePrompt}
-                >
-                  {isGeneratingImage ? 'Generating...' : 'Generate'}
-                </button>
-              </div>
-              {planetImagePreview && (
-                <div style={{ marginTop: '12px', textAlign: 'center' }}>
-                  <img src={planetImagePreview} alt="Preview" style={{ width: 80, height: 80, borderRadius: '50%', border: '2px solid #444' }} />
-                </div>
-              )}
-            </div>
-
-            <div style={styles.modalButtons}>
-              <button style={styles.cancelButton} onClick={() => setShowPlanetCreator(false)} disabled={isCreatingPlanet}>
-                Cancel
-              </button>
-              <button
-                style={{
-                  ...styles.saveButton,
-                  background: newPlanet.type === 'notion'
-                    ? 'linear-gradient(135deg, #00c8ff, #0088cc)'
-                    : styles.saveButton.background,
-                }}
-                onClick={savePlanet}
-                disabled={!newPlanet.name || !newPlanet.description || isCreatingPlanet}
-              >
-                {isCreatingPlanet ? 'Creating...' : newPlanet.type === 'notion' ? 'Create Notion Task' : 'Create Planet'}
-              </button>
-            </div>
           </div>
         </div>
       )}
