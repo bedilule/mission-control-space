@@ -28,7 +28,7 @@ export interface Planet {
   color: string;
   glowColor: string;
   completed: boolean;
-  type: 'business' | 'product' | 'achievement' | 'notion';
+  type: 'business' | 'product' | 'achievement' | 'notion' | 'station';
   size: 'small' | 'medium' | 'big';
   style?: PlanetStyle;
   hasRing?: boolean;

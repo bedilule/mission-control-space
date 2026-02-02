@@ -68,14 +68,22 @@ interface Zone {
   zoneType: ZoneType;
 }
 
-// Layout: Center = Achievements/Upgrades, Bottom-left = Business, Bottom-right = Product
+// Layout: Center = Achievements + Black Hole, Bottom-middle = Mission Control (Shop + Factory)
+// Bottom-left = Business, Bottom-right = Product
 // Players arranged in arc around top: Right, Top-Right, Top, Top-Left, Left
 const HUB_DISTANCE = 2800; // Distance from center to Business/Product hubs
 const PLAYER_DISTANCE = 3000; // Distance from center to player zones
 
+// Mission Control - bottom middle, lower than Business and Product hubs
+const MISSION_CONTROL_X = CENTER_X;
+const MISSION_CONTROL_Y = CENTER_Y + HUB_DISTANCE * 1.1; // Lower on the map
+
 const ZONES: Zone[] = [
-  // Central zone - Achievements & Upgrades
-  { id: 'central', name: 'Mission Control', centerX: CENTER_X, centerY: CENTER_Y, color: '#ffd700', ownerId: null, zoneType: 'central' },
+  // Central zone - Achievements & Black Hole
+  { id: 'central', name: 'Achievements', centerX: CENTER_X, centerY: CENTER_Y, color: '#ffd700', ownerId: null, zoneType: 'central' },
+
+  // Mission Control - lower bottom middle (Shop + Planet Factory) - player spawn point
+  { id: 'mission-control', name: 'Mission Control', centerX: MISSION_CONTROL_X, centerY: MISSION_CONTROL_Y, color: '#ff6b35', ownerId: null, zoneType: 'central' },
 
   // Goal hubs - Business (bottom-left) and Product (bottom-right)
   { id: 'hub-business', name: 'Business Hub', centerX: CENTER_X - HUB_DISTANCE * 0.7, centerY: CENTER_Y + HUB_DISTANCE * 0.7, color: '#4ade80', ownerId: null, zoneType: 'business' },
@@ -152,11 +160,16 @@ export class SpaceGame {
   private destroyPlanet: Planet | null = null;
   private destroyParticles: { x: number; y: number; vx: number; vy: number; life: number; color: string; size: number }[] = [];
 
-  // Claim animation state (laser beam + planet teleport)
+  // Claim animation state (teleport ship + planet to home base)
   private isClaiming: boolean = false;
   private claimProgress: number = 0;
   private claimPlanet: Planet | null = null;
   private claimParticles: { x: number; y: number; vx: number; vy: number; life: number; color: string; size: number }[] = [];
+  private claimStartX: number = 0;
+  private claimStartY: number = 0;
+  private claimTargetX: number = 0;
+  private claimTargetY: number = 0;
+  private claimTrailPoints: { x: number; y: number; alpha: number }[] = [];
 
   // Upgrading animation state (orbiting satellites/robots)
   private isUpgrading: boolean = false;
@@ -205,8 +218,8 @@ export class SpaceGame {
 
     this.state = {
       ship: {
-        x: CENTER_X,
-        y: CENTER_Y + 200, // Start in central zone
+        x: MISSION_CONTROL_X,
+        y: MISSION_CONTROL_Y - 200, // Start at Mission Control (bottom middle)
         vx: 0,
         vy: 0,
         rotation: -Math.PI / 2,
@@ -228,6 +241,10 @@ export class SpaceGame {
         this.loadCustomPlanetImage(cp.id, cp.imageUrl);
       }
     });
+
+    // Load station skins
+    this.loadCustomPlanetImage('shop-station', '/shop-station.png');
+    this.loadCustomPlanetImage('planet-builder', '/planet-factory.png');
 
     // Initialize black hole (more centered, slightly offset)
     // Black hole in the central zone
@@ -337,17 +354,21 @@ export class SpaceGame {
     const productHub = ZONES.find(z => z.id === 'hub-product')!;
 
     // Place BUSINESS planets in the Business Hub (bottom-left)
-    // Arrange in a spiral pattern within the hub
+    // Arrange in a proper spiral pattern - starts tight, expands outward
     businessMilestones.forEach((m, i) => {
-      const angle = (i / businessMilestones.length) * Math.PI * 1.8 - Math.PI * 0.5;
-      const distance = 300 + i * 120;
-      const style = planetStyles[i % planetStyles.length];
+      // Spiral: angle increases with each planet, distance grows gradually
+      const totalPlanets = businessMilestones.length;
+      const spiralTurns = 1.5; // How many times the spiral wraps around
+      const angle = (i / totalPlanets) * Math.PI * 2 * spiralTurns - Math.PI / 2; // Start from top
+      const minDistance = 200;
+      const maxDistance = 800;
+      const distance = minDistance + (i / (totalPlanets - 1)) * (maxDistance - minDistance);
       // Override style to use green tones for business
       const businessStyle = { baseColor: '#4ade80', accent: '#22c55e', type: 'business' };
       planets.push({
         ...m,
         x: businessHub.centerX + Math.cos(angle) * distance,
-        y: businessHub.centerY + Math.sin(angle) * distance * 0.6,
+        y: businessHub.centerY + Math.sin(angle) * distance * 0.7,
         radius: sizeRadius[m.size],
         color: businessStyle.baseColor,
         glowColor: 'rgba(74, 222, 128, 0.4)',
@@ -364,16 +385,21 @@ export class SpaceGame {
     });
 
     // Place PRODUCT planets in the Product Hub (bottom-right)
-    // Arrange in a spiral pattern within the hub
+    // Arrange in a proper spiral pattern - starts tight, expands outward
     productMilestones.forEach((m, i) => {
-      const angle = (i / productMilestones.length) * Math.PI * 1.5 + Math.PI * 0.75;
-      const distance = 300 + i * 140;
+      // Spiral: angle increases with each planet, distance grows gradually
+      const totalPlanets = productMilestones.length;
+      const spiralTurns = 1.2; // How many times the spiral wraps around
+      const angle = (i / totalPlanets) * Math.PI * 2 * spiralTurns - Math.PI / 2; // Start from top
+      const minDistance = 200;
+      const maxDistance = 700;
+      const distance = minDistance + (i / Math.max(totalPlanets - 1, 1)) * (maxDistance - minDistance);
       // Use blue tones for product
       const productStyle = { baseColor: '#5490ff', accent: '#3b82f6', type: 'product' };
       planets.push({
         ...m,
         x: productHub.centerX + Math.cos(angle) * distance,
-        y: productHub.centerY + Math.sin(angle) * distance * 0.6,
+        y: productHub.centerY + Math.sin(angle) * distance * 0.7,
         radius: sizeRadius[m.size],
         color: productStyle.baseColor,
         glowColor: 'rgba(84, 144, 255, 0.4)',
@@ -412,41 +438,41 @@ export class SpaceGame {
       });
     });
 
-    // SPECIAL STATIONS - In the central zone, near spawn point
-    // Shop Station - Buy upgrades (right of center)
+    // SPECIAL STATIONS - At Mission Control (bottom middle)
+    // Shop Station - Buy upgrades (right of Mission Control)
     planets.push({
       id: 'shop-station',
       name: 'Upgrade Shop',
-      x: CENTER_X + 200,
-      y: CENTER_Y + 350,
-      radius: 55,
+      x: MISSION_CONTROL_X + 280,
+      y: MISSION_CONTROL_Y,
+      radius: 110,
       color: '#5490ff',
       glowColor: 'rgba(84, 144, 255, 0.5)',
       completed: false,
-      type: 'achievement',
-      size: 'medium',
+      type: 'station',
+      size: 'big',
       style: { baseColor: '#5490ff', accent: '#3b82f6', type: 'station' },
-      hasRing: true,
-      hasMoon: true,
+      hasRing: false,
+      hasMoon: false,
       description: 'Spend team points on ship upgrades',
       ownerId: null, // Shared station
     });
 
-    // Planet Builder - Create custom planets (below center)
+    // Planet Builder - Create custom planets (left of Mission Control)
     planets.push({
       id: 'planet-builder',
       name: 'Planet Factory',
-      x: CENTER_X,
-      y: CENTER_Y + 500,
-      radius: 50,
+      x: MISSION_CONTROL_X - 280,
+      y: MISSION_CONTROL_Y,
+      radius: 100,
       color: '#ffa500',
       glowColor: 'rgba(255, 165, 0, 0.5)',
       completed: false,
-      type: 'achievement',
-      size: 'medium',
+      type: 'station',
+      size: 'big',
       style: { baseColor: '#ffa500', accent: '#ff8c00', type: 'station' },
       hasRing: false,
-      hasMoon: true,
+      hasMoon: false,
       description: 'Create new milestone planets',
       ownerId: null, // Shared station
     });
@@ -475,13 +501,36 @@ export class SpaceGame {
     const planets: Planet[] = [];
     const sizeRadius = { small: 35, medium: 50, big: 70 };
 
-    // Place custom planets in a dedicated area (center-bottom)
-    const startX = WORLD_SIZE / 2;
-    const startY = WORLD_SIZE - 800;
+    // Place custom planets in organic curved rows ABOVE Mission Control
+    // Staggered honeycomb pattern - each arc offset so planets sit between previous arc's planets
+    const baseDistance = 280; // First arc distance from Mission Control
+    const arcSpacing = 100; // Distance between arcs
+    const planetsPerArc = 5;
 
     customPlanets.forEach((cp, i) => {
-      const angle = (i / Math.max(customPlanets.length, 1)) * Math.PI * 2;
-      const distance = 300 + (i % 3) * 150;
+      const arcIndex = Math.floor(i / planetsPerArc);
+      const posInArc = i % planetsPerArc;
+      const arcRadius = baseDistance + arcIndex * arcSpacing;
+
+      // Gentle arc curving upward (toward center)
+      const arcSpread = Math.PI * 0.35;
+      const baseAngle = -Math.PI / 2; // Point upward
+
+      // Stagger: odd arcs are offset by half a position
+      const staggerOffset = (arcIndex % 2 === 1) ? 0.5 : 0;
+      const t = planetsPerArc > 1 ? (posInArc + staggerOffset) / planetsPerArc : 0.5;
+      const angle = baseAngle + (t - 0.5) * arcSpread * 2;
+
+      // Subtle organic variation (seeded by index for consistency)
+      const seed = (i * 137.5) % 1;
+      const radiusVariation = (seed - 0.5) * 25; // ±12.5 units
+      const angleVariation = (((i * 97.3) % 1) - 0.5) * 0.06; // Smaller wobble
+
+      const finalRadius = arcRadius + radiusVariation;
+      const finalAngle = angle + angleVariation;
+
+      const x = MISSION_CONTROL_X + Math.cos(finalAngle) * finalRadius;
+      const y = MISSION_CONTROL_Y + Math.sin(finalAngle) * finalRadius;
 
       const typeColors: Record<string, { base: string; accent: string }> = {
         business: { base: '#4ade80', accent: '#22c55e' },
@@ -494,8 +543,8 @@ export class SpaceGame {
       planets.push({
         id: cp.id,
         name: cp.name,
-        x: startX + Math.cos(angle) * distance,
-        y: startY + Math.sin(angle) * distance * 0.5,
+        x: x,
+        y: y,
         radius: sizeRadius[cp.size],
         color: colors.base,
         glowColor: colors.base + '60',
@@ -528,10 +577,30 @@ export class SpaceGame {
     const existingCustom = this.state.planets.filter(p => p.id.startsWith('custom-'));
     const i = existingCustom.length;
 
-    const startX = WORLD_SIZE / 2;
-    const startY = WORLD_SIZE - 800;
-    const angle = (i / Math.max(i + 1, 1)) * Math.PI * 2;
-    const distance = 300 + (i % 3) * 150;
+    // Place in organic curved arcs above Mission Control (staggered honeycomb)
+    const baseDistance = 280;
+    const arcSpacing = 100;
+    const planetsPerArc = 5;
+    const arcIndex = Math.floor(i / planetsPerArc);
+    const posInArc = i % planetsPerArc;
+    const arcRadius = baseDistance + arcIndex * arcSpacing;
+
+    const arcSpread = Math.PI * 0.35;
+    const baseAngle = -Math.PI / 2;
+    // Stagger: odd arcs offset by half a position
+    const staggerOffset = (arcIndex % 2 === 1) ? 0.5 : 0;
+    const t = planetsPerArc > 1 ? (posInArc + staggerOffset) / planetsPerArc : 0.5;
+    const angle = baseAngle + (t - 0.5) * arcSpread * 2;
+
+    // Organic variation
+    const seed = (i * 137.5) % 1;
+    const radiusVariation = (seed - 0.5) * 25;
+    const angleVariation = (((i * 97.3) % 1) - 0.5) * 0.06;
+
+    const finalRadius = arcRadius + radiusVariation;
+    const finalAngle = angle + angleVariation;
+    const x = MISSION_CONTROL_X + Math.cos(finalAngle) * finalRadius;
+    const y = MISSION_CONTROL_Y + Math.sin(finalAngle) * finalRadius;
 
     const typeColors: Record<string, { base: string; accent: string }> = {
       business: { base: '#4ade80', accent: '#22c55e' },
@@ -544,8 +613,8 @@ export class SpaceGame {
     const planet: Planet = {
       id: customPlanet.id,
       name: customPlanet.name,
-      x: startX + Math.cos(angle) * distance,
-      y: startY + Math.sin(angle) * distance * 0.5,
+      x: x,
+      y: y,
       radius: sizeRadius[customPlanet.size],
       color: colors.base,
       glowColor: colors.base + '60',
@@ -599,6 +668,11 @@ export class SpaceGame {
 
   public getLandedPlanet(): Planet | null {
     return this.landedPlanet;
+  }
+
+  public clearLandedState(): void {
+    this.isLanded = false;
+    this.landedPlanet = null;
   }
 
   private setupInput() {
@@ -1401,12 +1475,31 @@ export class SpaceGame {
     }
   }
 
-  // Start claim animation (laser beam + teleport effect)
+  // Start claim animation (teleport ship + planet to home base)
   private startClaimAnimation(planet: Planet) {
     this.isClaiming = true;
     this.claimProgress = 0;
     this.claimPlanet = planet;
     this.claimParticles = [];
+    this.claimTrailPoints = [];
+
+    // Store starting position
+    this.claimStartX = planet.x;
+    this.claimStartY = planet.y;
+
+    // Find current player's home base zone
+    const playerZone = ZONES.find(z => z.ownerId === this.currentUser);
+    if (playerZone) {
+      // Target slightly offset from zone center so planets spread out
+      const offsetAngle = Math.random() * Math.PI * 2;
+      const offsetDist = 200 + Math.random() * 400;
+      this.claimTargetX = playerZone.centerX + Math.cos(offsetAngle) * offsetDist;
+      this.claimTargetY = playerZone.centerY + Math.sin(offsetAngle) * offsetDist;
+    } else {
+      // Fallback: teleport toward center
+      this.claimTargetX = CENTER_X;
+      this.claimTargetY = CENTER_Y;
+    }
 
     // Clear landed state
     this.isLanded = false;
@@ -1416,73 +1509,146 @@ export class SpaceGame {
     soundManager.playDockingSound();
   }
 
-  // Update claim animation
+  // Update claim animation - teleport ship + planet together to home base
   private updateClaimAnimation() {
     if (!this.isClaiming || !this.claimPlanet) return;
 
     const planet = this.claimPlanet;
-    this.claimProgress += 0.02; // ~2.5 second animation
+    this.claimProgress += 0.015; // ~3.5 second animation
 
     const { ship } = this.state;
 
-    // Keep ship in position
-    ship.x = planet.x;
-    ship.y = planet.y - planet.radius - 25;
-    ship.vx = 0;
-    ship.vy = 0;
-    ship.rotation = -Math.PI / 2;
+    // Phase 1 (0-0.2): Charging - energy gathers around ship+planet
+    // Phase 2 (0.2-0.35): Warp flash initiation
+    // Phase 3 (0.35-0.85): Teleport movement - ship+planet fly together
+    // Phase 4 (0.85-1.0): Arrival flash at destination
 
-    // Phase 1: Laser beam charging (0-0.3)
-    // Phase 2: Beam hits planet, planet shrinks (0.3-0.7)
-    // Phase 3: Planet explodes into particles, flash (0.7-1.0)
+    if (this.claimProgress < 0.2) {
+      // Phase 1: Charging - ship stays on planet, energy particles gather
+      ship.x = planet.x;
+      ship.y = planet.y - planet.radius - 25;
+      ship.vx = 0;
+      ship.vy = 0;
+      ship.rotation = -Math.PI / 2;
 
-    if (this.claimProgress < 0.3) {
-      // Charging - emit energy particles toward ship
-      if (Math.random() < 0.3) {
+      // Emit charging particles converging on ship+planet
+      if (Math.random() < 0.5) {
         const angle = Math.random() * Math.PI * 2;
-        const dist = 80 + Math.random() * 40;
+        const dist = 150 + Math.random() * 100;
+        const targetX = planet.x + (Math.random() - 0.5) * planet.radius;
+        const targetY = planet.y + (Math.random() - 0.5) * planet.radius;
+        const startX = targetX + Math.cos(angle) * dist;
+        const startY = targetY + Math.sin(angle) * dist;
         this.claimParticles.push({
-          x: ship.x + Math.cos(angle) * dist,
-          y: ship.y + Math.sin(angle) * dist,
-          vx: -Math.cos(angle) * 3,
-          vy: -Math.sin(angle) * 3,
-          life: 20,
+          x: startX,
+          y: startY,
+          vx: (targetX - startX) * 0.08,
+          vy: (targetY - startY) * 0.08,
+          life: 15,
           color: '#00ffff',
-          size: 3 + Math.random() * 2,
+          size: 2 + Math.random() * 3,
         });
       }
-    } else if (this.claimProgress < 0.7) {
-      // Planet shrinking - emit particles from planet surface
-      const shrinkProgress = (this.claimProgress - 0.3) / 0.4;
-      for (let i = 0; i < 3; i++) {
-        const angle = Math.random() * Math.PI * 2;
-        const currentRadius = planet.radius * (1 - shrinkProgress * 0.8);
-        this.claimParticles.push({
-          x: planet.x + Math.cos(angle) * currentRadius,
-          y: planet.y + Math.sin(angle) * currentRadius,
-          vx: Math.cos(angle) * (2 + Math.random() * 2),
-          vy: Math.sin(angle) * (2 + Math.random() * 2),
-          life: 30 + Math.random() * 20,
-          color: Math.random() < 0.5 ? planet.color : '#ffffff',
-          size: 2 + Math.random() * 4,
-        });
-      }
-    } else if (this.claimProgress < 0.85) {
-      // Explosion burst
-      if (this.claimProgress < 0.75) {
-        for (let i = 0; i < 10; i++) {
+    } else if (this.claimProgress < 0.35) {
+      // Phase 2: Warp flash - still in place, bright glow
+      ship.x = planet.x;
+      ship.y = planet.y - planet.radius - 25;
+      ship.vx = 0;
+      ship.vy = 0;
+
+      // Emit bright flash particles
+      if (this.claimProgress < 0.28) {
+        for (let i = 0; i < 5; i++) {
           const angle = Math.random() * Math.PI * 2;
-          const speed = 3 + Math.random() * 5;
           this.claimParticles.push({
             x: planet.x,
             y: planet.y,
+            vx: Math.cos(angle) * (1 + Math.random() * 2),
+            vy: Math.sin(angle) * (1 + Math.random() * 2),
+            life: 20,
+            color: Math.random() < 0.5 ? '#ffffff' : '#00ffff',
+            size: 4 + Math.random() * 4,
+          });
+        }
+      }
+    } else if (this.claimProgress < 0.85) {
+      // Phase 3: Teleport movement - ship + planet fly together to home base
+      const moveProgress = (this.claimProgress - 0.35) / 0.5;
+      // Use easeInOutCubic for smooth acceleration/deceleration
+      const eased = moveProgress < 0.5
+        ? 4 * moveProgress * moveProgress * moveProgress
+        : 1 - Math.pow(-2 * moveProgress + 2, 3) / 2;
+
+      // Interpolate position
+      const currentX = this.claimStartX + (this.claimTargetX - this.claimStartX) * eased;
+      const currentY = this.claimStartY + (this.claimTargetY - this.claimStartY) * eased;
+
+      // Update planet position (this moves the actual planet during animation)
+      planet.x = currentX;
+      planet.y = currentY;
+
+      // Ship stays docked on planet
+      ship.x = currentX;
+      ship.y = currentY - planet.radius - 25;
+      ship.vx = 0;
+      ship.vy = 0;
+
+      // Calculate direction of travel for ship rotation
+      const dx = this.claimTargetX - this.claimStartX;
+      const dy = this.claimTargetY - this.claimStartY;
+      ship.rotation = Math.atan2(dy, dx) - Math.PI / 2;
+
+      // Add trail points
+      if (Math.random() < 0.6) {
+        this.claimTrailPoints.push({ x: currentX, y: currentY, alpha: 1 });
+      }
+
+      // Emit speed trail particles behind
+      const trailAngle = Math.atan2(dy, dx) + Math.PI; // Opposite direction
+      for (let i = 0; i < 3; i++) {
+        const spread = (Math.random() - 0.5) * 0.8;
+        this.claimParticles.push({
+          x: currentX + Math.cos(trailAngle + spread) * (planet.radius + 10),
+          y: currentY + Math.sin(trailAngle + spread) * (planet.radius + 10),
+          vx: Math.cos(trailAngle + spread) * (2 + Math.random() * 3),
+          vy: Math.sin(trailAngle + spread) * (2 + Math.random() * 3),
+          life: 25 + Math.random() * 15,
+          color: ['#00ffff', '#ffffff', planet.color][Math.floor(Math.random() * 3)],
+          size: 2 + Math.random() * 3,
+        });
+      }
+    } else {
+      // Phase 4: Arrival - planet at destination, arrival flash
+      planet.x = this.claimTargetX;
+      planet.y = this.claimTargetY;
+      ship.x = this.claimTargetX;
+      ship.y = this.claimTargetY - planet.radius - 25;
+      ship.vx = 0;
+      ship.vy = 0;
+
+      // Arrival burst particles
+      if (this.claimProgress < 0.92) {
+        for (let i = 0; i < 8; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const speed = 2 + Math.random() * 4;
+          this.claimParticles.push({
+            x: this.claimTargetX,
+            y: this.claimTargetY,
             vx: Math.cos(angle) * speed,
             vy: Math.sin(angle) * speed,
-            life: 40 + Math.random() * 30,
+            life: 35 + Math.random() * 25,
             color: ['#ffffff', '#00ffff', '#ffff00', planet.color][Math.floor(Math.random() * 4)],
             size: 3 + Math.random() * 5,
           });
         }
+      }
+    }
+
+    // Fade trail points
+    for (let i = this.claimTrailPoints.length - 1; i >= 0; i--) {
+      this.claimTrailPoints[i].alpha -= 0.03;
+      if (this.claimTrailPoints[i].alpha <= 0) {
+        this.claimTrailPoints.splice(i, 1);
       }
     }
 
@@ -1491,6 +1657,8 @@ export class SpaceGame {
       const p = this.claimParticles[i];
       p.x += p.vx;
       p.y += p.vy;
+      p.vx *= 0.98; // Slight drag
+      p.vy *= 0.98;
       p.life--;
       if (p.life <= 0) {
         this.claimParticles.splice(i, 1);
@@ -1501,6 +1669,7 @@ export class SpaceGame {
     if (this.claimProgress >= 1) {
       this.isClaiming = false;
       this.claimParticles = [];
+      this.claimTrailPoints = [];
 
       // Call the colonize callback to actually claim
       if (this.onColonize && this.claimPlanet) {
@@ -1520,66 +1689,133 @@ export class SpaceGame {
 
     ctx.save();
 
-    // Transform to world coordinates
-    ctx.translate(-this.state.camera.x + this.canvas.width / 2, -this.state.camera.y + this.canvas.height / 2);
+    // Transform to world coordinates (same as getWrappedPositions)
+    ctx.translate(-this.state.camera.x, -this.state.camera.y);
 
-    // Phase 1: Charging glow around ship
-    if (this.claimProgress < 0.3) {
-      const chargeIntensity = this.claimProgress / 0.3;
+    // Phase 1 (0-0.2): Charging glow around ship + planet
+    if (this.claimProgress < 0.2) {
+      const chargeIntensity = this.claimProgress / 0.2;
+
+      // Glow around planet
       ctx.beginPath();
-      ctx.arc(ship.x, ship.y, 30 + chargeIntensity * 20, 0, Math.PI * 2);
-      const gradient = ctx.createRadialGradient(ship.x, ship.y, 10, ship.x, ship.y, 50);
-      gradient.addColorStop(0, `rgba(0, 255, 255, ${chargeIntensity * 0.5})`);
-      gradient.addColorStop(1, 'rgba(0, 255, 255, 0)');
-      ctx.fillStyle = gradient;
-      ctx.fill();
-    }
-
-    // Phase 2: Laser beam + shrinking planet
-    if (this.claimProgress >= 0.3 && this.claimProgress < 0.7) {
-      const beamProgress = (this.claimProgress - 0.3) / 0.4;
-
-      // Draw laser beam from ship to planet
-      const beamWidth = 8 + Math.sin(this.claimProgress * 50) * 2;
-      ctx.strokeStyle = '#00ffff';
-      ctx.lineWidth = beamWidth;
-      ctx.shadowColor = '#00ffff';
-      ctx.shadowBlur = 20;
-      ctx.beginPath();
-      ctx.moveTo(ship.x, ship.y + 20);
-      ctx.lineTo(planet.x, planet.y);
-      ctx.stroke();
-
-      // Inner bright beam
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = beamWidth * 0.4;
-      ctx.beginPath();
-      ctx.moveTo(ship.x, ship.y + 20);
-      ctx.lineTo(planet.x, planet.y);
-      ctx.stroke();
-
-      // Draw shrinking planet
-      const shrinkScale = 1 - beamProgress * 0.8;
-      ctx.shadowBlur = 30;
-      ctx.shadowColor = '#00ffff';
-      ctx.beginPath();
-      ctx.arc(planet.x, planet.y, planet.radius * shrinkScale, 0, Math.PI * 2);
-      ctx.fillStyle = planet.color;
-      ctx.globalAlpha = 1 - beamProgress * 0.3;
-      ctx.fill();
-      ctx.globalAlpha = 1;
-    }
-
-    // Phase 3: Flash and explosion
-    if (this.claimProgress >= 0.7 && this.claimProgress < 0.85) {
-      const flashIntensity = 1 - (this.claimProgress - 0.7) / 0.15;
-      ctx.fillStyle = `rgba(255, 255, 255, ${flashIntensity * 0.8})`;
-      ctx.fillRect(
-        planet.x - 200,
-        planet.y - 200,
-        400,
-        400
+      const planetGlowRadius = planet.radius + 20 + chargeIntensity * 30;
+      const planetGradient = ctx.createRadialGradient(
+        planet.x, planet.y, planet.radius * 0.5,
+        planet.x, planet.y, planetGlowRadius
       );
+      planetGradient.addColorStop(0, `rgba(0, 255, 255, ${chargeIntensity * 0.3})`);
+      planetGradient.addColorStop(0.5, `rgba(0, 255, 255, ${chargeIntensity * 0.2})`);
+      planetGradient.addColorStop(1, 'rgba(0, 255, 255, 0)');
+      ctx.arc(planet.x, planet.y, planetGlowRadius, 0, Math.PI * 2);
+      ctx.fillStyle = planetGradient;
+      ctx.fill();
+
+      // Pulsing ring around planet
+      ctx.beginPath();
+      ctx.arc(planet.x, planet.y, planet.radius + 15 + Math.sin(this.claimProgress * 40) * 5, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(0, 255, 255, ${chargeIntensity * 0.8})`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    // Phase 2 (0.2-0.35): Warp flash - bright glow before departure
+    if (this.claimProgress >= 0.2 && this.claimProgress < 0.35) {
+      const flashProgress = (this.claimProgress - 0.2) / 0.15;
+      const flashIntensity = flashProgress < 0.5 ? flashProgress * 2 : (1 - flashProgress) * 2;
+
+      // Bright flash circle
+      ctx.beginPath();
+      ctx.arc(planet.x, planet.y, planet.radius + 50 + flashProgress * 100, 0, Math.PI * 2);
+      const flashGradient = ctx.createRadialGradient(
+        planet.x, planet.y, 0,
+        planet.x, planet.y, planet.radius + 100
+      );
+      flashGradient.addColorStop(0, `rgba(255, 255, 255, ${flashIntensity * 0.9})`);
+      flashGradient.addColorStop(0.3, `rgba(0, 255, 255, ${flashIntensity * 0.6})`);
+      flashGradient.addColorStop(1, 'rgba(0, 255, 255, 0)');
+      ctx.fillStyle = flashGradient;
+      ctx.fill();
+    }
+
+    // Phase 3 (0.35-0.85): Teleport movement - draw trail and warp effect
+    if (this.claimProgress >= 0.35 && this.claimProgress < 0.85) {
+      // Draw warp trail from start to current position
+      if (this.claimTrailPoints.length > 1) {
+        ctx.beginPath();
+        ctx.moveTo(this.claimTrailPoints[0].x, this.claimTrailPoints[0].y);
+        for (let i = 1; i < this.claimTrailPoints.length; i++) {
+          ctx.lineTo(this.claimTrailPoints[i].x, this.claimTrailPoints[i].y);
+        }
+        ctx.strokeStyle = 'rgba(0, 255, 255, 0.4)';
+        ctx.lineWidth = planet.radius * 0.8;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+
+        // Inner bright trail
+        ctx.beginPath();
+        ctx.moveTo(this.claimTrailPoints[0].x, this.claimTrailPoints[0].y);
+        for (let i = 1; i < this.claimTrailPoints.length; i++) {
+          ctx.lineTo(this.claimTrailPoints[i].x, this.claimTrailPoints[i].y);
+        }
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.lineWidth = planet.radius * 0.3;
+        ctx.stroke();
+      }
+
+      // Warp glow around planet during travel
+      ctx.beginPath();
+      ctx.arc(planet.x, planet.y, planet.radius + 25, 0, Math.PI * 2);
+      const warpGradient = ctx.createRadialGradient(
+        planet.x, planet.y, planet.radius * 0.5,
+        planet.x, planet.y, planet.radius + 40
+      );
+      warpGradient.addColorStop(0, 'rgba(0, 255, 255, 0.2)');
+      warpGradient.addColorStop(1, 'rgba(0, 255, 255, 0)');
+      ctx.fillStyle = warpGradient;
+      ctx.fill();
+
+      // Speed lines effect (elongated glow in direction of travel)
+      const dx = this.claimTargetX - this.claimStartX;
+      const dy = this.claimTargetY - this.claimStartY;
+      const travelAngle = Math.atan2(dy, dx);
+
+      ctx.save();
+      ctx.translate(planet.x, planet.y);
+      ctx.rotate(travelAngle);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, planet.radius + 60, planet.radius + 15, 0, 0, Math.PI * 2);
+      const speedGradient = ctx.createRadialGradient(0, 0, planet.radius * 0.5, 0, 0, planet.radius + 60);
+      speedGradient.addColorStop(0, 'rgba(0, 255, 255, 0.15)');
+      speedGradient.addColorStop(1, 'rgba(0, 255, 255, 0)');
+      ctx.fillStyle = speedGradient;
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Phase 4 (0.85-1.0): Arrival flash at destination
+    if (this.claimProgress >= 0.85) {
+      const arrivalProgress = (this.claimProgress - 0.85) / 0.15;
+      const flashIntensity = 1 - arrivalProgress;
+
+      // Expanding ring
+      ctx.beginPath();
+      ctx.arc(this.claimTargetX, this.claimTargetY, planet.radius + arrivalProgress * 150, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(0, 255, 255, ${flashIntensity * 0.8})`;
+      ctx.lineWidth = 4 * flashIntensity;
+      ctx.stroke();
+
+      // Inner glow
+      ctx.beginPath();
+      ctx.arc(this.claimTargetX, this.claimTargetY, planet.radius + 30 * flashIntensity, 0, Math.PI * 2);
+      const arrivalGradient = ctx.createRadialGradient(
+        this.claimTargetX, this.claimTargetY, 0,
+        this.claimTargetX, this.claimTargetY, planet.radius + 50
+      );
+      arrivalGradient.addColorStop(0, `rgba(255, 255, 255, ${flashIntensity * 0.5})`);
+      arrivalGradient.addColorStop(0.5, `rgba(0, 255, 255, ${flashIntensity * 0.3})`);
+      arrivalGradient.addColorStop(1, 'rgba(0, 255, 255, 0)');
+      ctx.fillStyle = arrivalGradient;
+      ctx.fill();
     }
 
     // Draw claim particles
@@ -1718,7 +1954,8 @@ export class SpaceGame {
     const { ship } = this.state;
 
     ctx.save();
-    ctx.translate(-this.state.camera.x + this.canvas.width / 2, -this.state.camera.y + this.canvas.height / 2);
+    // Transform to world coordinates (same as getWrappedPositions)
+    ctx.translate(-this.state.camera.x, -this.state.camera.y);
 
     // Phase 1: Red charging glow
     if (this.destroyProgress < 0.3) {
@@ -2396,9 +2633,13 @@ export class SpaceGame {
       }
     });
 
-    // Sort by Y position for proper path
+    // Sort by ID number to maintain spiral order (b1 -> b2 -> ... -> b10, p1 -> p2 -> ... -> p6)
+    const extractNumber = (id: string): number => {
+      const match = id.match(/\d+/);
+      return match ? parseInt(match[0], 10) : 0;
+    };
     Object.values(planetsByType).forEach(group => {
-      group.sort((a, b) => b.y - a.y);
+      group.sort((a, b) => extractNumber(a.id) - extractNumber(b.id));
     });
 
     ctx.lineWidth = 2;
@@ -2661,12 +2902,14 @@ export class SpaceGame {
       }
     }
 
-    // Atmosphere rim
-    ctx.beginPath();
-    ctx.arc(x, y, planet.radius, 0, Math.PI * 2);
-    ctx.strokeStyle = planet.completed ? '#4ade80' : style.baseColor + '60';
-    ctx.lineWidth = planet.completed ? 3 : 2;
-    ctx.stroke();
+    // Atmosphere rim (skip for custom image planets)
+    if (!hasCustomImage) {
+      ctx.beginPath();
+      ctx.arc(x, y, planet.radius, 0, Math.PI * 2);
+      ctx.strokeStyle = planet.completed ? '#4ade80' : style.baseColor + '60';
+      ctx.lineWidth = planet.completed ? 3 : 2;
+      ctx.stroke();
+    }
 
     // Bug planets: Draw cracks/damage effect
     if (isBug && !planet.completed && isNotionPlanet) {
@@ -2773,7 +3016,7 @@ export class SpaceGame {
     }
 
     // Type indicator
-    const typeColors: Record<string, string> = { business: '#4ade80', product: '#5490ff', achievement: '#ffd700', notion: '#94a3b8' };
+    const typeColors: Record<string, string> = { business: '#4ade80', product: '#5490ff', achievement: '#ffd700', notion: '#94a3b8', station: '#a855f7' };
     ctx.fillStyle = (typeColors[planet.type] || '#94a3b8') + '80';
     ctx.font = '9px Space Grotesk';
     const typeLabel = planet.type === 'notion' ? 'NOTION' : planet.type.toUpperCase();
@@ -2979,6 +3222,7 @@ export class SpaceGame {
     const ownerName = planet.ownerId ? planet.ownerId.charAt(0).toUpperCase() + planet.ownerId.slice(1) : null;
 
     const boxWidth = 320;
+    const maxTextWidth = boxWidth - 30;
     const hasRealReward = planet.realWorldReward && !planet.completed;
     const hasNotionUrl = planet.notionUrl && !planet.completed;
     let boxHeight = 110;
@@ -2998,26 +3242,40 @@ export class SpaceGame {
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // Planet name (with lock icon if locked)
+    // Planet name (with lock icon if locked) - truncate if too long
     ctx.fillStyle = isLocked ? '#ff6666' : (planet.completed ? '#4ade80' : '#fff');
     ctx.font = 'bold 16px Space Grotesk';
     ctx.textAlign = 'center';
-    const nameText = planet.completed ? `✓ ${planet.name}` : (isLocked ? `🔒 ${planet.name}` : planet.name);
+    let nameText = planet.completed ? `✓ ${planet.name}` : (isLocked ? `🔒 ${planet.name}` : planet.name);
+    // Truncate name if too long
+    if (ctx.measureText(nameText).width > maxTextWidth) {
+      while (ctx.measureText(nameText + '...').width > maxTextWidth && nameText.length > 0) {
+        nameText = nameText.slice(0, -1);
+      }
+      nameText = nameText + '...';
+    }
     ctx.fillText(nameText, canvas.width / 2, boxY + 24);
 
     // Type badge + owner info
-    const typeColors: Record<string, string> = { business: '#4ade80', product: '#5490ff', achievement: '#ffd700', notion: '#94a3b8' };
+    const typeColors: Record<string, string> = { business: '#4ade80', product: '#5490ff', achievement: '#ffd700', notion: '#94a3b8', station: '#a855f7' };
     ctx.fillStyle = typeColors[planet.type] || '#94a3b8';
     ctx.font = '10px Space Grotesk';
     const typeLabel = planet.type === 'notion' ? 'NOTION TASK' : planet.type.toUpperCase();
     const ownerText = ownerName ? ` • ${ownerName}'s Task` : ' • Shared Task';
     ctx.fillText(typeLabel + ownerText, canvas.width / 2, boxY + 40);
 
-    // Description
+    // Description - truncate if too long
     if (planet.description) {
       ctx.fillStyle = isLocked ? '#777' : '#aaa';
       ctx.font = '12px Space Grotesk';
-      ctx.fillText(planet.description, canvas.width / 2, boxY + 60);
+      let descText = planet.description;
+      if (ctx.measureText(descText).width > maxTextWidth) {
+        while (ctx.measureText(descText + '...').width > maxTextWidth && descText.length > 0) {
+          descText = descText.slice(0, -1);
+        }
+        descText = descText + '...';
+      }
+      ctx.fillText(descText, canvas.width / 2, boxY + 60);
     }
 
     // Reward type
@@ -3090,7 +3348,12 @@ export class SpaceGame {
     const hasNotionUrl = planet.notionUrl;
     const hasPriority = planet.priority;
 
-    if (hasDescription) boxHeight += 25;
+    // Pre-calculate description lines for proper height
+    ctx.font = '13px Space Grotesk';
+    const descMaxWidth = boxWidth - 40;
+    const descLines = hasDescription ? this.wrapText(planet.description || '', descMaxWidth, 4) : [];
+    const descLineHeight = 18;
+    if (hasDescription) boxHeight += 10 + (descLines.length * descLineHeight);
     if (hasRealReward) boxHeight += 25;
     if (hasNotionUrl) boxHeight += 25;
     if (hasPriority) boxHeight += 20;
@@ -3143,7 +3406,7 @@ export class SpaceGame {
     }
 
     // Type and owner info
-    const typeColors: Record<string, string> = { business: '#4ade80', product: '#5490ff', achievement: '#ffd700', notion: '#94a3b8' };
+    const typeColors: Record<string, string> = { business: '#4ade80', product: '#5490ff', achievement: '#ffd700', notion: '#94a3b8', station: '#a855f7' };
     ctx.fillStyle = typeColors[planet.type] || '#94a3b8';
     ctx.font = '12px Space Grotesk';
     const ownerName = planet.ownerId ? planet.ownerId.charAt(0).toUpperCase() + planet.ownerId.slice(1) : null;
@@ -3273,32 +3536,15 @@ export class SpaceGame {
       currentY += 20;
     }
 
-    // Description
-    if (hasDescription) {
+    // Description (using pre-calculated lines)
+    if (hasDescription && descLines.length > 0) {
       ctx.fillStyle = '#aaa';
       ctx.font = '13px Space Grotesk';
-      // Wrap text if too long
-      const maxWidth = boxWidth - 40;
-      const desc = planet.description || '';
-      if (ctx.measureText(desc).width > maxWidth) {
-        // Simple word wrap
-        const words = desc.split(' ');
-        let line = '';
-        for (const word of words) {
-          const testLine = line + word + ' ';
-          if (ctx.measureText(testLine).width > maxWidth && line !== '') {
-            ctx.fillText(line.trim(), boxX + boxWidth / 2, currentY);
-            line = word + ' ';
-            currentY += 18;
-          } else {
-            line = testLine;
-          }
-        }
-        ctx.fillText(line.trim(), boxX + boxWidth / 2, currentY);
-      } else {
-        ctx.fillText(desc, boxX + boxWidth / 2, currentY);
+      for (const line of descLines) {
+        ctx.fillText(line, boxX + boxWidth / 2, currentY);
+        currentY += descLineHeight;
       }
-      currentY += 25;
+      currentY += 7;
     }
 
     // Divider line
