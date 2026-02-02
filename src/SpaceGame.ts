@@ -772,6 +772,16 @@ export class SpaceGame {
   public start() {
     // Initialize sound on game start (requires user interaction first)
     soundManager.init();
+
+    // Initialize prevShip tracking to ship's starting position
+    // This prevents the camera from incorrectly detecting a "wrap" on the first frame
+    this.prevShipX = this.state.ship.x;
+    this.prevShipY = this.state.ship.y;
+
+    // Initialize camera centered on ship
+    this.state.camera.x = this.state.ship.x - this.canvas.width / 2;
+    this.state.camera.y = this.state.ship.y - this.canvas.height / 2;
+
     this.gameLoop();
   }
 
