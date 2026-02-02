@@ -74,17 +74,78 @@ function findNonOverlappingPosition(
   assignedTo: string | null | undefined,
   existingPlanets: ExistingPlanet[]
 ): { x: number; y: number } {
-  const baseZone = assignedTo && PLAYER_ZONES[assignedTo.toLowerCase()]
-    ? PLAYER_ZONES[assignedTo.toLowerCase()]
-    : DEFAULT_ZONE;
+  const isUnassigned = !assignedTo || !PLAYER_ZONES[assignedTo.toLowerCase()];
+  const baseZone = isUnassigned ? DEFAULT_ZONE : PLAYER_ZONES[assignedTo.toLowerCase()];
 
   const allObstacles: ExistingPlanet[] = [
     ...existingPlanets,
     { x: baseZone.x, y: baseZone.y },
   ];
 
+  // Add Mission Control stations as obstacles for unassigned tasks
+  if (isUnassigned) {
+    allObstacles.push(
+      { x: MISSION_CONTROL_X + 200, y: MISSION_CONTROL_Y }, // Shop
+      { x: MISSION_CONTROL_X - 200, y: MISSION_CONTROL_Y }, // Factory
+    );
+  }
+
   const maxAttempts = 50;
 
+  // For unassigned tasks: place in arcs ABOVE Mission Control (negative Y direction)
+  if (isUnassigned) {
+    const baseDistance = 350; // Clear of stations
+    const arcSpacing = 110;
+    const planetsPerArc = 5;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const arcIndex = Math.floor(attempt / planetsPerArc);
+      const posInArc = attempt % planetsPerArc;
+      const arcRadius = baseDistance + arcIndex * arcSpacing;
+
+      const arcSpread = Math.PI * 0.35;
+      const baseAngle = -Math.PI / 2; // Points UP (above Mission Control)
+      const staggerOffset = (arcIndex % 2 === 1) ? 0.5 : 0;
+      const t = planetsPerArc > 1 ? (posInArc + staggerOffset) / planetsPerArc : 0.5;
+      const angle = baseAngle + (t - 0.5) * arcSpread * 2;
+
+      // Organic variation
+      const seed = (attempt * 137.5) % 1;
+      const radiusVariation = (seed - 0.5) * 25;
+      const angleVariation = (((attempt * 97.3) % 1) - 0.5) * 0.06;
+
+      const finalRadius = arcRadius + radiusVariation;
+      const finalAngle = angle + angleVariation;
+
+      const candidate = {
+        x: baseZone.x + Math.cos(finalAngle) * finalRadius,
+        y: baseZone.y + Math.sin(finalAngle) * finalRadius,
+      };
+
+      let isValid = true;
+      for (const planet of allObstacles) {
+        if (distance(candidate, planet) < MIN_DISTANCE) {
+          isValid = false;
+          break;
+        }
+      }
+
+      if (isValid) {
+        return candidate;
+      }
+    }
+
+    // Fallback for unassigned: outer arcs above Mission Control
+    const fallbackArc = 3 + Math.floor(Math.random() * 4);
+    const fallbackRadius = 350 + fallbackArc * 110 + (Math.random() - 0.5) * 40;
+    const fallbackAngle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 0.35 * 2;
+    return {
+      x: baseZone.x + Math.cos(fallbackAngle) * fallbackRadius,
+      y: baseZone.y + Math.sin(fallbackAngle) * fallbackRadius,
+    };
+  }
+
+  // For assigned tasks: rings around player zone
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const ring = Math.floor(attempt / 8);
     const angleIndex = attempt % 8;
