@@ -432,24 +432,52 @@ Deno.serve(async (req) => {
       existingPlanet = altPlanet;
     }
 
-    // Handle destroyed status - delete planet from game
-    if (isDestroyed && existingPlanet) {
-      const { error: deleteError } = await supabase
-        .from('notion_planets')
-        .delete()
-        .eq('id', existingPlanet.id);
+    // Handle destroyed status - ALWAYS delete/skip, never create or keep
+    if (isDestroyed) {
+      if (existingPlanet) {
+        const { error: deleteError } = await supabase
+          .from('notion_planets')
+          .delete()
+          .eq('id', existingPlanet.id);
 
-      if (deleteError) {
-        console.error('Failed to delete destroyed planet:', deleteError);
+        if (deleteError) {
+          console.error('Failed to delete destroyed planet:', deleteError);
+        } else {
+          console.log(`Deleted planet "${payload.name}" - status is Destroyed`);
+        }
       } else {
-        console.log(`Deleted planet "${payload.name}" - status is Destroyed`);
+        console.log(`Skipping "${payload.name}" - status is Destroyed, planet doesn't exist`);
       }
 
       return new Response(
         JSON.stringify({
           success: true,
-          action: 'deleted',
+          action: existingPlanet ? 'deleted' : 'skipped',
           reason: 'status_destroyed',
+          planet_name: payload.name,
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Handle archived status - mark as completed but never recreate if deleted
+    if (isArchived) {
+      if (existingPlanet) {
+        // Mark as completed
+        await supabase
+          .from('notion_planets')
+          .update({ completed: true })
+          .eq('id', existingPlanet.id);
+        console.log(`Marked planet "${payload.name}" as completed - status is Archived`);
+      } else {
+        console.log(`Skipping "${payload.name}" - status is Archived, planet doesn't exist (was destroyed)`);
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          action: existingPlanet ? 'completed' : 'skipped',
+          reason: 'status_archived',
           planet_name: payload.name,
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
