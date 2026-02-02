@@ -1035,6 +1035,12 @@ export class SpaceGame {
       const minDist = planet.radius + 15; // Ship radius ~15
 
       if (dist < minDist) {
+        // Skip if dist is 0 (would cause division by zero)
+        if (dist === 0) {
+          ship.x += 1; // Nudge ship to avoid NaN
+          continue;
+        }
+
         // Push ship out and bounce
         const overlap = minDist - dist;
         const nx = dx / dist;
@@ -3430,6 +3436,11 @@ export class SpaceGame {
     const { camera } = state;
     const x = this.blackHole.x - camera.x;
     const y = this.blackHole.y - camera.y;
+
+    // Skip if values are invalid (NaN/Infinity)
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return;
+    }
 
     // Skip if off screen
     if (x < -200 || x > this.canvas.width + 200 || y < -200 || y > this.canvas.height + 200) return;

@@ -82,11 +82,12 @@ function findNonOverlappingPosition(
     { x: baseZone.x, y: baseZone.y },
   ];
 
-  // Add Mission Control stations as obstacles for unassigned tasks
+  // Add Mission Control stations and ship spawn as obstacles for unassigned tasks
   if (isUnassigned) {
     allObstacles.push(
       { x: MISSION_CONTROL_X + 200, y: MISSION_CONTROL_Y }, // Shop
       { x: MISSION_CONTROL_X - 200, y: MISSION_CONTROL_Y }, // Factory
+      { x: MISSION_CONTROL_X, y: MISSION_CONTROL_Y - 200 }, // Ship spawn point
     );
   }
 
