@@ -335,9 +335,21 @@ const loadMascotHistory = (): MascotHistoryEntry[] => {
 
 const saveMascotHistory = (history: MascotHistoryEntry[]) => {
   try {
-    localStorage.setItem(MASCOT_HISTORY_KEY, JSON.stringify(history));
+    // Limit history to 20 entries and skip base64 images (too large for localStorage)
+    const filteredHistory = history
+      .filter(entry => !entry.imageUrl.startsWith('data:')) // Skip base64 images
+      .slice(-20); // Keep only last 20 entries
+    localStorage.setItem(MASCOT_HISTORY_KEY, JSON.stringify(filteredHistory));
   } catch (e) {
     console.error('Failed to save mascot history:', e);
+    // If still failing, try clearing old entries
+    try {
+      const minimalHistory = history.slice(-5);
+      localStorage.setItem(MASCOT_HISTORY_KEY, JSON.stringify(minimalHistory));
+    } catch {
+      // Give up and clear history
+      localStorage.removeItem(MASCOT_HISTORY_KEY);
+    }
   }
 };
 
