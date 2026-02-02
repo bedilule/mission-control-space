@@ -54,6 +54,8 @@ const defaultShipEffects: ShipEffects = {
   speedBonus: 0,
   ownedGlows: [],
   ownedTrails: [],
+  hasDestroyCanon: false,
+  destroyCanonEquipped: false,
 };
 
 // How long before we consider a player offline even if is_online is true

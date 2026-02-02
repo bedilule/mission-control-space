@@ -129,6 +129,8 @@ export interface ShipEffects {
   speedBonus: number;
   ownedGlows: string[];
   ownedTrails: string[];
+  hasDestroyCanon: boolean;
+  destroyCanonEquipped: boolean;
 }
 
 export interface MultiplayerTeam {

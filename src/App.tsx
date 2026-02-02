@@ -106,6 +106,9 @@ const TRAIL_EFFECTS = [
   { id: 'trail_rainbow', name: 'Rainbow', icon: '🌈', cost: 60, value: 'rainbow' },
 ];
 
+// Destroy Canon cost (one-time purchase)
+const DESTROY_CANON_COST = 400;
+
 // Default goals/milestones
 const DEFAULT_GOALS = {
   business: [
@@ -219,6 +222,8 @@ interface ShipEffects {
   speedBonus: number; // 0-5 levels, each gives +10% speed
   ownedGlows: string[]; // Owned glow colors
   ownedTrails: string[]; // Owned trail types
+  hasDestroyCanon: boolean; // Owns Destroy Canon weapon
+  destroyCanonEquipped: boolean; // Canon is equipped and visible on ship
 }
 
 interface UserShip {
@@ -473,7 +478,7 @@ function App() {
     baseImage: '/ship-base.png',
     upgrades: [],
     currentImage: '/ship-base.png',
-    effects: { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, ownedGlows: [], ownedTrails: [] },
+    effects: { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, ownedGlows: [], ownedTrails: [], hasDestroyCanon: false, destroyCanonEquipped: false },
   };
 
   // Multiplayer sync hook - handles team state sync
@@ -1411,12 +1416,16 @@ function App() {
   const handleClaimRequest = useCallback(async (planet: Planet) => {
     if (!state.currentUser) return;
 
+    console.log('[ClaimRequest] Starting claim for planet:', planet.id, 'at position:', planet.x, planet.y);
+
     // Start animation immediately for instant feedback
     gameRef.current?.startClaimAnimation(planet);
     setLandedPlanet(null);
 
     // Call API in parallel - animation will wait during charging phase if needed
     const newPosition = await claimNotionPlanet(planet.id, state.currentUser);
+
+    console.log('[ClaimRequest] API returned:', newPosition);
 
     if (newPosition) {
       // Set the actual target position - animation will proceed to movement phase
@@ -1759,6 +1768,46 @@ function App() {
     }
   };
 
+  // Buy Destroy Canon (one-time purchase)
+  const buyDestroyCanon = () => {
+    if (personalPoints < DESTROY_CANON_COST) return;
+
+    const userId = state.currentUser || 'default';
+    const currentShip = getCurrentUserShip();
+    const currentEffects = getEffectsWithDefaults(currentShip.effects);
+
+    if (currentEffects.hasDestroyCanon) return; // Already owns it
+
+    const newEffects: ShipEffects = {
+      ...currentEffects,
+      hasDestroyCanon: true,
+      destroyCanonEquipped: true, // Auto-equip when purchased
+    };
+
+    // Deduct personal points and sync to backend
+    setPersonalPoints(prev => prev - DESTROY_CANON_COST);
+    updateRemotePersonalPoints(-DESTROY_CANON_COST);
+    updateUserShipEffects(userId, currentShip, newEffects);
+    soundManager.playShipUpgrade();
+  };
+
+  // Toggle Destroy Canon equip state
+  const toggleDestroyCanon = () => {
+    const userId = state.currentUser || 'default';
+    const currentShip = getCurrentUserShip();
+    const currentEffects = getEffectsWithDefaults(currentShip.effects);
+
+    if (!currentEffects.hasDestroyCanon) return; // Doesn't own it
+
+    const newEffects: ShipEffects = {
+      ...currentEffects,
+      destroyCanonEquipped: !currentEffects.destroyCanonEquipped,
+    };
+
+    updateUserShipEffects(userId, currentShip, newEffects);
+    soundManager.playUIClick();
+  };
+
   // Helper to get effects with defaults
   const getEffectsWithDefaults = (effects: ShipEffects | undefined): ShipEffects => ({
     glowColor: effects?.glowColor ?? null,
@@ -1767,6 +1816,8 @@ function App() {
     speedBonus: effects?.speedBonus ?? 0,
     ownedGlows: effects?.ownedGlows ?? [],
     ownedTrails: effects?.ownedTrails ?? [],
+    hasDestroyCanon: effects?.hasDestroyCanon ?? false,
+    destroyCanonEquipped: effects?.destroyCanonEquipped ?? false,
   });
 
   // Helper to update ship effects
@@ -1796,7 +1847,7 @@ function App() {
           baseImage: '/ship-base.png',
           upgrades: [],
           currentImage: '/ship-base.png',
-          effects: { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, ownedGlows: [], ownedTrails: [] },
+          effects: { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, ownedGlows: [], ownedTrails: [], hasDestroyCanon: false, destroyCanonEquipped: false },
         }
       }));
     }
@@ -2442,6 +2493,56 @@ function App() {
               </div>
             </div>
 
+            {/* Weapons Section */}
+            <div style={styles.shopSection}>
+              <h3 style={styles.shopSectionTitle}>🔫 Weapons</h3>
+              {(() => {
+                const effects = getEffectsWithDefaults(getCurrentUserShip().effects);
+                const owned = effects.hasDestroyCanon;
+                const equipped = effects.destroyCanonEquipped;
+                const canBuy = !owned && personalPoints >= DESTROY_CANON_COST;
+                return (
+                  <div style={styles.effectLane}>
+                    <div style={styles.effectLaneLabel}>
+                      <span style={styles.effectLaneIcon}>💥</span>
+                      <span>Destroy Canon</span>
+                    </div>
+                    <div style={styles.effectLaneContent}>
+                      <span style={{ fontSize: '0.75rem', color: '#888', flex: 1 }}>
+                        Destroy completed Notion planets
+                      </span>
+                      {owned ? (
+                        <button
+                          style={{
+                            ...styles.effectBuyButton,
+                            background: equipped ? 'rgba(255, 165, 0, 0.2)' : 'rgba(255,255,255,0.05)',
+                            borderColor: equipped ? '#ffa500' : '#444',
+                            color: equipped ? '#ffa500' : '#888',
+                            minWidth: 80,
+                          }}
+                          onClick={toggleDestroyCanon}
+                        >
+                          {equipped ? 'EQUIPPED' : 'EQUIP'}
+                        </button>
+                      ) : (
+                        <button
+                          style={{
+                            ...styles.effectBuyButton,
+                            opacity: canBuy ? 1 : 0.5,
+                            minWidth: 100,
+                          }}
+                          onClick={buyDestroyCanon}
+                          disabled={!canBuy}
+                        >
+                          {DESTROY_CANON_COST} ⭐
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
             <button style={{ ...styles.cancelButton, width: '100%', marginTop: '1rem' }} onClick={() => { setShowShop(false); gameRef.current?.clearLandedState(); }}>
               Close
             </button>
@@ -2499,6 +2600,7 @@ function App() {
               >
                 <span style={{ fontSize: '48px' }}>📋</span>
                 Task
+                <span style={{ fontSize: '12px', fontWeight: 'normal', color: '#4ade80' }}>+10 ⭐</span>
                 <span style={{ fontSize: '12px', fontWeight: 'normal', color: '#888' }}>Syncs to Notion</span>
               </button>
             </div>

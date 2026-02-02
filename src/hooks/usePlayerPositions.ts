@@ -63,6 +63,8 @@ const defaultShipEffects: ShipEffects = {
   speedBonus: 0,
   ownedGlows: [],
   ownedTrails: [],
+  hasDestroyCanon: false,
+  destroyCanonEquipped: false,
 };
 
 export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlayerPositionsReturn {

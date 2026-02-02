@@ -128,6 +128,7 @@ export class SpaceGame {
   private shipImage: HTMLImageElement | null = null;
   private baseShipImage: HTMLImageElement | null = null; // Default ship for players without custom skin
   private hormoziPlanetImage: HTMLImageElement | null = null;
+  private canonImage: HTMLImageElement | null = null; // Destroy Canon weapon image
   private shipLevel: number = 1;
   private shipEffects: ShipEffects = { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, ownedGlows: [], ownedTrails: [], hasDestroyCanon: false, destroyCanonEquipped: false };
   private blackHole: BlackHole;
@@ -310,6 +311,14 @@ export class SpaceGame {
     hormoziImg.src = '/planet-hormozi.png';
     hormoziImg.onload = () => {
       this.hormoziPlanetImage = hormoziImg;
+    };
+
+    // Load Destroy Canon image
+    const canonImg = new Image();
+    canonImg.crossOrigin = 'anonymous';
+    canonImg.src = '/destroy-canon.png';
+    canonImg.onload = () => {
+      this.canonImage = canonImg;
     };
   }
 
@@ -3244,56 +3253,60 @@ export class SpaceGame {
       );
 
       // Draw Destroy Canon if equipped
-      if (this.shipEffects.destroyCanonEquipped) {
-        const canonScale = scale * 0.8;
-        const canonX = shipSize * 0.35; // Right side of ship
-        const canonY = -shipSize * 0.05; // Slightly forward
+      if (this.shipEffects.destroyCanonEquipped && this.canonImage) {
+        const canonSize = shipSize * 0.7; // Canon size relative to ship
+        const canonX = shipSize * 0.25; // Right side of ship
+        const canonY = -shipSize * 0.1; // Slightly forward
 
-        // Canon mount (dark circle)
-        ctx.beginPath();
-        ctx.arc(canonX, canonY, 6 * canonScale, 0, Math.PI * 2);
-        ctx.fillStyle = '#333';
-        ctx.fill();
-        ctx.strokeStyle = '#555';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
-        // Canon barrel
         ctx.save();
         ctx.translate(canonX, canonY);
-        ctx.rotate(-Math.PI / 6); // Angle forward-right
+        ctx.rotate(-Math.PI / 4); // Angle forward-right (45 degrees)
 
-        // Barrel body
+        // Draw the canon image
+        ctx.drawImage(
+          this.canonImage,
+          -canonSize / 2,
+          -canonSize / 2,
+          canonSize,
+          canonSize
+        );
+
+        // Add glow effect around the canon
+        ctx.shadowColor = '#ff6600';
+        ctx.shadowBlur = 10;
+        ctx.globalAlpha = 0.3;
+        ctx.drawImage(
+          this.canonImage,
+          -canonSize / 2,
+          -canonSize / 2,
+          canonSize,
+          canonSize
+        );
+        ctx.globalAlpha = 1;
+        ctx.shadowBlur = 0;
+
+        ctx.restore();
+      } else if (this.shipEffects.destroyCanonEquipped) {
+        // Fallback procedural canon if image not loaded
+        const canonScale = scale * 0.8;
+        const canonX = shipSize * 0.35;
+        const canonY = -shipSize * 0.05;
+
+        ctx.save();
+        ctx.translate(canonX, canonY);
+        ctx.rotate(-Math.PI / 6);
+
+        // Simple barrel
         ctx.fillStyle = '#444';
-        ctx.fillRect(-3 * canonScale, -12 * canonScale, 6 * canonScale, 14 * canonScale);
+        ctx.fillRect(-4 * canonScale, -15 * canonScale, 8 * canonScale, 18 * canonScale);
 
-        // Barrel tip (orange glow)
-        const tipGlow = ctx.createRadialGradient(0, -14 * canonScale, 0, 0, -14 * canonScale, 6 * canonScale);
-        tipGlow.addColorStop(0, 'rgba(255, 100, 0, 0.8)');
-        tipGlow.addColorStop(0.5, 'rgba(255, 60, 0, 0.4)');
-        tipGlow.addColorStop(1, 'transparent');
+        // Glowing tip
         ctx.beginPath();
-        ctx.arc(0, -14 * canonScale, 6 * canonScale, 0, Math.PI * 2);
-        ctx.fillStyle = tipGlow;
-        ctx.fill();
-
-        // Barrel tip ring
-        ctx.beginPath();
-        ctx.arc(0, -12 * canonScale, 4 * canonScale, 0, Math.PI * 2);
+        ctx.arc(0, -15 * canonScale, 5 * canonScale, 0, Math.PI * 2);
         ctx.fillStyle = '#ff6600';
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(0, -12 * canonScale, 2 * canonScale, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffaa00';
         ctx.fill();
 
         ctx.restore();
-
-        // Canon mount highlight
-        ctx.beginPath();
-        ctx.arc(canonX - 2 * canonScale, canonY - 2 * canonScale, 2 * canonScale, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-        ctx.fill();
       }
 
       // Level glow effect (legacy - kept for high levels)
