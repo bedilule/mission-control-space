@@ -287,10 +287,10 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Award 10 points to creator
+    // Award 10 personal points to creator
     const { data: creator } = await supabase
       .from('players')
-      .select('id')
+      .select('id, personal_points')
       .eq('team_id', team.id)
       .ilike('username', body.created_by)
       .single();
@@ -303,12 +303,14 @@ Deno.serve(async (req) => {
         notion_task_id: notionTaskId,
         task_name: `Created: ${body.name}`,
         points: 10,
+        point_type: 'personal',
       });
 
+      // Update creator's personal points (not team points)
       await supabase
-        .from('teams')
-        .update({ team_points: team.team_points + 10 })
-        .eq('id', team.id);
+        .from('players')
+        .update({ personal_points: (creator.personal_points || 0) + 10 })
+        .eq('id', creator.id);
     }
 
     console.log(`Created Notion task "${body.name}" and planet at (${position.x}, ${position.y})`);

@@ -35,10 +35,12 @@ interface UseMultiplayerSyncOptions {
 interface UseMultiplayerSyncReturn {
   players: PlayerData[];
   teamPoints: number;
+  personalPoints: number;
   completedPlanets: string[];
   recentTransactions: PointTx[];
   isConnected: boolean;
   updateTeamPoints: (points: number, source: 'planet' | 'notion' | 'manual', taskName?: string) => Promise<void>;
+  updatePersonalPoints: (amount: number) => Promise<void>;
   completePlanet: (planetId: string, points: number) => Promise<void>;
   updatePlayerData: (updates: Record<string, unknown>) => Promise<void>;
   syncLocalState: (completedPlanets: string[], customPlanets: unknown[], goals: unknown) => Promise<void>;
@@ -110,6 +112,7 @@ export function useMultiplayerSync(options: UseMultiplayerSyncOptions): UseMulti
 
   const [players, setPlayers] = useState<PlayerData[]>([]);
   const [teamPoints, setTeamPoints] = useState(0);
+  const [personalPoints, setPersonalPoints] = useState(0);
   const [completedPlanets, setCompletedPlanets] = useState<string[]>([]);
   const [recentTransactions, setRecentTransactions] = useState<PointTx[]>([]);
   const [isConnected, setIsConnected] = useState(false);
@@ -247,6 +250,12 @@ export function useMultiplayerSync(options: UseMultiplayerSyncOptions): UseMulti
 
     if (playersData) {
       setPlayers(playersData.map(playerRowToData));
+
+      // Find current player's personal points
+      const currentPlayer = playersData.find(p => p.username === username);
+      if (currentPlayer) {
+        setPersonalPoints(currentPlayer.personal_points || 0);
+      }
     }
 
     // Fetch recent transactions
@@ -346,6 +355,28 @@ export function useMultiplayerSync(options: UseMultiplayerSyncOptions): UseMulti
       .eq('id', playerDbIdRef.current);
   }, []);
 
+  // Update personal points (for spending on upgrades)
+  const updatePersonalPoints = useCallback(async (amount: number) => {
+    if (!playerDbIdRef.current) return;
+
+    // Get current personal points
+    const { data: currentPlayer } = await supabase
+      .from('players')
+      .select('personal_points')
+      .eq('id', playerDbIdRef.current)
+      .single();
+
+    if (currentPlayer) {
+      const newPoints = (currentPlayer.personal_points || 0) + amount;
+      await supabase
+        .from('players')
+        .update({ personal_points: newPoints })
+        .eq('id', playerDbIdRef.current);
+
+      setPersonalPoints(newPoints);
+    }
+  }, []);
+
   // Sync local state to team (for initial setup or migration)
   const syncLocalState = useCallback(async (
     localCompletedPlanets: string[],
@@ -431,6 +462,10 @@ export function useMultiplayerSync(options: UseMultiplayerSyncOptions): UseMulti
             setPlayers((prev) =>
               prev.map((p) => (p.id === player.id ? player : p))
             );
+            // Update personal points if this is the current player
+            if (player.id === playerDbIdRef.current && payload.new.personal_points !== undefined) {
+              setPersonalPoints(payload.new.personal_points || 0);
+            }
             if (!player.isOnline && player.id !== playerDbIdRef.current) {
               onPlayerLeft?.(player.id);
             }
@@ -522,10 +557,12 @@ export function useMultiplayerSync(options: UseMultiplayerSyncOptions): UseMulti
   return {
     players,
     teamPoints,
+    personalPoints,
     completedPlanets,
     recentTransactions,
     isConnected,
     updateTeamPoints,
+    updatePersonalPoints,
     completePlanet,
     updatePlayerData,
     syncLocalState,

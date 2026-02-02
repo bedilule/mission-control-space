@@ -51,6 +51,20 @@ function distance(p1: { x: number; y: number }, p2: { x: number; y: number }): n
   return Math.sqrt((p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2);
 }
 
+// Check if a position is in the correct zone for the assigned player
+function isInCorrectZone(
+  position: { x: number; y: number },
+  assignedTo: string | null | undefined
+): boolean {
+  const expectedZone = assignedTo && PLAYER_ZONES[assignedTo.toLowerCase()]
+    ? PLAYER_ZONES[assignedTo.toLowerCase()]
+    : DEFAULT_ZONE;
+
+  // Consider "in zone" if within 1000 units of the zone center
+  const MAX_ZONE_DISTANCE = 1000;
+  return distance(position, expectedZone) <= MAX_ZONE_DISTANCE;
+}
+
 function findNonOverlappingPosition(
   assignedTo: string | null | undefined,
   existingPlanets: ExistingPlanet[]
@@ -335,11 +349,11 @@ Deno.serve(async (req) => {
     // Get all existing planets to check for deletions and existing entries
     const { data: allPlanets } = await supabase
       .from('notion_planets')
-      .select('id, notion_task_id, name, x, y')
+      .select('id, notion_task_id, name, assigned_to, x, y')
       .eq('team_id', team.id);
 
     // Build lookup map for existing planets by normalized notion_task_id
-    const existingByTaskId = new Map<string, { id: string; notion_task_id: string; name: string; x: number; y: number }>();
+    const existingByTaskId = new Map<string, { id: string; notion_task_id: string; name: string; assigned_to: string | null; x: number; y: number }>();
     const existingPositions: ExistingPlanet[] = [];
     for (const planet of allPlanets || []) {
       existingByTaskId.set(normalizeId(planet.notion_task_id), { ...planet });
@@ -404,17 +418,43 @@ Deno.serve(async (req) => {
       if (existing) {
         // Update existing planet with latest data
         const points = calculatePoints(parsed.priority);
+
+        // Check if assignment changed or planet is in wrong zone - need to reposition planet
+        const assignmentChanged = existing.assigned_to !== resolvedAssignedTo;
+        const inWrongZone = !isInCorrectZone({ x: existing.x, y: existing.y }, resolvedAssignedTo);
+        const needsReposition = assignmentChanged || inWrongZone;
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const updateData: any = {
+          name: parsed.name,
+          description: parsed.description || null,
+          assigned_to: resolvedAssignedTo,
+          task_type: parsed.type || null,
+          priority: parsed.priority || null,
+          points: points,
+          notion_url: parsed.url || null,
+        };
+
+        // Recalculate position if assignment changed or planet is in wrong zone
+        if (needsReposition) {
+          // Get other planets' positions (excluding this one)
+          const otherPositions = existingPositions.filter(
+            p => p.x !== existing.x || p.y !== existing.y
+          );
+          const newPosition = findNonOverlappingPosition(resolvedAssignedTo, otherPositions);
+          updateData.x = Math.round(newPosition.x);
+          updateData.y = Math.round(newPosition.y);
+
+          // Update our tracking of positions
+          const idx = existingPositions.findIndex(p => p.x === existing.x && p.y === existing.y);
+          if (idx >= 0) {
+            existingPositions[idx] = newPosition;
+          }
+        }
+
         const { error: updateError } = await supabase
           .from('notion_planets')
-          .update({
-            name: parsed.name,
-            description: parsed.description || null,
-            assigned_to: resolvedAssignedTo,
-            task_type: parsed.type || null,
-            priority: parsed.priority || null,
-            points: points,
-            notion_url: parsed.url || null,
-          })
+          .update(updateData)
           .eq('id', existing.id);
 
         if (updateError) {

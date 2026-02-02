@@ -57,6 +57,7 @@ export interface Database {
           planet_size_level: number;
           planet_history: Json;
           mascot_history: Json;
+          personal_points: number;
           is_online: boolean;
           last_seen: string;
           created_at: string;
@@ -76,6 +77,7 @@ export interface Database {
           planet_size_level?: number;
           planet_history?: Json;
           mascot_history?: Json;
+          personal_points?: number;
           is_online?: boolean;
           last_seen?: string;
           created_at?: string;
@@ -95,6 +97,7 @@ export interface Database {
           planet_size_level?: number;
           planet_history?: Json;
           mascot_history?: Json;
+          personal_points?: number;
           is_online?: boolean;
           last_seen?: string;
           created_at?: string;
@@ -141,6 +144,7 @@ export interface Database {
           notion_task_id: string | null;
           task_name: string | null;
           points: number;
+          point_type: 'personal' | 'team';
           created_at: string;
         };
         Insert: {
@@ -151,6 +155,7 @@ export interface Database {
           notion_task_id?: string | null;
           task_name?: string | null;
           points: number;
+          point_type?: 'personal' | 'team';
           created_at?: string;
         };
         Update: {
@@ -161,6 +166,7 @@ export interface Database {
           notion_task_id?: string | null;
           task_name?: string | null;
           points?: number;
+          point_type?: 'personal' | 'team';
           created_at?: string;
         };
       };

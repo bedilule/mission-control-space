@@ -93,23 +93,36 @@ function findNonOverlappingPosition(
 
   const maxAttempts = 50;
 
-  // For unassigned tasks: horizontal rows ABOVE Mission Control
+  // For unassigned tasks: staggered honeycomb arcs ABOVE Mission Control
   // For assigned tasks: scatter around player zone
   if (isUnassigned) {
-    const rowStartY = -250; // First row 250 units above Mission Control
-    const rowSpacing = 120;
-    const planetsPerRow = 5;
-    const horizontalSpacing = 150;
+    const baseDistance = 280;
+    const arcSpacing = 100;
+    const planetsPerArc = 5;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const row = Math.floor(attempt / planetsPerRow);
-      const posInRow = attempt % planetsPerRow;
-      const rowWidth = (planetsPerRow - 1) * horizontalSpacing;
-      const startX = -rowWidth / 2;
+      const arcIndex = Math.floor(attempt / planetsPerArc);
+      const posInArc = attempt % planetsPerArc;
+      const arcRadius = baseDistance + arcIndex * arcSpacing;
+
+      const arcSpread = Math.PI * 0.35;
+      const baseAngle = -Math.PI / 2;
+      // Stagger: odd arcs offset by half a position
+      const staggerOffset = (arcIndex % 2 === 1) ? 0.5 : 0;
+      const t = planetsPerArc > 1 ? (posInArc + staggerOffset) / planetsPerArc : 0.5;
+      const angle = baseAngle + (t - 0.5) * arcSpread * 2;
+
+      // Organic variation
+      const seed = (attempt * 137.5) % 1;
+      const radiusVariation = (seed - 0.5) * 25;
+      const angleVariation = (((attempt * 97.3) % 1) - 0.5) * 0.06;
+
+      const finalRadius = arcRadius + radiusVariation;
+      const finalAngle = angle + angleVariation;
 
       const candidate = {
-        x: baseZone.x + startX + posInRow * horizontalSpacing,
-        y: baseZone.y + rowStartY - row * rowSpacing,
+        x: baseZone.x + Math.cos(finalAngle) * finalRadius,
+        y: baseZone.y + Math.sin(finalAngle) * finalRadius,
       };
 
       let isValid = true;
@@ -151,17 +164,14 @@ function findNonOverlappingPosition(
     }
   }
 
-  // Fallback - place in extended rows above Mission Control
+  // Fallback - place in outer arcs above Mission Control
   if (isUnassigned) {
-    const rowStartY = -250;
-    const rowSpacing = 120;
-    const horizontalSpacing = 150;
-    // Random position in extended grid
-    const fallbackRow = Math.floor(Math.random() * 5) + 3; // Rows 3-7
-    const fallbackPos = Math.floor(Math.random() * 7) - 3; // -3 to +3
+    const fallbackArc = 3 + Math.floor(Math.random() * 4); // Arcs 3-6
+    const fallbackRadius = 280 + fallbackArc * 110 + (Math.random() - 0.5) * 40;
+    const fallbackAngle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 0.35 * 2;
     return {
-      x: baseZone.x + fallbackPos * horizontalSpacing,
-      y: baseZone.y + rowStartY - fallbackRow * rowSpacing,
+      x: baseZone.x + Math.cos(fallbackAngle) * fallbackRadius,
+      y: baseZone.y + Math.sin(fallbackAngle) * fallbackRadius,
     };
   }
   // For assigned tasks: scatter around player zone
@@ -432,7 +442,7 @@ Deno.serve(async (req) => {
       if (isCompleted && !existingPlanet.completed) {
         updates.completed = true;
 
-        // Award points for completion - find player by Notion ID or name
+        // Award personal points for completion - find player by Notion ID or name
         if (payload.assigned_to || payload.assigned_to_notion_id) {
           const player = await findPlayerByNotionUser(
             supabase,
@@ -449,15 +459,22 @@ Deno.serve(async (req) => {
               notion_task_id: payload.id,
               task_name: `Completed: ${payload.name}`,
               points: points,
+              point_type: 'personal',
             });
 
-            // Update team points
-            await supabase
-              .from('teams')
-              .update({ team_points: team.team_points + points })
-              .eq('id', team.id);
+            // Update player's personal points (not team points)
+            const { data: playerData } = await supabase
+              .from('players')
+              .select('personal_points')
+              .eq('id', player.id)
+              .single();
 
-            console.log(`Awarded ${points} points to ${player.username} for completing "${payload.name}"`);
+            await supabase
+              .from('players')
+              .update({ personal_points: (playerData?.personal_points || 0) + points })
+              .eq('id', player.id);
+
+            console.log(`Awarded ${points} personal points to ${player.username} for completing "${payload.name}"`);
           }
         }
       }
@@ -534,7 +551,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Award 10 points to the creator for creating the task
+    // Award 10 personal points to the creator for creating the task
     if (payload.created_by || payload.created_by_notion_id) {
       // Find the player by Notion user ID or username
       const creator = await findPlayerByNotionUser(
@@ -545,7 +562,7 @@ Deno.serve(async (req) => {
       );
 
       if (creator) {
-        // Insert point transaction for creation
+        // Insert point transaction for creation (personal points)
         await supabase.from('point_transactions').insert({
           team_id: team.id,
           player_id: creator.id,
@@ -553,15 +570,22 @@ Deno.serve(async (req) => {
           notion_task_id: payload.id,
           task_name: `Created: ${payload.name}`,
           points: 10,
+          point_type: 'personal',
         });
 
-        // Update team points
-        await supabase
-          .from('teams')
-          .update({ team_points: team.team_points + 10 })
-          .eq('id', team.id);
+        // Update creator's personal points (not team points)
+        const { data: creatorData } = await supabase
+          .from('players')
+          .select('personal_points')
+          .eq('id', creator.id)
+          .single();
 
-        console.log(`Awarded 10 points to ${creator.username} for creating "${payload.name}"`);
+        await supabase
+          .from('players')
+          .update({ personal_points: (creatorData?.personal_points || 0) + 10 })
+          .eq('id', creator.id);
+
+        console.log(`Awarded 10 personal points to ${creator.username} for creating "${payload.name}"`);
       }
     }
 

@@ -404,6 +404,7 @@ function App() {
   const [state, setState] = useState<SavedState>(loadState);
   const [customPlanets, setCustomPlanets] = useState<CustomPlanet[]>(loadCustomPlanets);
   const [teamPoints, setTeamPoints] = useState(loadTeamPoints);
+  const [personalPoints, setPersonalPoints] = useState(0);
   const [userShips, setUserShips] = useState<Record<string, UserShip>>(loadUserShips);
   const [mascotHistory, setMascotHistory] = useState<MascotHistoryEntry[]>(loadMascotHistory);
   const [goals, setGoals] = useState<Goals>(loadGoals);
@@ -480,10 +481,12 @@ function App() {
   const {
     players: teamPlayers,
     teamPoints: syncedTeamPoints,
+    personalPoints: syncedPersonalPoints,
     completedPlanets: syncedCompletedPlanets,
     recentTransactions,
     isConnected,
     updateTeamPoints: updateRemoteTeamPoints,
+    updatePersonalPoints: updateRemotePersonalPoints,
     completePlanet: completeRemotePlanet,
     updatePlayerData,
     syncLocalState,
@@ -607,6 +610,13 @@ function App() {
       syncLocalState(state.completedPlanets, customPlanets, goals);
     }
   }, [team?.id]);
+
+  // Sync personal points from multiplayer hook
+  useEffect(() => {
+    if (syncedPersonalPoints !== undefined) {
+      setPersonalPoints(syncedPersonalPoints);
+    }
+  }, [syncedPersonalPoints]);
 
   // Copy share URL to clipboard
   const copyShareUrl = () => {
@@ -943,7 +953,7 @@ function App() {
 
   // Generate base planet (for first-time setup)
   const generateBasePlanet = async () => {
-    if (teamPoints < 25) return;
+    if (personalPoints < 25) return;
 
     const userId = state.currentUser || 'default';
     const userColor = USERS.find(u => u.id === userId)?.color || '#ffa500';
@@ -994,7 +1004,9 @@ function App() {
         const base64Image = await getImageAsBase64(newImageUrl);
         newImageUrl = await saveImageLocally(base64Image, 'planet', userId, 'base');
 
-        setTeamPoints(prev => prev - 25);
+        // Deduct personal points and sync to backend
+        setPersonalPoints(prev => prev - 25);
+        updateRemotePersonalPoints(-25);
 
         setUserPlanets(prev => ({
           ...prev,
@@ -1030,7 +1042,7 @@ function App() {
 
   // Terraform planet
   const terraformPlanet = async () => {
-    if (!terraformPrompt || teamPoints < 50) return;
+    if (!terraformPrompt || personalPoints < 50) return;
 
     const userId = state.currentUser || 'default';
     const currentPlanet = getUserPlanet(userId);
@@ -1090,8 +1102,9 @@ function App() {
         const base64Image = await getImageAsBase64(newImageUrl);
         newImageUrl = await saveImageLocally(base64Image, 'planet', userId, 'terraform');
 
-        // Deduct points
-        setTeamPoints(prev => prev - 50);
+        // Deduct personal points and sync to backend
+        setPersonalPoints(prev => prev - 50);
+        updateRemotePersonalPoints(-50);
 
         // Update user's planet
         const newTerraformCount = currentPlanet.terraformCount + 1;
@@ -1186,10 +1199,12 @@ function App() {
 
     if (currentLevel >= 5) return;
     const cost = PLANET_SIZE_COSTS[currentLevel];
-    if (teamPoints < cost) return;
+    if (personalPoints < cost) return;
 
     const newLevel = currentLevel + 1;
-    setTeamPoints(prev => prev - cost);
+    // Deduct personal points and sync to backend
+    setPersonalPoints(prev => prev - cost);
+    updateRemotePersonalPoints(-cost);
     setUserPlanets(prev => ({
       ...prev,
       [userId]: {
@@ -1259,19 +1274,15 @@ function App() {
       fireConfetti(planet.size);
       soundManager.playDockingSound();
 
-      // Mark as completed in database
+      // Mark as completed in database (this triggers webhook which awards personal points)
       completeNotionPlanet(planet.id);
 
-      // Award points (use notion task points if available, fallback to size-based)
+      // Award personal points (use notion task points if available, fallback to size-based)
       const pointsEarned = planet.points || POINTS_PER_SIZE[planet.size];
-      setTeamPoints(prev => prev + pointsEarned);
+      setPersonalPoints(prev => prev + pointsEarned);
+      updateRemotePersonalPoints(pointsEarned);
 
       gameRef.current?.completePlanet(planet.id);
-
-      // Sync to multiplayer (if connected)
-      if (team) {
-        completeRemotePlanet(planet.id, pointsEarned);
-      }
       return;
     }
 
@@ -1370,18 +1381,15 @@ function App() {
       fireConfetti(planet.size);
       soundManager.playDockingSound();
 
-      // Mark as completed in database
+      // Mark as completed in database (this triggers webhook which awards personal points)
       completeNotionPlanet(planet.id);
 
-      // Award points
+      // Award personal points
       const pointsEarned = planet.points || POINTS_PER_SIZE[planet.size];
-      setTeamPoints(prev => prev + pointsEarned);
+      setPersonalPoints(prev => prev + pointsEarned);
+      updateRemotePersonalPoints(pointsEarned);
 
       gameRef.current?.completePlanet(planet.id);
-
-      if (team) {
-        completeRemotePlanet(planet.id, pointsEarned);
-      }
     } else {
       // Regular planets
       if (state.completedPlanets.includes(planet.id)) return;
@@ -1491,44 +1499,37 @@ function App() {
     };
   }, [handleLand, handleTakeoff, handleColonize, handleOpenNotion, handleTerraform, handleDestroyPlanet]);
 
-  // Close modals with Space or Escape key
+  // Close all modals with Escape key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.key === ' ' || e.key === 'Escape') && !isUpgrading) {
-        // Close terraform modal
-        if (showTerraform) {
+      if (e.key === 'Escape' && !isUpgrading) {
+        const isGameLanded = gameRef.current?.isPlayerLanded();
+        const hasOpenModal = editingGoal || showSettings || showTerraform ||
+          viewingPlanetOwner || showShop || showPlanetCreator || landedPlanet || isGameLanded;
+
+        if (hasOpenModal) {
           e.preventDefault();
+          // Close everything at once
+          setEditingGoal(null);
+          setShowSettings(false);
           setShowTerraform(false);
-          return;
-        }
-        // Close viewing planet owner modal
-        if (viewingPlanetOwner) {
-          e.preventDefault();
           setViewingPlanetOwner(null);
-          return;
-        }
-        // Close shop modal
-        if (showShop) {
-          e.preventDefault();
           setShowShop(false);
-          return;
-        }
-        // Close planet creator modal
-        if (showPlanetCreator) {
-          e.preventDefault();
           setShowPlanetCreator(false);
-          return;
+          setLandedPlanet(null);
+          // Also clear SpaceGame's internal landed state
+          gameRef.current?.clearLandedState();
         }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showTerraform, viewingPlanetOwner, showShop, showPlanetCreator, isUpgrading]);
+  }, [showTerraform, viewingPlanetOwner, showShop, showPlanetCreator, showSettings, editingGoal, landedPlanet, isUpgrading]);
 
   // Buy visual upgrade from shop (AI-generated changes to ship appearance)
   const buyVisualUpgrade = async () => {
-    if (teamPoints < VISUAL_UPGRADE_COST) return;
+    if (personalPoints < VISUAL_UPGRADE_COST) return;
 
     if (!upgradePrompt) {
       alert('Please describe how you want to modify your vessel!');
@@ -1594,8 +1595,9 @@ function App() {
       }
 
       if (newImageUrl) {
-        // Deduct points
-        setTeamPoints(prev => prev - VISUAL_UPGRADE_COST);
+        // Deduct personal points and sync to backend
+        setPersonalPoints(prev => prev - VISUAL_UPGRADE_COST);
+        updateRemotePersonalPoints(-VISUAL_UPGRADE_COST);
 
         // Update user's ship
         const userId = state.currentUser || 'default';
@@ -1648,12 +1650,14 @@ function App() {
 
     if (currentLevel >= 5) return;
     const cost = SIZE_COSTS[currentLevel];
-    if (teamPoints < cost) return;
+    if (personalPoints < cost) return;
 
     const userId = state.currentUser || 'default';
     const newEffects = { ...currentEffects, sizeBonus: (currentLevel + 1) * 10 }; // Store as percentage for compatibility
 
-    setTeamPoints(prev => prev - cost);
+    // Deduct personal points and sync to backend
+    setPersonalPoints(prev => prev - cost);
+    updateRemotePersonalPoints(-cost);
     updateUserShipEffects(userId, currentShip, newEffects);
     soundManager.playShipUpgrade();
   };
@@ -1666,12 +1670,14 @@ function App() {
 
     if (currentLevel >= 5) return;
     const cost = SPEED_COSTS[currentLevel];
-    if (teamPoints < cost) return;
+    if (personalPoints < cost) return;
 
     const userId = state.currentUser || 'default';
     const newEffects = { ...currentEffects, speedBonus: currentLevel + 1 };
 
-    setTeamPoints(prev => prev - cost);
+    // Deduct personal points and sync to backend
+    setPersonalPoints(prev => prev - cost);
+    updateRemotePersonalPoints(-cost);
     updateUserShipEffects(userId, currentShip, newEffects);
     soundManager.playShipUpgrade();
   };
@@ -1694,13 +1700,15 @@ function App() {
       soundManager.playUIClick();
     } else {
       // Buy it
-      if (teamPoints < glow.cost) return;
+      if (personalPoints < glow.cost) return;
       const newEffects = {
         ...currentEffects,
         ownedGlows: [...currentEffects.ownedGlows, glow.value],
         glowColor: glow.value,
       };
-      setTeamPoints(prev => prev - glow.cost);
+      // Deduct personal points and sync to backend
+      setPersonalPoints(prev => prev - glow.cost);
+      updateRemotePersonalPoints(-glow.cost);
       updateUserShipEffects(userId, currentShip, newEffects);
       soundManager.playShipUpgrade();
     }
@@ -1724,13 +1732,15 @@ function App() {
       soundManager.playUIClick();
     } else {
       // Buy it
-      if (teamPoints < trail.cost) return;
+      if (personalPoints < trail.cost) return;
       const newEffects: ShipEffects = {
         ...currentEffects,
         ownedTrails: [...currentEffects.ownedTrails, trail.value],
         trailType: trail.value as 'fire' | 'ice' | 'rainbow',
       };
-      setTeamPoints(prev => prev - trail.cost);
+      // Deduct personal points and sync to backend
+      setPersonalPoints(prev => prev - trail.cost);
+      updateRemotePersonalPoints(-trail.cost);
       updateUserShipEffects(userId, currentShip, newEffects);
       soundManager.playShipUpgrade();
     }
@@ -2129,6 +2139,10 @@ function App() {
           <span style={{ ...styles.statValue, color: '#5490ff' }}>💎 {teamPoints}</span>
           <span style={styles.statLabel}>Team Points</span>
         </div>
+        <div style={styles.statItem}>
+          <span style={{ ...styles.statValue, color: '#ffa500' }}>⭐ {personalPoints}</span>
+          <span style={styles.statLabel}>Your Points</span>
+        </div>
       </div>
 
       {/* Ship preview */}
@@ -2152,7 +2166,7 @@ function App() {
         <div style={styles.modalOverlay} onClick={() => !isUpgrading && setShowShop(false)}>
           <div style={{ ...styles.modal, maxWidth: 550 }} onClick={e => e.stopPropagation()}>
             <h2 style={styles.modalTitle}>🛒 Upgrade Shop</h2>
-            <p style={styles.shopPoints}>💎 {teamPoints} Team Points Available</p>
+            <p style={styles.shopPoints}>⭐ {personalPoints} Your Points Available</p>
 
             {/* Current ship preview */}
             <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
@@ -2181,12 +2195,12 @@ function App() {
                   ...styles.saveButton,
                   width: '100%',
                   marginTop: '0.75rem',
-                  opacity: teamPoints >= VISUAL_UPGRADE_COST && upgradePrompt ? 1 : 0.5,
+                  opacity: personalPoints >= VISUAL_UPGRADE_COST && upgradePrompt ? 1 : 0.5,
                 }}
                 onClick={buyVisualUpgrade}
-                disabled={!upgradePrompt || teamPoints < VISUAL_UPGRADE_COST || isUpgrading}
+                disabled={!upgradePrompt || personalPoints < VISUAL_UPGRADE_COST || isUpgrading}
               >
-                {isUpgrading ? 'Generating...' : `Modify Vessel (${VISUAL_UPGRADE_COST} 💎)`}
+                {isUpgrading ? 'Generating...' : `Modify Vessel (${VISUAL_UPGRADE_COST} ⭐)`}
               </button>
             </div>
 
@@ -2198,7 +2212,7 @@ function App() {
               {(() => {
                 const currentLevel = Math.floor(getEffectsWithDefaults(getCurrentUserShip().effects).sizeBonus / 10);
                 const nextCost = currentLevel < 5 ? SIZE_COSTS[currentLevel] : null;
-                const canBuy = nextCost !== null && teamPoints >= nextCost;
+                const canBuy = nextCost !== null && personalPoints >= nextCost;
                 return (
                   <div style={styles.effectLane}>
                     <div style={styles.effectLaneLabel}>
@@ -2227,7 +2241,7 @@ function App() {
                           onClick={buySizeUpgrade}
                           disabled={!canBuy}
                         >
-                          +10% ({nextCost} 💎)
+                          +10% ({nextCost} ⭐)
                         </button>
                       ) : (
                         <span style={styles.effectMaxed}>MAX</span>
@@ -2241,7 +2255,7 @@ function App() {
               {(() => {
                 const currentLevel = getEffectsWithDefaults(getCurrentUserShip().effects).speedBonus;
                 const nextCost = currentLevel < 5 ? SPEED_COSTS[currentLevel] : null;
-                const canBuy = nextCost !== null && teamPoints >= nextCost;
+                const canBuy = nextCost !== null && personalPoints >= nextCost;
                 return (
                   <div style={styles.effectLane}>
                     <div style={styles.effectLaneLabel}>
@@ -2270,7 +2284,7 @@ function App() {
                           onClick={buySpeedUpgrade}
                           disabled={!canBuy}
                         >
-                          +10% ({nextCost} 💎)
+                          +10% ({nextCost} ⭐)
                         </button>
                       ) : (
                         <span style={styles.effectMaxed}>MAX</span>
@@ -2298,15 +2312,15 @@ function App() {
                           ...styles.effectItemSmall,
                           borderColor: active ? '#ffa500' : owned ? '#555' : '#333',
                           background: active ? 'rgba(255, 165, 0, 0.15)' : owned ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)',
-                          opacity: owned || teamPoints >= glow.cost ? 1 : 0.5,
+                          opacity: owned || personalPoints >= glow.cost ? 1 : 0.5,
                         }}
                         onClick={() => handleGlow(glow.id)}
-                        disabled={!owned && teamPoints < glow.cost}
+                        disabled={!owned && personalPoints < glow.cost}
                         title={owned ? (active ? 'Click to deactivate' : 'Click to activate') : `Buy for ${glow.cost} points`}
                       >
                         <span style={{ fontSize: '1.2rem' }}>{glow.icon}</span>
                         <span style={{ fontSize: '0.65rem', color: '#aaa' }}>{glow.name}</span>
-                        {!owned && <span style={{ fontSize: '0.6rem', color: '#5490ff' }}>{glow.cost} 💎</span>}
+                        {!owned && <span style={{ fontSize: '0.6rem', color: '#ffa500' }}>{glow.cost} ⭐</span>}
                         {owned && active && <span style={{ fontSize: '0.55rem', color: '#ffa500' }}>ON</span>}
                         {owned && !active && <span style={{ fontSize: '0.55rem', color: '#666' }}>owned</span>}
                       </button>
@@ -2333,15 +2347,15 @@ function App() {
                           ...styles.effectItemSmall,
                           borderColor: active ? '#ffa500' : owned ? '#555' : '#333',
                           background: active ? 'rgba(255, 165, 0, 0.15)' : owned ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)',
-                          opacity: owned || teamPoints >= trail.cost ? 1 : 0.5,
+                          opacity: owned || personalPoints >= trail.cost ? 1 : 0.5,
                         }}
                         onClick={() => handleTrail(trail.id)}
-                        disabled={!owned && teamPoints < trail.cost}
+                        disabled={!owned && personalPoints < trail.cost}
                         title={owned ? (active ? 'Click to deactivate' : 'Click to activate') : `Buy for ${trail.cost} points`}
                       >
                         <span style={{ fontSize: '1.2rem' }}>{trail.icon}</span>
                         <span style={{ fontSize: '0.65rem', color: '#aaa' }}>{trail.name}</span>
-                        {!owned && <span style={{ fontSize: '0.6rem', color: '#5490ff' }}>{trail.cost} 💎</span>}
+                        {!owned && <span style={{ fontSize: '0.6rem', color: '#ffa500' }}>{trail.cost} ⭐</span>}
                         {owned && active && <span style={{ fontSize: '0.55rem', color: '#ffa500' }}>ON</span>}
                         {owned && !active && <span style={{ fontSize: '0.55rem', color: '#666' }}>owned</span>}
                       </button>
@@ -2560,7 +2574,7 @@ function App() {
         <div style={styles.modalOverlay} onClick={() => !isUpgrading && setShowTerraform(false)}>
           <div style={styles.modal} onClick={e => e.stopPropagation()}>
             <h2 style={styles.modalTitle}>🌍 Terraform Your Planet</h2>
-            <p style={styles.shopPoints}>💎 {teamPoints} Team Points Available</p>
+            <p style={styles.shopPoints}>⭐ {personalPoints} Your Points Available</p>
 
             {/* Current planet preview */}
             <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
@@ -2597,9 +2611,9 @@ function App() {
                 <button
                   style={{ ...styles.saveButton, width: '100%' }}
                   onClick={generateBasePlanet}
-                  disabled={teamPoints < 25 || isUpgrading}
+                  disabled={personalPoints < 25 || isUpgrading}
                 >
-                  {isUpgrading ? 'Generating...' : 'Generate Base Planet (25 💎)'}
+                  {isUpgrading ? 'Generating...' : 'Generate Base Planet (25 ⭐)'}
                 </button>
                 <button style={{ ...styles.cancelButton, marginTop: '1rem' }} onClick={() => setShowTerraform(false)}>
                   Cancel
@@ -2611,7 +2625,7 @@ function App() {
                 {(() => {
                   const currentLevel = getUserPlanet(state.currentUser || '').sizeLevel;
                   const nextCost = currentLevel < 5 ? PLANET_SIZE_COSTS[currentLevel] : null;
-                  const canBuy = nextCost !== null && teamPoints >= nextCost;
+                  const canBuy = nextCost !== null && personalPoints >= nextCost;
                   return (
                     <div style={{ ...styles.effectLane, marginBottom: '1rem' }}>
                       <div style={styles.effectLaneLabel}>
@@ -2640,7 +2654,7 @@ function App() {
                             onClick={buyPlanetSizeUpgrade}
                             disabled={!canBuy}
                           >
-                            +20% ({nextCost} 💎)
+                            +20% ({nextCost} ⭐)
                           </button>
                         ) : (
                           <span style={styles.effectMaxed}>MAX</span>
@@ -2687,7 +2701,7 @@ function App() {
                 )}
 
                 <p style={{ color: '#888', fontSize: '0.8rem', marginBottom: '0.75rem', textAlign: 'center' }}>
-                  Terraform: 50 💎
+                  Terraform: 50 ⭐
                 </p>
 
                 <div style={styles.formGroup}>
@@ -2707,9 +2721,9 @@ function App() {
                   <button
                     style={styles.saveButton}
                     onClick={terraformPlanet}
-                    disabled={!terraformPrompt || teamPoints < 50 || isUpgrading}
+                    disabled={!terraformPrompt || personalPoints < 50 || isUpgrading}
                   >
-                    {isUpgrading ? 'Terraforming...' : 'Terraform (50 💎)'}
+                    {isUpgrading ? 'Terraforming...' : 'Terraform (50 ⭐)'}
                   </button>
                 </div>
               </>
