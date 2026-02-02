@@ -2449,7 +2449,7 @@ export class SpaceGame {
       // Use render state for interpolated thrusting
       const renderState = this.renderStates.get(player.id);
       const isThrusting = renderState?.renderThrusting ?? player.thrusting;
-      if (isThrusting && Math.random() < 0.3) {
+      if (isThrusting) {
         this.emitOtherPlayerThrust(player);
       }
     }
@@ -4624,7 +4624,7 @@ export class SpaceGame {
   }
 
   /**
-   * Emit thrust particles for another player (simpler version).
+   * Emit thrust particles for another player (matches local player trail).
    */
   private emitOtherPlayerThrust(player: OtherPlayer) {
     // Use render state for interpolated position
@@ -4638,34 +4638,53 @@ export class SpaceGame {
     const backAngle = rotation + Math.PI;
     const trailType = player.shipEffects?.trailType || 'default';
 
-    // Choose colors based on trail type
-    let colors: string[];
-    switch (trailType) {
-      case 'fire':
-        colors = ['#ff4400', '#ff6600', '#ff8800'];
-        break;
-      case 'ice':
-        colors = ['#88ddff', '#aaeeff', '#ccffff'];
-        break;
-      case 'rainbow':
-        colors = ['#ff0000', '#ff8800', '#ffff00', '#00ff00', '#0088ff', '#8800ff'];
-        break;
-      default:
-        colors = [player.color, player.color + 'cc', player.color + '88'];
+    // Match local player particle count based on trail type
+    let particleCount = 2;
+    if (trailType !== 'default') {
+      particleCount = 4;
     }
 
-    const spread = (Math.random() - 0.5) * 0.6;
-    const speed = Math.random() * 3 + 2;
+    for (let i = 0; i < particleCount; i++) {
+      // Choose colors based on trail type (same as local player)
+      let colors: string[];
+      let life: number;
+      let size: number;
 
-    this.state.particles.push({
-      x: px + Math.cos(backAngle) * 18,
-      y: py + Math.sin(backAngle) * 18,
-      vx: Math.cos(backAngle + spread) * speed + vx * 0.3,
-      vy: Math.sin(backAngle + spread) * speed + vy * 0.3,
-      life: 25 + Math.random() * 15,
-      maxLife: 40,
-      size: Math.random() * 5 + 3,
-      color: colors[Math.floor(Math.random() * colors.length)],
-    });
+      switch (trailType) {
+        case 'fire':
+          colors = ['#ff4400', '#ff6600', '#ff8800', '#ffaa00', '#ffcc00'];
+          life = 30 + Math.random() * 20;
+          size = Math.random() * 6 + 4;
+          break;
+        case 'ice':
+          colors = ['#88ddff', '#aaeeff', '#ccffff', '#ffffff', '#66ccff'];
+          life = 35 + Math.random() * 15;
+          size = Math.random() * 4 + 2;
+          break;
+        case 'rainbow':
+          colors = ['#ff0000', '#ff8800', '#ffff00', '#00ff00', '#0088ff', '#8800ff'];
+          life = 40 + Math.random() * 20;
+          size = Math.random() * 5 + 3;
+          break;
+        default:
+          colors = ['#ffa500', '#ff6b4a', '#ffcc00', '#ff4500'];
+          life = 25 + Math.random() * 15;
+          size = Math.random() * 5 + 3;
+      }
+
+      const spread = (Math.random() - 0.5) * 0.6;
+      const speed = Math.random() * 3 + 2;
+
+      this.state.particles.push({
+        x: px + Math.cos(backAngle) * 18,
+        y: py + Math.sin(backAngle) * 18,
+        vx: Math.cos(backAngle + spread) * speed + vx * 0.3,
+        vy: Math.sin(backAngle + spread) * speed + vy * 0.3,
+        life: life,
+        maxLife: 40,
+        size: size,
+        color: colors[Math.floor(Math.random() * colors.length)],
+      });
+    }
   }
 }
