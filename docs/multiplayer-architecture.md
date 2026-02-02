@@ -1,5 +1,10 @@
 # Multiplayer Architecture
 
+## URLs
+
+- **Game:** http://mission-control-space.s3-website-us-east-1.amazonaws.com
+- **WebSocket Server:** ws://13.250.26.247:8080
+
 ## Overview
 
 Mission Control uses a hybrid approach for multiplayer synchronization:
