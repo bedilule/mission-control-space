@@ -47,7 +47,7 @@ interface ShipEffects {
 const userPlanetTerraformCounts: Map<string, number> = new Map();
 const userPlanetSizeLevels: Map<string, number> = new Map();
 
-const USER_IDS = ['quentin', 'armel', 'alex', 'melia', 'hugue'];
+const USER_IDS = ['quentin', 'armel', 'alex', 'milya', 'hugues'];
 
 // Expanded world to fit all zones
 const WORLD_SIZE = 10000;
@@ -85,8 +85,8 @@ const ZONES: Zone[] = [
   { id: 'zone-quentin', name: "Quentin's Sector", centerX: CENTER_X + PLAYER_DISTANCE, centerY: CENTER_Y, color: '#ffa500', ownerId: 'quentin', zoneType: 'player' }, // Right
   { id: 'zone-alex', name: "Alex's Sector", centerX: CENTER_X + PLAYER_DISTANCE * 0.7, centerY: CENTER_Y - PLAYER_DISTANCE * 0.7, color: '#00bfff', ownerId: 'alex', zoneType: 'player' }, // Top-Right
   { id: 'zone-armel', name: "Armel's Sector", centerX: CENTER_X, centerY: CENTER_Y - PLAYER_DISTANCE, color: '#98fb98', ownerId: 'armel', zoneType: 'player' }, // Top
-  { id: 'zone-melia', name: "Melia's Sector", centerX: CENTER_X - PLAYER_DISTANCE * 0.7, centerY: CENTER_Y - PLAYER_DISTANCE * 0.7, color: '#ff6b9d', ownerId: 'melia', zoneType: 'player' }, // Top-Left
-  { id: 'zone-hugue', name: "Hugue's Sector", centerX: CENTER_X - PLAYER_DISTANCE, centerY: CENTER_Y, color: '#8b5cf6', ownerId: 'hugue', zoneType: 'player' }, // Left
+  { id: 'zone-milya', name: "Milya's Sector", centerX: CENTER_X - PLAYER_DISTANCE * 0.7, centerY: CENTER_Y - PLAYER_DISTANCE * 0.7, color: '#ff6b9d', ownerId: 'milya', zoneType: 'player' }, // Top-Left
+  { id: 'zone-hugues', name: "Hugues's Sector", centerX: CENTER_X - PLAYER_DISTANCE, centerY: CENTER_Y, color: '#8b5cf6', ownerId: 'hugues', zoneType: 'player' }, // Left
 ];
 const SHIP_ACCELERATION = 0.18;
 const SHIP_ROTATION_SPEED = 0.06;
@@ -722,8 +722,8 @@ export class SpaceGame {
       quentin: { base: '#ffa500', accent: '#ff8c00' },
       armel: { base: '#4ade80', accent: '#22c55e' },
       alex: { base: '#5490ff', accent: '#3b82f6' },
-      melia: { base: '#ff6b9d', accent: '#ff4081' },
-      hugue: { base: '#8b5cf6', accent: '#7c3aed' },
+      milya: { base: '#ff6b9d', accent: '#ff4081' },
+      hugues: { base: '#8b5cf6', accent: '#7c3aed' },
     };
 
     USER_IDS.forEach((userId) => {

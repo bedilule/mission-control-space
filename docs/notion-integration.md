@@ -222,8 +222,8 @@ const PLAYER_ZONES = {
   'quentin': { x: 8000, y: 5000 },  // East
   'alex':    { x: 7100, y: 2900 },  // Northeast
   'armel':   { x: 5000, y: 2000 },  // North
-  'melia':   { x: 2900, y: 2900 },  // Northwest
-  'hugue':   { x: 2000, y: 5000 },  // West
+  'milya':   { x: 2900, y: 2900 },  // Northwest
+  'hugues':  { x: 2000, y: 5000 },  // West
 };
 
 const DEFAULT_ZONE = { x: 5000, y: 5500 }; // Unassigned tasks

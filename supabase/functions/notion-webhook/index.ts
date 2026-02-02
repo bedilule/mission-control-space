@@ -35,8 +35,8 @@ const PLAYER_ZONES: Record<string, { x: number; y: number }> = {
   'quentin': { x: CENTER_X + PLAYER_DISTANCE, y: CENTER_Y },
   'alex': { x: CENTER_X + PLAYER_DISTANCE * 0.7, y: CENTER_Y - PLAYER_DISTANCE * 0.7 },
   'armel': { x: CENTER_X, y: CENTER_Y - PLAYER_DISTANCE },
-  'melia': { x: CENTER_X - PLAYER_DISTANCE * 0.7, y: CENTER_Y - PLAYER_DISTANCE * 0.7 },
-  'hugue': { x: CENTER_X - PLAYER_DISTANCE, y: CENTER_Y },
+  'milya': { x: CENTER_X - PLAYER_DISTANCE * 0.7, y: CENTER_Y - PLAYER_DISTANCE * 0.7 },
+  'hugues': { x: CENTER_X - PLAYER_DISTANCE, y: CENTER_Y },
 };
 
 // Default zone for unassigned tasks

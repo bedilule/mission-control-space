@@ -73,8 +73,8 @@ const USERS = [
   { id: 'quentin', name: 'Quentin', color: '#ffa500' },
   { id: 'armel', name: 'Armel', color: '#4ade80' },
   { id: 'alex', name: 'Alex', color: '#5490ff' },
-  { id: 'melia', name: 'Melia', color: '#ff6b9d' },
-  { id: 'hugue', name: 'Hugue', color: '#8b5cf6' },
+  { id: 'milya', name: 'Milya', color: '#ff6b9d' },
+  { id: 'hugues', name: 'Hugues', color: '#8b5cf6' },
 ];
 
 // Points awarded per milestone size
@@ -2495,8 +2495,8 @@ function App() {
                         <option value="quentin">Quentin</option>
                         <option value="alex">Alex</option>
                         <option value="armel">Armel</option>
-                        <option value="melia">Melia</option>
-                        <option value="hugue">Hugue</option>
+                        <option value="milya">Milya</option>
+                        <option value="hugues">Hugues</option>
                       </select>
                     </div>
                   </div>
