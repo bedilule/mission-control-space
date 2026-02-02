@@ -120,8 +120,8 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !playerId) return;
 
     const now = Date.now();
-    // Throttle broadcasts to 30Hz (33ms)
-    if (now - lastBroadcastRef.current < 33) return;
+    // Throttle broadcasts to 60Hz (16ms) - matches typical frame rate
+    if (now - lastBroadcastRef.current < 16) return;
 
     // Only broadcast if actually moving or rotating
     const speed = Math.sqrt(ship.vx * ship.vx + ship.vy * ship.vy);

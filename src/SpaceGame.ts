@@ -119,7 +119,7 @@ const PLANET_INFO_DISTANCE = 200;
 
 // Smooth multiplayer interpolation
 const SNAPSHOT_BUFFER_SIZE = 30;
-const LERP_FACTOR = 0.25;              // 25% per frame - faster catch-up for dropped messages
+const LERP_FACTOR = 0.15;              // 15% per frame - smoother with 60Hz updates
 
 interface BlackHole {
   x: number;
