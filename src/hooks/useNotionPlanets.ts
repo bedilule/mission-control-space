@@ -226,28 +226,20 @@ export function useNotionPlanets(options: UseNotionPlanetsOptions): UseNotionPla
       : notionPlanetId;
 
     try {
-      const response = await fetch(
-        'https://qdizfhhsqolvuddoxugj.supabase.co/functions/v1/notion-claim',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            notion_planet_id: actualId,
-            player_username: playerUsername,
-          }),
-        }
-      );
+      // Use supabase.functions.invoke which handles auth automatically
+      const { data, error } = await supabase.functions.invoke('notion-claim', {
+        body: {
+          notion_planet_id: actualId,
+          player_username: playerUsername,
+        },
+      });
 
-      if (!response.ok) {
-        const error = await response.json();
+      if (error) {
         console.error('Error claiming notion planet:', error);
         return null;
       }
 
-      const result = await response.json();
-      return result.new_position || null;
+      return data?.new_position || null;
     } catch (error) {
       console.error('Error claiming notion planet:', error);
       return null;

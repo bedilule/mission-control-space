@@ -39,6 +39,8 @@ interface ShipEffects {
   speedBonus: number;
   ownedGlows: string[];
   ownedTrails: string[];
+  hasDestroyCanon: boolean;
+  destroyCanonEquipped: boolean;
 }
 
 // Store terraform counts and size levels for scaling
@@ -127,7 +129,7 @@ export class SpaceGame {
   private baseShipImage: HTMLImageElement | null = null; // Default ship for players without custom skin
   private hormoziPlanetImage: HTMLImageElement | null = null;
   private shipLevel: number = 1;
-  private shipEffects: ShipEffects = { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, ownedGlows: [], ownedTrails: [] };
+  private shipEffects: ShipEffects = { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, ownedGlows: [], ownedTrails: [], hasDestroyCanon: false, destroyCanonEquipped: false };
   private blackHole: BlackHole;
   private shipBeingSucked: boolean = false;
   private suckProgress: number = 0;
@@ -174,6 +176,7 @@ export class SpaceGame {
   private claimTargetY: number = 0;
   private claimTargetReady: boolean = false; // True when API has returned with actual target position
   private claimTrailPoints: { x: number; y: number; alpha: number }[] = [];
+  private claimPendingPlanet: Planet | null = null; // New planet data to apply after animation ends
 
   // Upgrading animation state (orbiting satellites/robots)
   private isUpgrading: boolean = false;
@@ -650,12 +653,42 @@ export class SpaceGame {
   }
 
   public syncNotionPlanets(notionPlanets: Planet[]) {
-    // Remove old notion planets
-    this.state.planets = this.state.planets.filter(p => !p.id.startsWith('notion-'));
+    // If we're in a claim animation, preserve that planet's reference
+    // so the animation can continue controlling its position
+    const claimingPlanetId = this.isClaiming && this.claimPlanet ? this.claimPlanet.id : null;
 
-    // Add new notion planets
+    // If landed on a notion planet, track it so we can update the reference
+    const landedPlanetId = this.isLanded && this.landedPlanet?.id.startsWith('notion-') ? this.landedPlanet.id : null;
+
+    // Claiming planet is protected during animation (not replaced by sync)
+
+    // Remove old notion planets EXCEPT the one being claimed (animation controls it)
+    this.state.planets = this.state.planets.filter(p =>
+      !p.id.startsWith('notion-') || p.id === claimingPlanetId
+    );
+
+    // Add new notion planets EXCEPT the one being claimed (keep animation's reference)
     for (const planet of notionPlanets) {
-      this.state.planets.push(planet);
+      if (planet.id === claimingPlanetId) {
+        // Store the new planet data to apply after animation completes
+        this.claimPendingPlanet = planet;
+      } else {
+        this.state.planets.push(planet);
+
+        // If this is the planet we're landed on, update the reference to the new object
+        // This prevents stale references when the user presses C to claim
+        if (planet.id === landedPlanetId) {
+          this.landedPlanet = planet;
+        }
+      }
+    }
+
+    // Safety check: ensure the claiming planet is still in state.planets
+    if (claimingPlanetId) {
+      const stillExists = this.state.planets.some(p => p.id === claimingPlanetId);
+      if (!stillExists) {
+        console.error('[ClaimSync] WARNING: Claiming planet was removed from state.planets!');
+      }
     }
   }
 
@@ -782,7 +815,8 @@ export class SpaceGame {
     if (planet) {
       const tc = terraformCount ?? userPlanetTerraformCounts.get(userId) ?? 0;
       const sl = sizeLevel ?? userPlanetSizeLevels.get(userId) ?? 0;
-      const baseRadius = 50 + tc * 3;
+      // Home planets are 2x larger for visibility (matches createUserPlanets formula)
+      const baseRadius = 100 + tc * 5;
       const sizeMultiplier = 1 + (sl * 0.2);
       planet.radius = baseRadius * sizeMultiplier;
       // Add ring after 3 terraforms
@@ -798,7 +832,8 @@ export class SpaceGame {
     const planet = this.state.planets.find(p => p.id === `user-planet-${userId}`);
     if (planet) {
       const tc = userPlanetTerraformCounts.get(userId) ?? 0;
-      const baseRadius = 50 + tc * 3;
+      // Home planets are 2x larger for visibility (matches createUserPlanets formula)
+      const baseRadius = 100 + tc * 5;
       const sizeMultiplier = 1 + (sizeLevel * 0.2);
       planet.radius = baseRadius * sizeMultiplier;
     }
@@ -1099,7 +1134,10 @@ export class SpaceGame {
                           closestPlanet.ownerId === undefined ||
                           closestPlanet.ownerId === this.currentUser;
 
-      if (!closestPlanet.completed && closestDist < closestPlanet.radius + DOCKING_DISTANCE && canInteract) {
+      // Allow landing on: uncompleted planets OR completed Notion planets (to destroy them)
+      const isNotionPlanet = closestPlanet.id.startsWith('notion-');
+      const canLand = !closestPlanet.completed || (closestPlanet.completed && isNotionPlanet);
+      if (canLand && closestDist < closestPlanet.radius + DOCKING_DISTANCE && canInteract) {
         this.state.dockingPlanet = closestPlanet;
         if (this.keys.has(' ') && !this.isLanding) {
           this.keys.delete(' ');
@@ -1385,13 +1423,14 @@ export class SpaceGame {
       return;
     }
 
-    // Handle X key - destroy completed planet
+    // Handle X key - destroy completed Notion planet (requires Destroy Canon equipped)
     if (this.keys.has('x')) {
       this.keys.delete('x');
       const specialPlanets = ['shop-station', 'planet-builder'];
       const isSpecial = specialPlanets.includes(planet.id) || planet.id.startsWith('user-planet-');
-      // Can only destroy completed non-special planets
-      if (planet.completed && !isSpecial && this.onDestroyPlanet) {
+      const isNotionPlanet = planet.id.startsWith('notion-');
+      // Can only destroy completed Notion planets if player has the Destroy Canon equipped
+      if (planet.completed && !isSpecial && isNotionPlanet && this.onDestroyPlanet && this.shipEffects.destroyCanonEquipped) {
         this.startDestroyAnimation(planet);
       }
       return;
@@ -1506,12 +1545,19 @@ export class SpaceGame {
     this.claimStartX = ship.x;
     this.claimStartY = ship.y + planet.radius + 25;
 
+    console.log('[ClaimStart] Planet:', planet.id, 'Ship at:', ship.x, ship.y, 'Planet at:', planet.x, planet.y, 'Captured start:', this.claimStartX, this.claimStartY);
+
+    // Clear landed state so claim animation takes priority in update loop
+    this.isLanded = false;
+    this.landedPlanet = null;
+
     this.isClaiming = true;
     this.claimProgress = 0;
     this.claimPlanet = planet;
     this.claimParticles = [];
     this.claimTrailPoints = [];
     this.claimTargetReady = false; // Target not known yet, API is being called
+    this.claimPendingPlanet = null; // Clear any stale pending data
 
     // Temporary target (will be updated when API returns)
     // Use player zone center as fallback
@@ -1537,6 +1583,7 @@ export class SpaceGame {
   public setClaimTarget(targetX: number, targetY: number) {
     if (!this.isClaiming) return;
 
+    console.log('[ClaimTarget] API returned target:', targetX, targetY);
     this.claimTargetX = targetX;
     this.claimTargetY = targetY;
     this.claimTargetReady = true;
@@ -1552,6 +1599,7 @@ export class SpaceGame {
     this.claimParticles = [];
     this.claimTrailPoints = [];
     this.claimTargetReady = false;
+    this.claimPendingPlanet = null;
   }
 
   // Update claim animation - teleport ship + planet together to home base
@@ -1560,6 +1608,7 @@ export class SpaceGame {
 
     const planet = this.claimPlanet;
     const { ship } = this.state;
+
 
     // Phase timings (adjusted for longer charging that waits for API)
     // Phase 1 (0-0.25): Charging - energy gathers, can extend if waiting for API
@@ -1587,12 +1636,15 @@ export class SpaceGame {
         this.claimProgress = CHARGING_END - 0.001; // Hold just before transition
       }
 
-      // Phase 1: Charging - ship stays at EXACT frozen start position
+      // Phase 1: Charging - ship AND planet stay at EXACT frozen start position
       ship.x = shipStartX;
       ship.y = shipStartY;
       ship.vx = 0;
       ship.vy = 0;
       ship.rotation = -Math.PI / 2;
+      // CRITICAL: Force planet to stay at original position (immune to sync updates)
+      planet.x = startX;
+      planet.y = startY;
 
       // Emit charging particles converging on ORIGINAL planet location
       const chargeIntensity = Math.min(1, this.claimProgress / CHARGING_END);
@@ -1620,11 +1672,14 @@ export class SpaceGame {
 
     // Phase 2: Warp flash (0.25-0.35) - still at ORIGINAL location
     if (this.claimProgress >= 0.25 && this.claimProgress < 0.35) {
-      // Keep ship at exact frozen start position
+      // Keep ship AND planet at exact frozen start position
       ship.x = shipStartX;
       ship.y = shipStartY;
       ship.vx = 0;
       ship.vy = 0;
+      // CRITICAL: Force planet to stay at original position (immune to sync updates)
+      planet.x = startX;
+      planet.y = startY;
 
       // Emit bright flash particles from ORIGINAL location
       if (this.claimProgress < 0.32) {
@@ -1689,8 +1744,10 @@ export class SpaceGame {
           size: 2 + Math.random() * 3,
         });
       }
-    } else {
-      // Phase 4: Arrival - planet at destination, arrival flash
+    }
+
+    // Phase 4: Arrival (0.85-1.0) - planet at destination, arrival flash
+    if (this.claimProgress >= 0.85) {
       planet.x = this.claimTargetX;
       planet.y = this.claimTargetY;
       ship.x = this.claimTargetX;
@@ -1739,6 +1796,24 @@ export class SpaceGame {
 
     // Animation complete
     if (this.claimProgress >= 1) {
+      // If we have pending planet data (from sync during animation), apply it now
+      // This updates metadata like ownerId while preserving the animated position
+      if (this.claimPendingPlanet && this.claimPlanet) {
+        const planetId = this.claimPlanet.id;
+        const finalX = this.claimTargetX;
+        const finalY = this.claimTargetY;
+
+        // Replace old planet with new one in state.planets
+        const idx = this.state.planets.findIndex(p => p.id === planetId);
+        if (idx >= 0) {
+          // Use the pending planet but keep the animated final position
+          this.claimPendingPlanet.x = finalX;
+          this.claimPendingPlanet.y = finalY;
+          this.state.planets[idx] = this.claimPendingPlanet;
+        }
+        this.claimPendingPlanet = null;
+      }
+
       this.isClaiming = false;
       this.claimParticles = [];
       this.claimTrailPoints = [];
@@ -2634,8 +2709,14 @@ export class SpaceGame {
           hint += '  •  C Complete';
         }
       }
-      if (isCompleted && !isSpecial) {
-        hint += '  •  X Destroy';
+      if (isCompleted && !isSpecial && isNotionPlanet) {
+        if (this.shipEffects.destroyCanonEquipped) {
+          hint += '  •  X Destroy';
+        } else if (this.shipEffects.hasDestroyCanon) {
+          hint += '  •  🔒 Equip Canon';
+        } else {
+          hint += '  •  🔒 Canon (Shop)';
+        }
       }
       if (hasNotion) {
         hint += '  •  N Open in Notion';
@@ -2876,10 +2957,11 @@ export class SpaceGame {
 
     if (userPlanetImage) {
       // Draw user's terraformed planet image - use circular clip for perfect centering
-      const imgSize = planet.radius * 2.2;
+      // Size increased by 10% to compensate for image generation reduction
+      const imgSize = planet.radius * 2.42;
       ctx.save();
       ctx.beginPath();
-      ctx.arc(x, y, planet.radius * 1.1, 0, Math.PI * 2);
+      ctx.arc(x, y, planet.radius * 1.21, 0, Math.PI * 2);
       ctx.clip();
       ctx.drawImage(
         userPlanetImage,
@@ -2889,13 +2971,6 @@ export class SpaceGame {
         imgSize
       );
       ctx.restore();
-
-      // Add glow rim around the clipped image
-      ctx.beginPath();
-      ctx.arc(x, y, planet.radius * 1.1, 0, Math.PI * 2);
-      ctx.strokeStyle = style.baseColor + '80';
-      ctx.lineWidth = 2;
-      ctx.stroke();
     } else if (isUserPlanet && !userPlanetImage) {
       // Draw barren user planet with their color glow
       const barrenGradient = ctx.createRadialGradient(
@@ -3168,6 +3243,59 @@ export class SpaceGame {
         shipSize
       );
 
+      // Draw Destroy Canon if equipped
+      if (this.shipEffects.destroyCanonEquipped) {
+        const canonScale = scale * 0.8;
+        const canonX = shipSize * 0.35; // Right side of ship
+        const canonY = -shipSize * 0.05; // Slightly forward
+
+        // Canon mount (dark circle)
+        ctx.beginPath();
+        ctx.arc(canonX, canonY, 6 * canonScale, 0, Math.PI * 2);
+        ctx.fillStyle = '#333';
+        ctx.fill();
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Canon barrel
+        ctx.save();
+        ctx.translate(canonX, canonY);
+        ctx.rotate(-Math.PI / 6); // Angle forward-right
+
+        // Barrel body
+        ctx.fillStyle = '#444';
+        ctx.fillRect(-3 * canonScale, -12 * canonScale, 6 * canonScale, 14 * canonScale);
+
+        // Barrel tip (orange glow)
+        const tipGlow = ctx.createRadialGradient(0, -14 * canonScale, 0, 0, -14 * canonScale, 6 * canonScale);
+        tipGlow.addColorStop(0, 'rgba(255, 100, 0, 0.8)');
+        tipGlow.addColorStop(0.5, 'rgba(255, 60, 0, 0.4)');
+        tipGlow.addColorStop(1, 'transparent');
+        ctx.beginPath();
+        ctx.arc(0, -14 * canonScale, 6 * canonScale, 0, Math.PI * 2);
+        ctx.fillStyle = tipGlow;
+        ctx.fill();
+
+        // Barrel tip ring
+        ctx.beginPath();
+        ctx.arc(0, -12 * canonScale, 4 * canonScale, 0, Math.PI * 2);
+        ctx.fillStyle = '#ff6600';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(0, -12 * canonScale, 2 * canonScale, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffaa00';
+        ctx.fill();
+
+        ctx.restore();
+
+        // Canon mount highlight
+        ctx.beginPath();
+        ctx.arc(canonX - 2 * canonScale, canonY - 2 * canonScale, 2 * canonScale, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.fill();
+      }
+
       // Level glow effect (legacy - kept for high levels)
       if (this.shipLevel >= 5 && !this.shipEffects.glowColor) {
         ctx.shadowColor = this.shipLevel >= 8 ? '#ffd700' : '#00ccff';
@@ -3398,6 +3526,11 @@ export class SpaceGame {
       ctx.fillText(`This is ${ownerName}'s task`, canvas.width / 2, promptY);
     } else if (canDock && !planet.completed) {
       ctx.fillStyle = '#fff';
+      ctx.font = 'bold 12px Space Grotesk';
+      ctx.fillText('[ SPACE ] to dock', canvas.width / 2, promptY);
+    } else if (planet.completed && planet.id.startsWith('notion-') && canDock) {
+      // Completed Notion planet - can dock to destroy
+      ctx.fillStyle = '#ff6600';
       ctx.font = 'bold 12px Space Grotesk';
       ctx.fillText('[ SPACE ] to dock', canvas.width / 2, promptY);
     } else if (planet.completed) {
@@ -3684,11 +3817,21 @@ export class SpaceGame {
         ctx.fillStyle = '#5490ff';
         ctx.fillText('[ N ] Open Notion', boxX + boxWidth / 2 + 80, currentY);
       }
-    } else if (planet.completed && !isSpecialPlanet) {
-      // Destroy hint for completed planets
-      ctx.fillStyle = '#ff4444';
-      ctx.font = 'bold 14px Space Grotesk';
-      ctx.fillText('[ X ] Destroy Planet', boxX + boxWidth / 2 - (hasNotionUrl ? 80 : 0), currentY);
+    } else if (planet.completed && !isSpecialPlanet && planet.type === 'notion') {
+      // Destroy hint for completed Notion planets (requires Destroy Canon equipped)
+      if (this.shipEffects.destroyCanonEquipped) {
+        ctx.fillStyle = '#ff4444';
+        ctx.font = 'bold 14px Space Grotesk';
+        ctx.fillText('[ X ] Destroy Planet', boxX + boxWidth / 2 - (hasNotionUrl ? 80 : 0), currentY);
+      } else if (this.shipEffects.hasDestroyCanon) {
+        ctx.fillStyle = '#888';
+        ctx.font = '12px Space Grotesk';
+        ctx.fillText('🔒 Equip Canon in Shop', boxX + boxWidth / 2 - (hasNotionUrl ? 80 : 0), currentY);
+      } else {
+        ctx.fillStyle = '#666';
+        ctx.font = '12px Space Grotesk';
+        ctx.fillText('🔒 Destroy Canon needed (Shop)', boxX + boxWidth / 2 - (hasNotionUrl ? 80 : 0), currentY);
+      }
 
       // Notion hint
       if (hasNotionUrl) {
