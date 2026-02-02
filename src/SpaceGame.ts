@@ -137,6 +137,7 @@ export class SpaceGame {
   private customPlanetImages: Map<string, HTMLImageElement> = new Map();
   private userPlanetImages: Map<string, HTMLImageElement> = new Map();
   private notionTypeImages: Map<string, HTMLImageElement> = new Map();
+  private criticalFlameImage: HTMLImageElement | null = null;
 
   // Landing animation state
   private isLanding: boolean = false;
@@ -258,6 +259,12 @@ export class SpaceGame {
     this.loadNotionTypeImage('bug', '/notion-bug.png');
     this.loadNotionTypeImage('enhancement', '/notion-enhancement.png');
     this.loadNotionTypeImage('task', '/notion-task.png');
+
+    // Load critical priority flame overlay
+    const flameImg = new Image();
+    flameImg.crossOrigin = 'anonymous';
+    flameImg.src = '/priority-critical.png';
+    flameImg.onload = () => { this.criticalFlameImage = flameImg; };
 
     // Initialize black hole (more centered, slightly offset)
     // Black hole in the central zone
@@ -3075,61 +3082,6 @@ export class SpaceGame {
       }
     }
 
-    // Bug planets: Draw cracks/damage effect
-    if (isBug && !planet.completed && isNotionPlanet) {
-      ctx.save();
-      ctx.strokeStyle = '#ff000080';
-      ctx.lineWidth = 2;
-      // Draw crack lines
-      for (let i = 0; i < 4; i++) {
-        const startAngle = (i / 4) * Math.PI * 2 + 0.5;
-        const startX = x + Math.cos(startAngle) * planet.radius * 0.3;
-        const startY = y + Math.sin(startAngle) * planet.radius * 0.3;
-        const endX = x + Math.cos(startAngle + 0.3) * planet.radius * 0.9;
-        const endY = y + Math.sin(startAngle + 0.2) * planet.radius * 0.85;
-        const midX = (startX + endX) / 2 + (Math.random() - 0.5) * 10;
-        const midY = (startY + endY) / 2 + (Math.random() - 0.5) * 10;
-        ctx.beginPath();
-        ctx.moveTo(startX, startY);
-        ctx.quadraticCurveTo(midX, midY, endX, endY);
-        ctx.stroke();
-      }
-      ctx.restore();
-    }
-
-    // Feature planets: Draw sparkle/star particles
-    if (isFeature && !planet.completed && isNotionPlanet) {
-      const sparkleCount = 5;
-      const time = Date.now() * 0.002;
-      ctx.save();
-      for (let i = 0; i < sparkleCount; i++) {
-        const angle = (i / sparkleCount) * Math.PI * 2 + time;
-        const dist = planet.radius * (1.2 + Math.sin(time * 2 + i) * 0.3);
-        const sparkleX = x + Math.cos(angle) * dist;
-        const sparkleY = y + Math.sin(angle) * dist;
-        const sparkleSize = 3 + Math.sin(time * 3 + i * 2) * 2;
-
-        // Draw 4-point star sparkle
-        ctx.fillStyle = '#ffffff';
-        ctx.globalAlpha = 0.5 + Math.sin(time * 4 + i) * 0.3;
-        ctx.beginPath();
-        ctx.moveTo(sparkleX, sparkleY - sparkleSize);
-        ctx.lineTo(sparkleX + sparkleSize * 0.3, sparkleY);
-        ctx.lineTo(sparkleX, sparkleY + sparkleSize);
-        ctx.lineTo(sparkleX - sparkleSize * 0.3, sparkleY);
-        ctx.closePath();
-        ctx.fill();
-        ctx.beginPath();
-        ctx.moveTo(sparkleX - sparkleSize, sparkleY);
-        ctx.lineTo(sparkleX, sparkleY + sparkleSize * 0.3);
-        ctx.lineTo(sparkleX + sparkleSize, sparkleY);
-        ctx.lineTo(sparkleX, sparkleY - sparkleSize * 0.3);
-        ctx.closePath();
-        ctx.fill();
-      }
-      ctx.globalAlpha = 1;
-      ctx.restore();
-    }
 
     // Moon (if has moon)
     if ((planet as any).hasMoon && !planet.completed) {
@@ -3141,6 +3093,105 @@ export class SpaceGame {
       ctx.arc(moonX, moonY, planet.radius * 0.2, 0, Math.PI * 2);
       ctx.fillStyle = '#888';
       ctx.fill();
+    }
+
+    // Priority effects for Notion planets
+    if (isNotionPlanet && !planet.completed) {
+      const time = Date.now() * 0.001;
+
+      if (isCritical) {
+        // Meteor storm effect - meteors falling toward planet from all directions
+        ctx.save();
+        const meteorCount = 6;
+        for (let i = 0; i < meteorCount; i++) {
+          const angle = (i / meteorCount) * Math.PI * 2 + time * 0.5;
+          const progress = ((time * 0.8 + i * 0.3) % 1);
+          const startDist = planet.radius * 2.5;
+          const endDist = planet.radius * 0.3;
+          const dist = startDist - (startDist - endDist) * progress;
+
+          const meteorX = x + Math.cos(angle) * dist;
+          const meteorY = y + Math.sin(angle) * dist;
+          const meteorSize = 4 + (1 - progress) * 4;
+
+          // Meteor trail
+          const trailLength = 15 * (1 - progress * 0.5);
+          const trailX = meteorX + Math.cos(angle) * trailLength;
+          const trailY = meteorY + Math.sin(angle) * trailLength;
+
+          const gradient = ctx.createLinearGradient(trailX, trailY, meteorX, meteorY);
+          gradient.addColorStop(0, 'transparent');
+          gradient.addColorStop(0.5, '#ff660066');
+          gradient.addColorStop(1, '#ff4400');
+
+          ctx.beginPath();
+          ctx.moveTo(trailX, trailY);
+          ctx.lineTo(meteorX, meteorY);
+          ctx.strokeStyle = gradient;
+          ctx.lineWidth = meteorSize * 0.8;
+          ctx.lineCap = 'round';
+          ctx.stroke();
+
+          // Meteor head
+          ctx.beginPath();
+          ctx.arc(meteorX, meteorY, meteorSize / 2, 0, Math.PI * 2);
+          ctx.fillStyle = '#ffaa00';
+          ctx.fill();
+        }
+        ctx.restore();
+
+        // Flame aura overlay on top
+        if (this.criticalFlameImage) {
+          const flameSize = planet.radius * 3.5;
+          const pulse = 1 + Math.sin(time * 4) * 0.1;
+          ctx.globalAlpha = 0.8;
+          ctx.drawImage(
+            this.criticalFlameImage,
+            x - (flameSize * pulse) / 2,
+            y - (flameSize * pulse) / 2,
+            flameSize * pulse,
+            flameSize * pulse
+          );
+          ctx.globalAlpha = 1;
+        }
+      } else if (isHigh) {
+        // Lightning storm effect - random lightning bolts around planet
+        ctx.save();
+        const boltCount = 3;
+        for (let i = 0; i < boltCount; i++) {
+          // Each bolt flickers at different times
+          const boltPhase = (time * 3 + i * 1.7) % 1;
+          const visible = boltPhase < 0.15; // Quick flash
+
+          if (visible) {
+            const angle = (i / boltCount) * Math.PI * 2 + Math.sin(time + i) * 0.5;
+            const startDist = planet.radius * 1.8;
+            const boltStartX = x + Math.cos(angle) * startDist;
+            const boltStartY = y + Math.sin(angle) * startDist;
+            const boltEndX = x + Math.cos(angle) * planet.radius * 0.5;
+            const boltEndY = y + Math.sin(angle) * planet.radius * 0.5;
+
+            // Draw jagged lightning bolt
+            ctx.beginPath();
+            ctx.moveTo(boltStartX, boltStartY);
+            const segments = 4;
+            for (let j = 1; j <= segments; j++) {
+              const t = j / segments;
+              const midX = boltStartX + (boltEndX - boltStartX) * t;
+              const midY = boltStartY + (boltEndY - boltStartY) * t;
+              const offset = j < segments ? (Math.random() - 0.5) * 15 : 0;
+              ctx.lineTo(midX + offset, midY + offset);
+            }
+            ctx.strokeStyle = '#ffff88';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
+      }
     }
 
     // Flag if completed
