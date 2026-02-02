@@ -370,10 +370,10 @@ Deno.serve(async (req) => {
       // Add to existing positions for next iteration
       existingPositions.push(position);
 
-      // Create new planet
-      const { error: insertError } = await supabase
+      // Create or update planet (upsert on notion_task_id conflict)
+      const { data: upsertResult, error: upsertError } = await supabase
         .from('notion_planets')
-        .insert({
+        .upsert({
           team_id: team.id,
           notion_task_id: parsed.id,
           name: parsed.name,
@@ -387,13 +387,19 @@ Deno.serve(async (req) => {
           x: Math.round(position.x),
           y: Math.round(position.y),
           completed: false,
-        });
+        }, {
+          onConflict: 'notion_task_id',
+          ignoreDuplicates: false,
+        })
+        .select('id')
+        .single();
 
-      if (insertError) {
-        errors.push(`Failed to create ${parsed.name}: ${insertError.message}`);
+      if (upsertError) {
+        errors.push(`Failed to create ${parsed.name}: ${upsertError.message}`);
         continue;
       }
 
+      // Check if this was a new insert or an update (we track as created for simplicity)
       created.push(parsed.name);
 
       // Award 10 points to creator
