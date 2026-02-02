@@ -286,17 +286,6 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
       // Only update if this is newer than what we have
       if (cached && cached.receivedAt > data.timestamp) return;
 
-      // DEBUG: Count receives per second
-      if (!(window as any)._recvCount) (window as any)._recvCount = 0;
-      if (!(window as any)._recvStart) (window as any)._recvStart = Date.now();
-      (window as any)._recvCount++;
-      const elapsed = (Date.now() - (window as any)._recvStart) / 1000;
-      if (elapsed >= 5) {
-        console.log(`[RECV RATE] ${((window as any)._recvCount / elapsed).toFixed(1)} msg/sec`);
-        (window as any)._recvCount = 0;
-        (window as any)._recvStart = Date.now();
-      }
-
       // Update cache
       positionCacheRef.current.set(data.player_id, {
         player_id: data.player_id,
