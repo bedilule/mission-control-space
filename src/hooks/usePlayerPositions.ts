@@ -266,12 +266,14 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
 
   // Set up WebSocket connection for position updates (high frequency)
   useEffect(() => {
+    console.log('[WS Effect] Running with teamId:', teamId, 'playerId:', playerId);
     if (!teamId || !playerId) {
+      console.log('[WS Effect] Missing teamId or playerId, skipping');
       return;
     }
 
     const connectWebSocket = () => {
-      console.log('[WS] Connecting to', WS_SERVER_URL);
+      console.log('[WS] Connecting to', WS_SERVER_URL, 'with playerId:', playerId);
       const ws = new WebSocket(WS_SERVER_URL);
 
       ws.onopen = () => {
@@ -297,6 +299,7 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
             // Skip self (shouldn't receive due to server logic, but double-check)
             if (data.playerId === playerId) return;
 
+            console.log('[WS Position] Received from:', data.playerId);
             const now = Date.now();
             const cached = positionCacheRef.current.get(data.playerId);
 
@@ -402,6 +405,7 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
     connectWebSocket();
 
     return () => {
+      console.log('[WS Effect] Cleanup running - closing WebSocket');
       if (wsReconnectTimeoutRef.current) {
         clearTimeout(wsReconnectTimeoutRef.current);
         wsReconnectTimeoutRef.current = null;
