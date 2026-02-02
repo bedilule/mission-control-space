@@ -32,6 +32,7 @@ type PositionUpdateCallback = (playerId: string, data: {
   vy: number;
   rotation: number;
   thrusting: boolean;
+  boosting: boolean;
   timestamp: number;
 }) => void;
 
@@ -48,6 +49,7 @@ interface ShipState {
   vy: number;
   rotation: number;
   thrusting: boolean;
+  boosting: boolean;
 }
 
 interface UsePlayerPositionsReturn {
@@ -150,6 +152,7 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
       vy: ship.vy,
       rotation: ship.rotation,
       thrusting: ship.thrusting,
+      boosting: ship.boosting,
       timestamp: now,
     }));
 

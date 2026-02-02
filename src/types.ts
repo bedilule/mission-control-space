@@ -117,6 +117,7 @@ export interface OtherPlayer {
   vy: number;
   rotation: number;
   thrusting: boolean;
+  boosting?: boolean;
   shipImage: string;
   shipEffects: ShipEffects;
   shipLevel: number; // 1 + upgrade count (affects ship size)

@@ -317,7 +317,17 @@ const loadUserShips = (): Record<string, UserShip> => {
 
 const saveUserShips = (ships: Record<string, UserShip>) => {
   try {
-    localStorage.setItem(USER_SHIPS_KEY, JSON.stringify(ships));
+    // Filter out base64 images to avoid localStorage quota issues
+    // Only store URL-based images
+    const filteredShips: Record<string, UserShip> = {};
+    for (const [userId, ship] of Object.entries(ships)) {
+      filteredShips[userId] = {
+        ...ship,
+        baseImage: ship.baseImage.startsWith('data:') ? '/ship-base.png' : ship.baseImage,
+        currentImage: ship.currentImage.startsWith('data:') ? '/ship-base.png' : ship.currentImage,
+      };
+    }
+    localStorage.setItem(USER_SHIPS_KEY, JSON.stringify(filteredShips));
   } catch (e) {
     console.error('Failed to save user ships:', e);
   }
@@ -377,11 +387,13 @@ const fileToBase64 = (file: File): Promise<string> => {
 };
 
 // Save image locally via the save-image-server
+// originalUrl is used as fallback if server isn't running (avoids huge base64 strings)
 const saveImageLocally = async (
   base64: string,
   type: 'ship' | 'planet',
   userId: string,
-  name: string
+  name: string,
+  originalUrl?: string
 ): Promise<string> => {
   try {
     const response = await fetch('http://localhost:3456/save-image', {
@@ -395,10 +407,11 @@ const saveImageLocally = async (
       return data.path; // Returns path like /ships/quentin-engine-123.png
     }
   } catch (err) {
-    console.warn('Local save server not running, using base64 fallback');
+    console.warn('Local save server not running, using original URL as fallback');
   }
-  // Fallback to base64 if server not running
-  return base64;
+  // Fallback to original URL if provided (FAL.ai URLs are temporary but better than base64)
+  // Base64 is huge and breaks localStorage/database storage
+  return originalUrl || base64;
 };
 
 function App() {
@@ -1020,11 +1033,11 @@ function App() {
           body: JSON.stringify({ image_url: newImageUrl })
         });
         const bgData = await bgResponse.json();
-        newImageUrl = bgData.image?.url || newImageUrl;
+        const bgRemovedUrl = bgData.image?.url || newImageUrl;
 
         setUpgradeMessage('Saving...');
-        const base64Image = await getImageAsBase64(newImageUrl);
-        newImageUrl = await saveImageLocally(base64Image, 'planet', userId, 'base');
+        const base64Image = await getImageAsBase64(bgRemovedUrl);
+        newImageUrl = await saveImageLocally(base64Image, 'planet', userId, 'base', bgRemovedUrl);
 
         // Deduct personal points and sync to backend
         setPersonalPoints(prev => prev - 25);
@@ -1121,12 +1134,12 @@ function App() {
           body: JSON.stringify({ image_url: newImageUrl })
         });
         const bgData = await bgResponse.json();
-        newImageUrl = bgData.image?.url || newImageUrl;
+        const bgRemovedUrl = bgData.image?.url || newImageUrl;
 
         // Save locally
         setUpgradeMessage('Saving...');
-        const base64Image = await getImageAsBase64(newImageUrl);
-        newImageUrl = await saveImageLocally(base64Image, 'planet', userId, 'terraform');
+        const base64Image = await getImageAsBase64(bgRemovedUrl);
+        newImageUrl = await saveImageLocally(base64Image, 'planet', userId, 'terraform', bgRemovedUrl);
 
         // Deduct personal points and sync to backend
         setPersonalPoints(prev => prev - 50);
@@ -1641,13 +1654,13 @@ function App() {
           body: JSON.stringify({ image_url: newImageUrl })
         });
         const bgData = await bgResponse.json();
-        newImageUrl = bgData.image?.url || newImageUrl;
+        const bgRemovedUrl = bgData.image?.url || newImageUrl;
 
         // Save to local filesystem
         setUpgradeMessage('Saving...');
-        const base64Image = await getImageAsBase64(newImageUrl);
+        const base64Image = await getImageAsBase64(bgRemovedUrl);
         const userId = state.currentUser || 'default';
-        newImageUrl = await saveImageLocally(base64Image, 'ship', userId, 'visual-upgrade');
+        newImageUrl = await saveImageLocally(base64Image, 'ship', userId, 'visual-upgrade', bgRemovedUrl);
       }
 
       if (newImageUrl) {
@@ -1966,7 +1979,8 @@ function App() {
           base64Image,
           'planet',
           state.currentUser || 'unknown',
-          newPlanet.name || 'planet'
+          newPlanet.name || 'planet',
+          finalUrl
         );
         setPlanetImagePreview(localPath);
       }

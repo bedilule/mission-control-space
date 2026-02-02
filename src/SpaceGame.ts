@@ -4473,7 +4473,7 @@ export class SpaceGame {
   /**
    * Get the current ship state for broadcasting to other players.
    */
-  public getShipState(): { x: number; y: number; vx: number; vy: number; rotation: number; thrusting: boolean } {
+  public getShipState(): { x: number; y: number; vx: number; vy: number; rotation: number; thrusting: boolean; boosting: boolean } {
     const { ship } = this.state;
     return {
       x: ship.x,
@@ -4482,6 +4482,7 @@ export class SpaceGame {
       vy: ship.vy,
       rotation: ship.rotation,
       thrusting: ship.thrusting,
+      boosting: this.keys.has('shift') && ship.thrusting,
     };
   }
 
