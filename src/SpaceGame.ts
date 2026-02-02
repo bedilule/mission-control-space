@@ -2429,6 +2429,51 @@ export class SpaceGame {
     ctx.stroke();
   }
 
+  private wrapText(text: string, maxWidth: number, maxLines: number = 2): string[] {
+    const words = text.split(' ');
+    const lines: string[] = [];
+    let currentLine = '';
+
+    for (const word of words) {
+      const testLine = currentLine ? `${currentLine} ${word}` : word;
+      const metrics = this.ctx.measureText(testLine);
+
+      if (metrics.width > maxWidth && currentLine) {
+        lines.push(currentLine);
+        currentLine = word;
+
+        if (lines.length >= maxLines) {
+          // Truncate last line with ellipsis
+          const lastLine = lines[lines.length - 1];
+          let truncated = lastLine;
+          while (this.ctx.measureText(truncated + '...').width > maxWidth && truncated.length > 0) {
+            truncated = truncated.slice(0, -1);
+          }
+          lines[lines.length - 1] = truncated + '...';
+          return lines;
+        }
+      } else {
+        currentLine = testLine;
+      }
+    }
+
+    if (currentLine) {
+      if (lines.length >= maxLines) {
+        // Already at max lines, need to append to last line with truncation
+        const combined = lines[lines.length - 1] + ' ' + currentLine;
+        let truncated = combined;
+        while (this.ctx.measureText(truncated + '...').width > maxWidth && truncated.length > 0) {
+          truncated = truncated.slice(0, -1);
+        }
+        lines[lines.length - 1] = truncated + '...';
+      } else {
+        lines.push(currentLine);
+      }
+    }
+
+    return lines;
+  }
+
   private drawPlanet(planet: Planet) {
     // Draw planet at all wrapped positions for seamless world wrapping
     const positions = this.getWrappedPositions(planet.x, planet.y, planet.radius * 2.5);
@@ -2715,18 +2760,24 @@ export class SpaceGame {
       ctx.drawImage(this.logoImage, flagX + 2, flagY - 13, 21, 14);
     }
 
-    // Label
+    // Label (wrapped to 2 lines max)
     ctx.fillStyle = planet.completed ? '#4ade80' : '#fff';
     ctx.font = `${planet.completed ? 'bold ' : ''}12px Space Grotesk`;
     ctx.textAlign = 'center';
-    ctx.fillText(planet.name, x, y + planet.radius + 25);
+    const nameLines = this.wrapText(planet.name, 120, 2);
+    const lineHeight = 14;
+    let labelY = y + planet.radius + 25;
+    for (const line of nameLines) {
+      ctx.fillText(line, x, labelY);
+      labelY += lineHeight;
+    }
 
     // Type indicator
     const typeColors: Record<string, string> = { business: '#4ade80', product: '#5490ff', achievement: '#ffd700', notion: '#94a3b8' };
     ctx.fillStyle = (typeColors[planet.type] || '#94a3b8') + '80';
     ctx.font = '9px Space Grotesk';
     const typeLabel = planet.type === 'notion' ? 'NOTION' : planet.type.toUpperCase();
-    ctx.fillText(typeLabel, x, y + planet.radius + 38);
+    ctx.fillText(typeLabel, x, labelY + 4);
   }
 
   private drawShip() {
@@ -3025,6 +3076,13 @@ export class SpaceGame {
     const boxWidth = 400;
     let boxHeight = 180;
 
+    // Pre-calculate name wrapping to determine box height
+    ctx.font = 'bold 22px Space Grotesk';
+    const panelNameLines = this.wrapText(planet.name, 360, 2);
+    const panelLineHeight = 26;
+    const nameOffset = (panelNameLines.length - 1) * panelLineHeight;
+    boxHeight += nameOffset;
+
     // Calculate additional height for content
     const hasDescription = planet.description && planet.description.length > 0;
     const hasReward = planet.reward && !planet.completed;
@@ -3074,11 +3132,15 @@ export class SpaceGame {
     ctx.textAlign = 'center';
     ctx.fillText(planet.completed ? 'COMPLETED' : 'LANDED', boxX + boxWidth / 2, badgeY + 18);
 
-    // Planet name
+    // Planet name (wrapped to 2 lines max, pre-calculated above)
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 22px Space Grotesk';
     ctx.textAlign = 'center';
-    ctx.fillText(planet.name, boxX + boxWidth / 2, boxY + 45);
+    let nameY = boxY + 45;
+    for (const line of panelNameLines) {
+      ctx.fillText(line, boxX + boxWidth / 2, nameY);
+      nameY += panelLineHeight;
+    }
 
     // Type and owner info
     const typeColors: Record<string, string> = { business: '#4ade80', product: '#5490ff', achievement: '#ffd700', notion: '#94a3b8' };
@@ -3087,9 +3149,9 @@ export class SpaceGame {
     const ownerName = planet.ownerId ? planet.ownerId.charAt(0).toUpperCase() + planet.ownerId.slice(1) : null;
     const isUnassigned = planet.type === 'notion' && (!planet.ownerId || planet.ownerId === '');
     const ownerText = ownerName ? `${ownerName}'s Task` : (isUnassigned ? 'Unassigned' : 'Shared Task');
-    ctx.fillText(ownerText, boxX + boxWidth / 2, boxY + 65);
+    ctx.fillText(ownerText, boxX + boxWidth / 2, boxY + 65 + nameOffset);
 
-    let currentY = boxY + 85;
+    let currentY = boxY + 85 + nameOffset;
 
     // Task type and priority badges (for notion tasks)
     const taskType = (planet as any).taskType?.toLowerCase() || '';
