@@ -163,6 +163,7 @@ export interface PositionSnapshot {
   vy: number;
   rotation: number;
   thrusting: boolean;
+  boosting: boolean;
   timestamp: number;      // Sender's timestamp
   receivedAt: number;     // When we received it (local time)
 }
@@ -175,5 +176,6 @@ export interface InterpolationState {
   renderVx: number;
   renderVy: number;
   renderThrusting: boolean;
+  renderBoosting: boolean;
   lastUpdateTime: number;
 }

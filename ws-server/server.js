@@ -55,6 +55,7 @@ wss.on('connection', (ws, req) => {
           vy: msg.vy,
           rotation: msg.rotation,
           thrusting: msg.thrusting,
+          boosting: msg.boosting || false,
           timestamp: msg.timestamp || Date.now(),
         });
 

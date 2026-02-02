@@ -2446,11 +2446,12 @@ export class SpaceGame {
    */
   private updateOtherPlayersParticles() {
     for (const player of this.otherPlayers) {
-      // Use render state for interpolated thrusting
+      // Use render state for interpolated thrusting and boosting
       const renderState = this.renderStates.get(player.id);
       const isThrusting = renderState?.renderThrusting ?? player.thrusting;
+      const isBoosting = renderState?.renderBoosting ?? player.boosting ?? false;
       if (isThrusting) {
-        this.emitOtherPlayerThrust(player);
+        this.emitOtherPlayerThrust(player, isBoosting);
       }
     }
   }
@@ -2827,15 +2828,17 @@ export class SpaceGame {
       ctx.font = 'bold 32px Space Grotesk';
       ctx.textAlign = 'center';
 
+      const titleY = canvas.height * 0.25; // 1/4 from top
+
       // Draw text shadow/glow
       ctx.shadowColor = this.zoneTitleColor;
       ctx.shadowBlur = 20;
       ctx.fillStyle = this.zoneTitleColor;
-      ctx.fillText(this.zoneTitleText, canvas.width / 2, 80);
+      ctx.fillText(this.zoneTitleText, canvas.width / 2, titleY);
 
       // Draw text again for more brightness
       ctx.shadowBlur = 10;
-      ctx.fillText(this.zoneTitleText, canvas.width / 2, 80);
+      ctx.fillText(this.zoneTitleText, canvas.width / 2, titleY);
 
       ctx.restore();
     }
@@ -4180,7 +4183,7 @@ export class SpaceGame {
   /**
    * Create initial render state for a new player.
    */
-  private createInitialRenderState(x: number, y: number, rotation: number, vx: number, vy: number, thrusting: boolean): InterpolationState {
+  private createInitialRenderState(x: number, y: number, rotation: number, vx: number, vy: number, thrusting: boolean, boosting: boolean = false): InterpolationState {
     return {
       renderX: x,
       renderY: y,
@@ -4188,6 +4191,7 @@ export class SpaceGame {
       renderVx: vx,
       renderVy: vy,
       renderThrusting: thrusting,
+      renderBoosting: boosting,
       lastUpdateTime: Date.now(),
     };
   }
@@ -4202,6 +4206,7 @@ export class SpaceGame {
     vy: number;
     rotation: number;
     thrusting: boolean;
+    boosting: boolean;
     timestamp: number;
   }) {
     const now = Date.now();
@@ -4220,6 +4225,7 @@ export class SpaceGame {
       vy: data.vy,
       rotation: data.rotation,
       thrusting: data.thrusting,
+      boosting: data.boosting,
       timestamp: data.timestamp,
       receivedAt: now,
     };
@@ -4236,6 +4242,7 @@ export class SpaceGame {
     const player = this.otherPlayers.find(p => p.id === playerId);
     if (player) {
       player.thrusting = data.thrusting;
+      player.boosting = data.boosting;
       player.x = data.x;
       player.y = data.y;
       player.vx = data.vx;
@@ -4245,7 +4252,13 @@ export class SpaceGame {
 
     // Initialize render state if needed
     if (!this.renderStates.has(playerId)) {
-      this.renderStates.set(playerId, this.createInitialRenderState(data.x, data.y, data.rotation, data.vx, data.vy, data.thrusting));
+      this.renderStates.set(playerId, this.createInitialRenderState(data.x, data.y, data.rotation, data.vx, data.vy, data.thrusting, data.boosting));
+    } else {
+      // Update boosting state
+      const renderState = this.renderStates.get(playerId);
+      if (renderState) {
+        renderState.renderBoosting = data.boosting;
+      }
     }
   }
 
@@ -4611,6 +4624,41 @@ export class SpaceGame {
       ctx.stroke();
     }
 
+    // Draw Destroy Canon if equipped (same as local player)
+    if (player.shipEffects?.destroyCanonEquipped && this.canonImage) {
+      const canonSize = shipSize * 0.7;
+      const canonX = shipSize * 0.25;
+      const canonY = -shipSize * 0.1;
+
+      ctx.save();
+      ctx.translate(canonX, canonY);
+      ctx.rotate(-Math.PI / 4);
+
+      ctx.drawImage(
+        this.canonImage,
+        -canonSize / 2,
+        -canonSize / 2,
+        canonSize,
+        canonSize
+      );
+
+      // Add glow effect
+      ctx.shadowColor = '#ff6600';
+      ctx.shadowBlur = 10;
+      ctx.globalAlpha = 0.3;
+      ctx.drawImage(
+        this.canonImage,
+        -canonSize / 2,
+        -canonSize / 2,
+        canonSize,
+        canonSize
+      );
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
+
+      ctx.restore();
+    }
+
     ctx.restore();
 
     // Draw player name above ship (always readable)
@@ -4627,7 +4675,7 @@ export class SpaceGame {
   /**
    * Emit thrust particles for another player (matches local player trail).
    */
-  private emitOtherPlayerThrust(player: OtherPlayer) {
+  private emitOtherPlayerThrust(player: OtherPlayer, isBoosting: boolean = false) {
     // Use render state for interpolated position
     const renderState = this.renderStates.get(player.id);
     const px = renderState?.renderX ?? player.x;
@@ -4639,10 +4687,10 @@ export class SpaceGame {
     const backAngle = rotation + Math.PI;
     const trailType = player.shipEffects?.trailType || 'default';
 
-    // Match local player particle count based on trail type
-    let particleCount = 2;
+    // Match local player particle count based on trail type and boosting
+    let particleCount = isBoosting ? 5 : 2;
     if (trailType !== 'default') {
-      particleCount = 4;
+      particleCount = isBoosting ? 7 : 4;
     }
 
     for (let i = 0; i < particleCount; i++) {
@@ -4654,27 +4702,29 @@ export class SpaceGame {
       switch (trailType) {
         case 'fire':
           colors = ['#ff4400', '#ff6600', '#ff8800', '#ffaa00', '#ffcc00'];
-          life = 30 + Math.random() * 20;
-          size = Math.random() * 6 + 4;
+          life = isBoosting ? 40 + Math.random() * 25 : 30 + Math.random() * 20;
+          size = Math.random() * (isBoosting ? 8 : 6) + (isBoosting ? 5 : 4);
           break;
         case 'ice':
           colors = ['#88ddff', '#aaeeff', '#ccffff', '#ffffff', '#66ccff'];
-          life = 35 + Math.random() * 15;
-          size = Math.random() * 4 + 2;
+          life = isBoosting ? 45 + Math.random() * 20 : 35 + Math.random() * 15;
+          size = Math.random() * (isBoosting ? 6 : 4) + (isBoosting ? 3 : 2);
           break;
         case 'rainbow':
           colors = ['#ff0000', '#ff8800', '#ffff00', '#00ff00', '#0088ff', '#8800ff'];
-          life = 40 + Math.random() * 20;
-          size = Math.random() * 5 + 3;
+          life = isBoosting ? 50 + Math.random() * 30 : 40 + Math.random() * 20;
+          size = Math.random() * (isBoosting ? 7 : 5) + (isBoosting ? 4 : 3);
           break;
         default:
-          colors = ['#ffa500', '#ff6b4a', '#ffcc00', '#ff4500'];
-          life = 25 + Math.random() * 15;
-          size = Math.random() * 5 + 3;
+          colors = isBoosting
+            ? ['#00ffff', '#00ccff', '#ffffff', '#88ffff']
+            : ['#ffa500', '#ff6b4a', '#ffcc00', '#ff4500'];
+          life = isBoosting ? 35 + Math.random() * 20 : 25 + Math.random() * 15;
+          size = Math.random() * (isBoosting ? 7 : 5) + (isBoosting ? 4 : 3);
       }
 
-      const spread = (Math.random() - 0.5) * 0.6;
-      const speed = Math.random() * 3 + 2;
+      const spread = (Math.random() - 0.5) * (isBoosting ? 0.8 : 0.6);
+      const speed = Math.random() * (isBoosting ? 5 : 3) + (isBoosting ? 4 : 2);
 
       this.state.particles.push({
         x: px + Math.cos(backAngle) * 18,
@@ -4682,7 +4732,7 @@ export class SpaceGame {
         vx: Math.cos(backAngle + spread) * speed + vx * 0.3,
         vy: Math.sin(backAngle + spread) * speed + vy * 0.3,
         life: life,
-        maxLife: 40,
+        maxLife: isBoosting ? 55 : 40,
         size: size,
         color: colors[Math.floor(Math.random() * colors.length)],
       });

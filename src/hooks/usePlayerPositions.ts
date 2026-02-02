@@ -324,6 +324,7 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
                 vy: data.vy,
                 rotation: data.rotation,
                 thrusting: data.thrusting,
+                boosting: data.boosting || false,
                 timestamp: data.timestamp,
               });
             }
@@ -345,6 +346,7 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
                 vy: data.vy,
                 rotation: data.rotation,
                 thrusting: data.thrusting,
+                boosting: data.boosting || false,
                 shipImage: playerInfo.shipImage,
                 shipEffects: playerInfo.shipEffects || defaultShipEffects,
                 shipLevel: playerInfo.shipLevel || 1,
