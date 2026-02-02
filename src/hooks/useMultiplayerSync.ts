@@ -279,7 +279,7 @@ export function useMultiplayerSync(options: UseMultiplayerSyncOptions): UseMulti
         )
       );
     }
-  }, [teamId, onTeamUpdate]);
+  }, [teamId, username, onTeamUpdate]); // Added username since it's used to find current player
 
   // Update team points (add to current)
   const updateTeamPoints = useCallback(async (
@@ -544,8 +544,10 @@ export function useMultiplayerSync(options: UseMultiplayerSyncOptions): UseMulti
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;
       }
+      // Clear player ref when effect re-runs (e.g., user switch)
+      playerDbIdRef.current = null;
     };
-  }, [teamId]);
+  }, [teamId, username]); // Re-register when username changes
 
   // Handle page visibility for online status
   useEffect(() => {

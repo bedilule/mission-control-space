@@ -548,7 +548,7 @@ function App() {
   );
 
   // Player positions hook - handles real-time ship positions
-  const { otherPlayers, broadcastPosition, setPositionUpdateCallback } = usePlayerPositions({
+  const { otherPlayers, broadcastPosition, broadcastUpgradeState, setPositionUpdateCallback, setUpgradeUpdateCallback } = usePlayerPositions({
     teamId: team?.id || null,
     playerId: currentDbPlayerId,
     players: playersForPositions,
@@ -585,6 +585,22 @@ function App() {
       setPositionUpdateCallback(null);
     };
   }, [setPositionUpdateCallback]);
+
+  // Set up upgrade animation callback (shows other players' upgrade animations)
+  useEffect(() => {
+    if (gameRef.current) {
+      setUpgradeUpdateCallback((playerId, data) => {
+        if (data.isUpgrading) {
+          gameRef.current?.setOtherPlayerUpgrading(playerId, data.targetPlanetId);
+        } else {
+          gameRef.current?.clearOtherPlayerUpgrading(playerId);
+        }
+      });
+    }
+    return () => {
+      setUpgradeUpdateCallback(null);
+    };
+  }, [setUpgradeUpdateCallback]);
 
   // Update game with other players (for metadata like ship images, effects, etc.)
   useEffect(() => {
@@ -956,6 +972,7 @@ function App() {
     setIsUpgrading(true);
     setUpgradeMessage('Creating your planet...');
     gameRef.current?.startUpgradeAnimation(planetId);
+    broadcastUpgradeState(true, planetId);
 
     try {
       const config = planetPrompts.basePlanet;
@@ -1022,12 +1039,14 @@ function App() {
 
       setIsUpgrading(false);
       gameRef.current?.stopUpgradeAnimation();
+      broadcastUpgradeState(false);
     } catch (error) {
       console.error('Failed to generate base planet:', error);
       setUpgradeMessage('Generation failed');
       setTimeout(() => {
         setIsUpgrading(false);
         gameRef.current?.stopUpgradeAnimation();
+        broadcastUpgradeState(false);
       }, 1500);
     }
   };
@@ -1048,6 +1067,7 @@ function App() {
     setIsUpgrading(true);
     setUpgradeMessage('Terraforming planet...');
     gameRef.current?.startUpgradeAnimation(planetId);
+    broadcastUpgradeState(true, planetId);
 
     try {
       // Get current planet image
@@ -1128,12 +1148,14 @@ function App() {
 
       setIsUpgrading(false);
       gameRef.current?.stopUpgradeAnimation();
+      broadcastUpgradeState(false);
     } catch (error) {
       console.error('Failed to terraform:', error);
       setUpgradeMessage('Terraform failed');
       setTimeout(() => {
         setIsUpgrading(false);
         gameRef.current?.stopUpgradeAnimation();
+        broadcastUpgradeState(false);
       }, 1500);
     }
   };
@@ -1564,6 +1586,7 @@ function App() {
     setIsUpgrading(true);
     setUpgradeMessage('Modifying your vessel...');
     gameRef.current?.startUpgradeAnimation();
+    broadcastUpgradeState(true, null); // null = ship upgrade
 
     try {
       const currentShip = getCurrentUserShip();
@@ -1652,12 +1675,14 @@ function App() {
 
       setIsUpgrading(false);
       gameRef.current?.stopUpgradeAnimation();
+      broadcastUpgradeState(false);
     } catch (error) {
       console.error('Failed to generate visual upgrade:', error);
       setUpgradeMessage('Upgrade failed');
       setTimeout(() => {
         setIsUpgrading(false);
         gameRef.current?.stopUpgradeAnimation();
+        broadcastUpgradeState(false);
       }, 1500);
     }
   };
@@ -1866,7 +1891,7 @@ function App() {
           baseImage: '/ship-base.png',
           upgrades: [],
           currentImage: '/ship-base.png',
-          effects: { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, ownedGlows: [], ownedTrails: [], hasDestroyCanon: false, destroyCanonEquipped: false },
+          effects: { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, landingSpeedBonus: 0, ownedGlows: [], ownedTrails: [], hasDestroyCanon: false, destroyCanonEquipped: false },
         }
       }));
     }

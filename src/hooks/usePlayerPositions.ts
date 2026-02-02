@@ -39,10 +39,18 @@ type PositionUpdateCallback = (playerId: string, data: {
   timestamp: number;
 }) => void;
 
+// Callback type for upgrade animation updates
+type UpgradeUpdateCallback = (playerId: string, data: {
+  isUpgrading: boolean;
+  targetPlanetId: string | null;
+}) => void;
+
 interface UsePlayerPositionsReturn {
   otherPlayers: OtherPlayer[];
   broadcastPosition: () => void;
+  broadcastUpgradeState: (isUpgrading: boolean, targetPlanetId?: string | null) => void;
   setPositionUpdateCallback: (callback: PositionUpdateCallback | null) => void;
+  setUpgradeUpdateCallback: (callback: UpgradeUpdateCallback | null) => void;
 }
 
 interface CachedPosition {
@@ -81,10 +89,17 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
   const playersRef = useRef<PlayerInfo[]>(players);
   // Direct callback for position updates (bypasses React state for lower latency)
   const positionUpdateCallbackRef = useRef<PositionUpdateCallback | null>(null);
+  // Direct callback for upgrade animation updates
+  const upgradeUpdateCallbackRef = useRef<UpgradeUpdateCallback | null>(null);
 
   // Set the callback for direct position updates
   const setPositionUpdateCallback = useCallback((callback: PositionUpdateCallback | null) => {
     positionUpdateCallbackRef.current = callback;
+  }, []);
+
+  // Set the callback for upgrade animation updates
+  const setUpgradeUpdateCallback = useCallback((callback: UpgradeUpdateCallback | null) => {
+    upgradeUpdateCallbackRef.current = callback;
   }, []);
 
   // Keep players ref updated without triggering effects
@@ -151,6 +166,21 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
         .then(() => {});
     }
   }, [playerId, localShip]);
+
+  // Broadcast upgrade state (when player starts/stops upgrading)
+  const broadcastUpgradeState = useCallback((isUpgrading: boolean, targetPlanetId: string | null = null) => {
+    if (!channelRef.current || !playerId) return;
+
+    channelRef.current.send({
+      type: 'broadcast',
+      event: 'upgrade',
+      payload: {
+        player_id: playerId,
+        isUpgrading,
+        targetPlanetId,
+      },
+    });
+  }, [playerId]);
 
   // Fetch initial positions from database
   const fetchInitialPositions = useCallback(async () => {
@@ -303,6 +333,26 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
       });
     });
 
+    // Handle upgrade animation broadcasts from other players
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    channel.on('broadcast', { event: 'upgrade' }, (payload: any) => {
+      const data = payload.payload as {
+        player_id: string;
+        isUpgrading: boolean;
+        targetPlanetId: string | null;
+      };
+
+      if (data.player_id === playerId) return; // Skip self
+
+      // Call direct callback (bypasses React for smoother animation)
+      if (upgradeUpdateCallbackRef.current) {
+        upgradeUpdateCallbackRef.current(data.player_id, {
+          isUpgrading: data.isUpgrading,
+          targetPlanetId: data.targetPlanetId,
+        });
+      }
+    });
+
     channel.subscribe(async (status) => {
       if (status === 'SUBSCRIBED') {
         // Fetch initial positions after subscribing
@@ -379,6 +429,8 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
   return {
     otherPlayers,
     broadcastPosition,
+    broadcastUpgradeState,
     setPositionUpdateCallback,
+    setUpgradeUpdateCallback,
   };
 }

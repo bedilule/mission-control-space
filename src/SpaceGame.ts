@@ -44,6 +44,17 @@ interface ShipEffects {
   destroyCanonEquipped: boolean;
 }
 
+interface UpgradeSatellite {
+  angle: number;
+  distance: number;
+  speed: number;
+  size: number;
+  color: string;
+  wobble: number;
+  wobbleSpeed: number;
+  type: 'satellite' | 'robot';
+}
+
 // Store terraform counts and size levels for scaling
 const userPlanetTerraformCounts: Map<string, number> = new Map();
 const userPlanetSizeLevels: Map<string, number> = new Map();
@@ -108,7 +119,9 @@ const PLANET_INFO_DISTANCE = 200;
 
 // Smooth multiplayer interpolation
 const SNAPSHOT_BUFFER_SIZE = 30;
-const LERP_FACTOR = 0.15;              // 15% per frame - balance of smooth and responsive
+const INTERPOLATION_DELAY = 150;       // Render 150ms behind latest data for smooth interpolation
+const LERP_FACTOR = 0.08;              // 8% per frame - smoother catch-up when extrapolating
+const INTERPOLATION_LERP = 0.25;       // 25% per frame - faster when we have good interpolation data
 
 interface BlackHole {
   x: number;
@@ -184,16 +197,7 @@ export class SpaceGame {
   // Upgrading animation state (orbiting satellites/robots)
   private isUpgrading: boolean = false;
   private upgradeTargetPlanetId: string | null = null; // null = orbit ship, string = orbit planet
-  private upgradeSatellites: {
-    angle: number;
-    distance: number;
-    speed: number;
-    size: number;
-    color: string;
-    wobble: number;
-    wobbleSpeed: number;
-    type: 'satellite' | 'robot';
-  }[] = [];
+  private upgradeSatellites: UpgradeSatellite[] = [];
 
   // Current player (for zone-based interactions)
   private currentUser: string = 'quentin';
@@ -211,9 +215,12 @@ export class SpaceGame {
   // Multiplayer: other players' ships
   private otherPlayers: OtherPlayer[] = [];
   private otherPlayerImages: Map<string, HTMLImageElement> = new Map();
+  private otherPlayerImageUrls: Map<string, string> = new Map(); // Track loaded URLs for change detection
   // Snapshot interpolation for smooth rendering (replaces simple lerp)
   private playerSnapshots: Map<string, PositionSnapshot[]> = new Map();
   private renderStates: Map<string, InterpolationState> = new Map();
+  // Other players' upgrade animations
+  private otherPlayerUpgrading: Map<string, { targetPlanetId: string | null; satellites: UpgradeSatellite[] }> = new Map();
 
   constructor(canvas: HTMLCanvasElement, onDock: (planet: Planet) => void, customPlanets: CustomPlanetData[] = [], shipImageUrl?: string, goals?: GoalsData, upgradeCount: number = 0, userPlanets?: Record<string, UserPlanetData>, currentUser: string = 'quentin') {
     this.canvas = canvas;
@@ -2385,6 +2392,47 @@ export class SpaceGame {
     soundManager.stopLoadingSound();
   }
 
+  /**
+   * Start upgrade animation for another player (called from multiplayer sync).
+   */
+  public setOtherPlayerUpgrading(playerId: string, planetId: string | null) {
+    // Get target size for appropriate orbit distance
+    let baseDistance = 50;
+    if (planetId) {
+      const planet = this.state.planets.find(p => p.id === planetId);
+      if (planet) {
+        baseDistance = planet.radius + 30;
+      }
+    }
+
+    // Create satellites for this player
+    const count = 4 + Math.floor(Math.random() * 3);
+    const colors = ['#00ffff', '#ff6b9d', '#ffd700', '#4ade80', '#a855f7', '#ff8c00'];
+
+    const satellites: UpgradeSatellite[] = [];
+    for (let i = 0; i < count; i++) {
+      satellites.push({
+        angle: (i / count) * Math.PI * 2 + Math.random() * 0.5,
+        distance: baseDistance + Math.random() * 30,
+        speed: 0.02 + Math.random() * 0.02,
+        size: 4 + Math.random() * 4,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        wobble: Math.random() * Math.PI * 2,
+        wobbleSpeed: 0.05 + Math.random() * 0.05,
+        type: Math.random() > 0.5 ? 'satellite' : 'robot',
+      });
+    }
+
+    this.otherPlayerUpgrading.set(playerId, { targetPlanetId: planetId, satellites });
+  }
+
+  /**
+   * Stop upgrade animation for another player.
+   */
+  public clearOtherPlayerUpgrading(playerId: string) {
+    this.otherPlayerUpgrading.delete(playerId);
+  }
+
   private getUpgradeTargetPosition(): { x: number; y: number } {
     if (this.upgradeTargetPlanetId) {
       const planet = this.state.planets.find(p => p.id === this.upgradeTargetPlanetId);
@@ -2410,45 +2458,81 @@ export class SpaceGame {
   }
 
   private updateUpgradeSatellites() {
-    if (!this.isUpgrading) return;
+    // Update local player's upgrade satellites
+    if (this.isUpgrading) {
+      const target = this.getUpgradeTargetPosition();
 
-    const target = this.getUpgradeTargetPosition();
+      for (const sat of this.upgradeSatellites) {
+        // Orbit around
+        sat.angle += sat.speed;
+        // Wobble the distance
+        sat.wobble += sat.wobbleSpeed;
 
-    for (const sat of this.upgradeSatellites) {
-      // Orbit around
-      sat.angle += sat.speed;
-      // Wobble the distance
-      sat.wobble += sat.wobbleSpeed;
+        // Emit tiny sparkle particles occasionally
+        if (Math.random() < 0.05) {
+          const x = target.x + Math.cos(sat.angle) * (sat.distance + Math.sin(sat.wobble) * 10);
+          const y = target.y + Math.sin(sat.angle) * (sat.distance + Math.sin(sat.wobble) * 10);
 
-      // Emit tiny sparkle particles occasionally
-      if (Math.random() < 0.05) {
-        const x = target.x + Math.cos(sat.angle) * (sat.distance + Math.sin(sat.wobble) * 10);
-        const y = target.y + Math.sin(sat.angle) * (sat.distance + Math.sin(sat.wobble) * 10);
+          this.state.particles.push({
+            x,
+            y,
+            vx: (Math.random() - 0.5) * 0.5,
+            vy: (Math.random() - 0.5) * 0.5,
+            life: 15 + Math.random() * 10,
+            maxLife: 25,
+            size: 2 + Math.random() * 2,
+            color: sat.color,
+          });
+        }
+      }
+    }
 
-        this.state.particles.push({
-          x,
-          y,
-          vx: (Math.random() - 0.5) * 0.5,
-          vy: (Math.random() - 0.5) * 0.5,
-          life: 15 + Math.random() * 10,
-          maxLife: 25,
-          size: 2 + Math.random() * 2,
-          color: sat.color,
-        });
+    // Update other players' upgrade satellites
+    for (const [playerId, upgradeData] of this.otherPlayerUpgrading) {
+      const player = this.otherPlayers.find(p => p.id === playerId);
+      if (!player) continue;
+
+      // Get target position (player's ship or a planet)
+      let target: { x: number; y: number };
+      if (upgradeData.targetPlanetId) {
+        const planet = this.state.planets.find(p => p.id === upgradeData.targetPlanetId);
+        target = planet ? { x: planet.x, y: planet.y } : { x: player.x, y: player.y };
+      } else {
+        // Use interpolated position for smooth animation
+        const renderState = this.renderStates.get(playerId);
+        target = { x: renderState?.renderX ?? player.x, y: renderState?.renderY ?? player.y };
+      }
+
+      for (const sat of upgradeData.satellites) {
+        sat.angle += sat.speed;
+        sat.wobble += sat.wobbleSpeed;
+
+        // Emit particles for other players too (less frequent)
+        if (Math.random() < 0.03) {
+          const x = target.x + Math.cos(sat.angle) * (sat.distance + Math.sin(sat.wobble) * 10);
+          const y = target.y + Math.sin(sat.angle) * (sat.distance + Math.sin(sat.wobble) * 10);
+
+          this.state.particles.push({
+            x,
+            y,
+            vx: (Math.random() - 0.5) * 0.5,
+            vy: (Math.random() - 0.5) * 0.5,
+            life: 15 + Math.random() * 10,
+            maxLife: 25,
+            size: 2 + Math.random() * 2,
+            color: sat.color,
+          });
+        }
       }
     }
   }
 
   private renderUpgradeSatellites() {
-    if (!this.isUpgrading || this.upgradeSatellites.length === 0) return;
-
     const { ctx, state } = this;
     const { camera } = state;
-    const target = this.getUpgradeTargetPosition();
-    const targetX = target.x - camera.x;
-    const targetY = target.y - camera.y;
 
-    for (const sat of this.upgradeSatellites) {
+    // Helper to render a single satellite
+    const renderSatellite = (sat: typeof this.upgradeSatellites[0], targetX: number, targetY: number) => {
       const wobbleOffset = Math.sin(sat.wobble) * 10;
       const x = targetX + Math.cos(sat.angle) * (sat.distance + wobbleOffset);
       const y = targetY + Math.sin(sat.angle) * (sat.distance + wobbleOffset);
@@ -2516,6 +2600,41 @@ export class SpaceGame {
       }
 
       ctx.restore();
+    };
+
+    // Render local player's upgrade satellites
+    if (this.isUpgrading && this.upgradeSatellites.length > 0) {
+      const target = this.getUpgradeTargetPosition();
+      const targetX = target.x - camera.x;
+      const targetY = target.y - camera.y;
+
+      for (const sat of this.upgradeSatellites) {
+        renderSatellite(sat, targetX, targetY);
+      }
+    }
+
+    // Render other players' upgrade satellites
+    for (const [playerId, upgradeData] of this.otherPlayerUpgrading) {
+      const player = this.otherPlayers.find(p => p.id === playerId);
+      if (!player) continue;
+
+      // Get target position (player's ship or a planet)
+      let target: { x: number; y: number };
+      if (upgradeData.targetPlanetId) {
+        const planet = this.state.planets.find(p => p.id === upgradeData.targetPlanetId);
+        target = planet ? { x: planet.x, y: planet.y } : { x: player.x, y: player.y };
+      } else {
+        // Use interpolated position for smooth animation
+        const renderState = this.renderStates.get(playerId);
+        target = { x: renderState?.renderX ?? player.x, y: renderState?.renderY ?? player.y };
+      }
+
+      const targetX = target.x - camera.x;
+      const targetY = target.y - camera.y;
+
+      for (const sat of upgradeData.satellites) {
+        renderSatellite(sat, targetX, targetY);
+      }
     }
   }
 
@@ -4027,10 +4146,15 @@ export class SpaceGame {
   public setOtherPlayers(players: OtherPlayer[]) {
     this.otherPlayers = players;
 
-    // Preload ship images for new players
+    // Preload ship images for new players or when image URL changes
     for (const player of players) {
-      if (player.shipImage && !this.otherPlayerImages.has(player.id)) {
+      const cachedUrl = this.otherPlayerImageUrls.get(player.id);
+      const newUrl = player.shipImage || '/ship-base.png';
+
+      // Load image if: no cached image, or URL has changed
+      if (!this.otherPlayerImages.has(player.id) || cachedUrl !== newUrl) {
         this.loadOtherPlayerImage(player.id, player.shipImage);
+        this.otherPlayerImageUrls.set(player.id, newUrl);
       }
 
       // Initialize render state if this is a new player
@@ -4039,11 +4163,14 @@ export class SpaceGame {
       }
     }
 
-    // Clean up render states and snapshots for players who left
+    // Clean up render states, snapshots, and image caches for players who left
     for (const id of this.renderStates.keys()) {
       if (!players.find(p => p.id === id)) {
         this.renderStates.delete(id);
         this.playerSnapshots.delete(id);
+        this.otherPlayerImages.delete(id);
+        this.otherPlayerImageUrls.delete(id);
+        this.otherPlayerUpgrading.delete(id);
       }
     }
   }
@@ -4285,62 +4412,109 @@ export class SpaceGame {
   }
 
   /**
-   * Lerp interpolation with velocity prediction.
-   * Predicts where the ship should be NOW based on last snapshot + velocity.
+   * Render-behind interpolation for smooth multiplayer movement.
+   *
+   * Strategy: Render positions 150ms behind real-time. This means we're usually
+   * interpolating between two KNOWN snapshots rather than extrapolating into
+   * the unknown, which eliminates jitter from network latency variation.
+   *
+   * When we don't have enough data (new player, or snapshots are stale), we
+   * fall back to velocity-based prediction with gentle lerping.
    */
   private updateOtherPlayersInterpolation() {
     const now = Date.now();
+    const renderTime = now - INTERPOLATION_DELAY; // Render 150ms behind
 
     for (const player of this.otherPlayers) {
       const renderState = this.renderStates.get(player.id);
       if (!renderState) continue;
 
       const snapshots = this.playerSnapshots.get(player.id) || [];
-      const latest = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
 
-      let targetX: number;
-      let targetY: number;
-      let targetRotation: number;
-      let targetThrusting: boolean;
-
-      if (latest) {
-        // Predict where the ship should be NOW based on snapshot + velocity
-        const timeSinceSnapshot = (now - latest.receivedAt) / 1000; // seconds
-        // Cap prediction to 200ms to avoid overshooting
-        const predictionTime = Math.min(timeSinceSnapshot, 0.2);
-        // vx/vy are per-frame at 60fps, so multiply by 60 to get per-second
-        targetX = latest.x + latest.vx * predictionTime * 60;
-        targetY = latest.y + latest.vy * predictionTime * 60;
-        targetRotation = latest.rotation;
-        targetThrusting = latest.thrusting;
-      } else {
-        targetX = player.x;
-        targetY = player.y;
-        targetRotation = player.rotation;
-        targetThrusting = player.thrusting;
+      if (snapshots.length === 0) {
+        // No snapshots at all - use player's last known position
+        this.smoothTowardTarget(renderState, {
+          x: player.x,
+          y: player.y,
+          rotation: player.rotation,
+          vx: player.vx,
+          vy: player.vy,
+          thrusting: player.thrusting,
+        }, LERP_FACTOR);
+        renderState.lastUpdateTime = now;
+        continue;
       }
 
-      // Unwrap target for world wrapping
-      const unwrapped = this.unwrapPosition(renderState.renderX, renderState.renderY, targetX, targetY);
+      // Find snapshots that bracket our render time
+      const { before, after } = this.findBracketingSnapshots(snapshots, renderTime);
+      const latest = snapshots[snapshots.length - 1];
 
-      // Lerp toward predicted target
-      renderState.renderX += (unwrapped.x - renderState.renderX) * LERP_FACTOR;
-      renderState.renderY += (unwrapped.y - renderState.renderY) * LERP_FACTOR;
+      let target: { x: number; y: number; rotation: number; vx: number; vy: number; thrusting: boolean };
+      let lerpFactor: number;
 
-      // Wrap back to world bounds
-      const wrapped = this.wrapPosition(renderState.renderX, renderState.renderY);
-      renderState.renderX = wrapped.x;
-      renderState.renderY = wrapped.y;
+      if (before && after) {
+        // IDEAL CASE: We have snapshots on both sides of renderTime
+        // Interpolate between them for perfectly smooth movement
+        target = this.calculateInterpolatedTarget(before, after, renderTime);
+        lerpFactor = INTERPOLATION_LERP; // Faster lerp - we have good data
+      } else if (before && !after) {
+        // EXTRAPOLATION CASE: renderTime is past our latest snapshot
+        // This happens when network is slow or player stopped sending updates
+        const timeSinceSnapshot = (renderTime - before.receivedAt) / 1000;
 
-      // Lerp rotation
-      let rotDiff = targetRotation - renderState.renderRotation;
-      while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
-      while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
-      renderState.renderRotation += rotDiff * LERP_FACTOR;
+        if (timeSinceSnapshot < 0.3) {
+          // Recent enough - predict using velocity (capped at 200ms prediction)
+          const predictionTime = Math.min(timeSinceSnapshot, 0.2);
+          target = {
+            x: before.x + before.vx * predictionTime * 60,
+            y: before.y + before.vy * predictionTime * 60,
+            rotation: before.rotation,
+            vx: before.vx,
+            vy: before.vy,
+            thrusting: before.thrusting,
+          };
+          lerpFactor = LERP_FACTOR; // Slower lerp - extrapolating
+        } else {
+          // Snapshot is stale - just hold position, don't predict too far
+          target = {
+            x: before.x,
+            y: before.y,
+            rotation: before.rotation,
+            vx: 0,
+            vy: 0,
+            thrusting: false,
+          };
+          lerpFactor = LERP_FACTOR * 0.5; // Very slow lerp to hold position
+        }
+      } else if (!before && after) {
+        // RARE CASE: All snapshots are in the future (clock skew or first snapshot)
+        // Snap toward the earliest snapshot we have
+        target = {
+          x: after.x,
+          y: after.y,
+          rotation: after.rotation,
+          vx: after.vx,
+          vy: after.vy,
+          thrusting: after.thrusting,
+        };
+        lerpFactor = INTERPOLATION_LERP;
+      } else {
+        // Fallback to latest snapshot with prediction
+        const timeSinceSnapshot = (now - latest.receivedAt) / 1000;
+        const predictionTime = Math.min(timeSinceSnapshot, 0.2);
+        target = {
+          x: latest.x + latest.vx * predictionTime * 60,
+          y: latest.y + latest.vy * predictionTime * 60,
+          rotation: latest.rotation,
+          vx: latest.vx,
+          vy: latest.vy,
+          thrusting: latest.thrusting,
+        };
+        lerpFactor = LERP_FACTOR;
+      }
 
-      // Thrusting - direct
-      renderState.renderThrusting = targetThrusting;
-
+      // Apply smooth movement toward target
+      this.smoothTowardTarget(renderState, target, lerpFactor);
       renderState.lastUpdateTime = now;
     }
   }
