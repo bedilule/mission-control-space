@@ -1,7 +1,11 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import type { OtherPlayer, ShipEffects } from '../types';
 import type { RealtimeChannel } from '@supabase/supabase-js';
+
+// WebSocket server URL - use environment variable or default to localhost for dev
+// @ts-ignore - Vite injects import.meta.env at build time
+const WS_SERVER_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_WS_SERVER_URL) || 'ws://localhost:8080';
 
 interface PlayerInfo {
   id: string;
@@ -83,6 +87,8 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
   const [otherPlayers, setOtherPlayers] = useState<OtherPlayer[]>([]);
 
   const channelRef = useRef<RealtimeChannel | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const wsReconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastBroadcastRef = useRef<number>(0);
   const lastDbUpdateRef = useRef<number>(0);
   const lastBroadcastPositionRef = useRef<{ x: number; y: number; rotation: number } | null>(null);
@@ -108,13 +114,13 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
     playersRef.current = players;
   }, [players]);
 
-  // Broadcast position via realtime (fast, ephemeral)
+  // Broadcast position via WebSocket (fast, direct connection)
   // Takes ship state as parameter to get fresh data every call (not stale React state)
   const broadcastPosition = useCallback((ship: ShipState) => {
-    if (!channelRef.current || !playerId) return;
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !playerId) return;
 
     const now = Date.now();
-    // Throttle broadcasts to 30Hz (33ms) - Pro plan supports 500 msg/sec
+    // Throttle broadcasts to 30Hz (33ms)
     if (now - lastBroadcastRef.current < 33) return;
 
     // Only broadcast if actually moving or rotating
@@ -135,20 +141,17 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
     lastBroadcastRef.current = now;
     lastBroadcastPositionRef.current = { x: ship.x, y: ship.y, rotation: ship.rotation };
 
-    channelRef.current.send({
-      type: 'broadcast',
-      event: 'position',
-      payload: {
-        player_id: playerId,
-        x: ship.x,
-        y: ship.y,
-        vx: ship.vx,
-        vy: ship.vy,
-        rotation: ship.rotation,
-        thrusting: ship.thrusting,
-        timestamp: now,
-      },
-    });
+    // Send position via WebSocket
+    wsRef.current.send(JSON.stringify({
+      type: 'position',
+      x: ship.x,
+      y: ship.y,
+      vx: ship.vx,
+      vy: ship.vy,
+      rotation: ship.rotation,
+      thrusting: ship.thrusting,
+      timestamp: now,
+    }));
 
     // Persist to database less frequently (every 5 seconds)
     if (now - lastDbUpdateRef.current > 5000) {
@@ -170,26 +173,36 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
   }, [playerId]);
 
   // Broadcast upgrade state (when player starts/stops upgrading)
+  // Sends via both WebSocket (primary) and Supabase (backup)
   const broadcastUpgradeState = useCallback((isUpgrading: boolean, targetPlanetId: string | null = null) => {
-    if (!channelRef.current) {
-      console.warn('[Upgrade Broadcast] No channel - skipping');
-      return;
-    }
     if (!playerId) {
       console.warn('[Upgrade Broadcast] No playerId - skipping');
       return;
     }
 
     console.log('[Upgrade Broadcast] Sending:', { playerId, isUpgrading, targetPlanetId });
-    channelRef.current.send({
-      type: 'broadcast',
-      event: 'upgrade',
-      payload: {
-        player_id: playerId,
+
+    // Send via WebSocket (primary - lower latency)
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'upgrade',
         isUpgrading,
         targetPlanetId,
-      },
-    });
+      }));
+    }
+
+    // Also send via Supabase (backup)
+    if (channelRef.current) {
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'upgrade',
+        payload: {
+          player_id: playerId,
+          isUpgrading,
+          targetPlanetId,
+        },
+      });
+    }
   }, [playerId]);
 
   // Fetch initial positions from database
@@ -248,99 +261,167 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
     }
   }, [teamId, playerId]);
 
-  // Set up realtime channel for position broadcasts
+  // Set up WebSocket connection for position updates (high frequency)
+  useEffect(() => {
+    if (!teamId || !playerId) {
+      return;
+    }
+
+    const connectWebSocket = () => {
+      console.log('[WS] Connecting to', WS_SERVER_URL);
+      const ws = new WebSocket(WS_SERVER_URL);
+
+      ws.onopen = () => {
+        console.log('[WS] Connected');
+        // Join the team room
+        ws.send(JSON.stringify({
+          type: 'join',
+          playerId,
+          teamId,
+        }));
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+
+          if (data.type === 'joined') {
+            console.log('[WS] Joined team room');
+            return;
+          }
+
+          if (data.type === 'position') {
+            // Skip self (shouldn't receive due to server logic, but double-check)
+            if (data.playerId === playerId) return;
+
+            const now = Date.now();
+            const cached = positionCacheRef.current.get(data.playerId);
+
+            // Only update if this is newer than what we have
+            if (cached && cached.receivedAt > data.timestamp) return;
+
+            // Update cache
+            positionCacheRef.current.set(data.playerId, {
+              player_id: data.playerId,
+              x: data.x,
+              y: data.y,
+              vx: data.vx,
+              vy: data.vy,
+              rotation: data.rotation,
+              thrusting: data.thrusting,
+              receivedAt: now,
+            });
+
+            // Call direct callback first (bypasses React for lower latency)
+            if (positionUpdateCallbackRef.current) {
+              positionUpdateCallbackRef.current(data.playerId, {
+                x: data.x,
+                y: data.y,
+                vx: data.vx,
+                vy: data.vy,
+                rotation: data.rotation,
+                thrusting: data.thrusting,
+                timestamp: data.timestamp,
+              });
+            }
+
+            // Still update React state for player metadata
+            setOtherPlayers((prev) => {
+              const playerInfo = playersRef.current.find((p) => p.id === data.playerId);
+              if (!playerInfo) return prev;
+
+              const existing = prev.findIndex((p) => p.id === data.playerId);
+              const updatedPlayer: OtherPlayer = {
+                id: data.playerId,
+                username: playerInfo.username,
+                displayName: playerInfo.displayName,
+                color: playerInfo.color,
+                x: data.x,
+                y: data.y,
+                vx: data.vx,
+                vy: data.vy,
+                rotation: data.rotation,
+                thrusting: data.thrusting,
+                shipImage: playerInfo.shipImage,
+                shipEffects: playerInfo.shipEffects || defaultShipEffects,
+                shipLevel: playerInfo.shipLevel || 1,
+              };
+
+              if (existing >= 0) {
+                const newPlayers = [...prev];
+                newPlayers[existing] = updatedPlayer;
+                return newPlayers;
+              } else {
+                return [...prev, updatedPlayer];
+              }
+            });
+          }
+
+          if (data.type === 'upgrade') {
+            // Skip self
+            if (data.playerId === playerId) return;
+
+            console.log('[WS Upgrade] From:', data.playerId, 'Data:', data);
+
+            // Call direct callback (bypasses React for smoother animation)
+            if (upgradeUpdateCallbackRef.current) {
+              upgradeUpdateCallbackRef.current(data.playerId, {
+                isUpgrading: data.isUpgrading,
+                targetPlanetId: data.targetPlanetId,
+              });
+            }
+          }
+        } catch (err) {
+          console.error('[WS] Failed to parse message:', err);
+        }
+      };
+
+      ws.onclose = () => {
+        console.log('[WS] Disconnected, reconnecting in 2s...');
+        wsRef.current = null;
+        // Reconnect after 2 seconds
+        wsReconnectTimeoutRef.current = setTimeout(() => {
+          if (teamId && playerId) {
+            connectWebSocket();
+          }
+        }, 2000);
+      };
+
+      ws.onerror = (err) => {
+        console.error('[WS] Error:', err);
+      };
+
+      wsRef.current = ws;
+    };
+
+    connectWebSocket();
+
+    return () => {
+      if (wsReconnectTimeoutRef.current) {
+        clearTimeout(wsReconnectTimeoutRef.current);
+        wsReconnectTimeoutRef.current = null;
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+  }, [teamId, playerId]);
+
+  // Set up Supabase realtime channel for upgrade broadcasts (less frequent, can use Supabase)
   useEffect(() => {
     if (!teamId || !playerId) {
       setOtherPlayers([]);
       return;
     }
 
-    // Create presence channel for positions
-    const channel = supabase.channel(`positions:${teamId}`, {
+    // Create channel for upgrade broadcasts only
+    const channel = supabase.channel(`upgrades:${teamId}`, {
       config: {
         broadcast: {
           self: false, // Don't receive own broadcasts
         },
       },
-    });
-
-    // Handle position broadcasts from other players
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    channel.on('broadcast', { event: 'position' }, (payload: any) => {
-      const data = payload.payload as {
-        player_id: string;
-        x: number;
-        y: number;
-        vx: number;
-        vy: number;
-        rotation: number;
-        thrusting: boolean;
-        timestamp: number;
-      };
-
-      if (data.player_id === playerId) return; // Skip self
-
-      const now = Date.now();
-      const cached = positionCacheRef.current.get(data.player_id);
-
-      // Only update if this is newer than what we have
-      if (cached && cached.receivedAt > data.timestamp) return;
-
-      // Update cache
-      positionCacheRef.current.set(data.player_id, {
-        player_id: data.player_id,
-        x: data.x,
-        y: data.y,
-        vx: data.vx,
-        vy: data.vy,
-        rotation: data.rotation,
-        thrusting: data.thrusting,
-        receivedAt: now,
-      });
-
-      // Call direct callback first (bypasses React for lower latency)
-      if (positionUpdateCallbackRef.current) {
-        positionUpdateCallbackRef.current(data.player_id, {
-          x: data.x,
-          y: data.y,
-          vx: data.vx,
-          vy: data.vy,
-          rotation: data.rotation,
-          thrusting: data.thrusting,
-          timestamp: data.timestamp,
-        });
-      }
-
-      // Still update React state for player metadata (but position comes from snapshots now)
-      setOtherPlayers((prev) => {
-        const playerInfo = playersRef.current.find((p) => p.id === data.player_id);
-        if (!playerInfo) return prev;
-
-        const existing = prev.findIndex((p) => p.id === data.player_id);
-        const updatedPlayer: OtherPlayer = {
-          id: data.player_id,
-          username: playerInfo.username,
-          displayName: playerInfo.displayName,
-          color: playerInfo.color,
-          x: data.x,
-          y: data.y,
-          vx: data.vx,
-          vy: data.vy,
-          rotation: data.rotation,
-          thrusting: data.thrusting,
-          shipImage: playerInfo.shipImage,
-          shipEffects: playerInfo.shipEffects || defaultShipEffects,
-          shipLevel: playerInfo.shipLevel || 1,
-        };
-
-        if (existing >= 0) {
-          const newPlayers = [...prev];
-          newPlayers[existing] = updatedPlayer;
-          return newPlayers;
-        } else {
-          return [...prev, updatedPlayer];
-        }
-      });
     });
 
     // Handle upgrade animation broadcasts from other players
