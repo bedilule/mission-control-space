@@ -16,8 +16,9 @@ interface GoalData {
   id: string;
   name: string;
   size: 'small' | 'medium' | 'big';
-  description: string;
+  description?: string;
   realWorldReward?: string;
+  points?: number;
 }
 
 interface GoalsData {
@@ -445,8 +446,6 @@ export class SpaceGame {
         style: businessStyle,
         hasRing: i === 5 || i === 10 || i === 15,
         hasMoon: i === 8 || i === 13 || i === 18,
-        description: m.description,
-        realWorldReward: m.realWorldReward,
         ownerId: null, // Shared planet
       });
     });
@@ -477,8 +476,6 @@ export class SpaceGame {
         style: productStyle,
         hasRing: i === 4 || i === 9 || i === 13,
         hasMoon: i === 6 || i === 11,
-        description: m.description,
-        realWorldReward: m.realWorldReward,
         ownerId: null, // Shared planet
       });
     });
@@ -510,8 +507,6 @@ export class SpaceGame {
         style: { baseColor: '#ffd700', accent: '#ffa500', type: 'golden' },
         hasRing: i === 7 || i === 14 || i === 19,
         hasMoon: i === 4 || i === 11 || i === 17,
-        description: m.description,
-        realWorldReward: m.realWorldReward,
         ownerId: null, // Shared planet
       });
     });
