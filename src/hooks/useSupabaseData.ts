@@ -106,15 +106,6 @@ const DEFAULT_GOALS: Goals = {
   ],
 };
 
-// localStorage keys for migration
-const STORAGE_KEYS = {
-  GOALS: 'mission-control-goals',
-  CUSTOM_PLANETS: 'mission-control-custom-planets',
-  USER_PLANETS: 'mission-control-user-planets',
-  MASCOT_HISTORY: 'mission-control-mascot-history',
-  USER_SHIPS: 'mission-control-user-ships',
-};
-
 interface UseSupabaseDataOptions {
   teamId: string | null;
   playerId: string | null;
@@ -136,9 +127,6 @@ interface UseSupabaseDataReturn {
   saveCustomPlanets: (planets: CustomPlanet[]) => Promise<void>;
   saveUserPlanet: (userId: string, planet: UserPlanet) => Promise<void>;
   saveMascotHistory: (history: MascotHistoryEntry[]) => Promise<void>;
-
-  // Migration function
-  migrateFromLocalStorage: () => Promise<{ success: boolean; message: string }>;
 
   // Refresh
   refreshData: () => Promise<void>;
@@ -195,7 +183,7 @@ export function useSupabaseData(options: UseSupabaseDataOptions): UseSupabaseDat
       // Fetch all players' planet data for this team
       const { data: playersData, error: playersError } = await supabase
         .from('players')
-        .select('username, planet_image_url, planet_terraform_count, planet_size_level, planet_history, mascot_history')
+        .select('username, planet_image_url, planet_base_image, planet_terraform_count, planet_size_level, planet_history, mascot_history')
         .eq('team_id', teamId);
 
       if (playersError) {
@@ -208,6 +196,7 @@ export function useSupabaseData(options: UseSupabaseDataOptions): UseSupabaseDat
           if (player.planet_image_url || player.planet_terraform_count > 0) {
             planets[player.username] = {
               imageUrl: player.planet_image_url || '',
+              baseImage: player.planet_base_image || undefined,
               terraformCount: player.planet_terraform_count || 0,
               sizeLevel: player.planet_size_level || 0,
               history: (player.planet_history as UserPlanet['history']) || [],
@@ -286,6 +275,7 @@ export function useSupabaseData(options: UseSupabaseDataOptions): UseSupabaseDat
         .from('players')
         .update({
           planet_image_url: planet.imageUrl,
+          planet_base_image: planet.baseImage,
           planet_terraform_count: planet.terraformCount,
           planet_size_level: planet.sizeLevel,
           planet_history: planet.history,
@@ -323,120 +313,6 @@ export function useSupabaseData(options: UseSupabaseDataOptions): UseSupabaseDat
       console.error('[useSupabaseData] Exception saving mascot history:', err);
     }
   }, [playerId]);
-
-  // Migrate data from localStorage to Supabase
-  const migrateFromLocalStorage = useCallback(async (): Promise<{ success: boolean; message: string }> => {
-    if (!teamId || !playerId) {
-      return { success: false, message: 'Not connected to team yet. Please wait and try again.' };
-    }
-
-    console.log('[useSupabaseData] Starting migration from localStorage...');
-
-    try {
-      let migratedCount = 0;
-
-      // Migrate goals
-      const localGoals = localStorage.getItem(STORAGE_KEYS.GOALS);
-      if (localGoals) {
-        const parsedGoals = JSON.parse(localGoals) as Goals;
-        const hasContent = parsedGoals.business?.length > 0 ||
-                          parsedGoals.product?.length > 0 ||
-                          parsedGoals.achievement?.length > 0;
-        if (hasContent) {
-          await supabase.from('teams').update({ goals: parsedGoals }).eq('id', teamId);
-          setGoals(parsedGoals);
-          migratedCount++;
-          console.log('[useSupabaseData] Migrated goals');
-        }
-      }
-
-      // Migrate custom planets
-      const localCustomPlanets = localStorage.getItem(STORAGE_KEYS.CUSTOM_PLANETS);
-      if (localCustomPlanets) {
-        const parsedPlanets = JSON.parse(localCustomPlanets) as CustomPlanet[];
-        if (parsedPlanets.length > 0) {
-          await supabase.from('teams').update({ custom_planets: parsedPlanets }).eq('id', teamId);
-          setCustomPlanets(parsedPlanets);
-          migratedCount++;
-          console.log('[useSupabaseData] Migrated custom planets:', parsedPlanets.length);
-        }
-      }
-
-      // Migrate user planets
-      const localUserPlanets = localStorage.getItem(STORAGE_KEYS.USER_PLANETS);
-      if (localUserPlanets) {
-        const parsedPlanets = JSON.parse(localUserPlanets) as Record<string, UserPlanet>;
-        const currentUserPlanet = parsedPlanets[username];
-        if (currentUserPlanet && currentUserPlanet.imageUrl) {
-          await supabase.from('players').update({
-            planet_image_url: currentUserPlanet.imageUrl,
-            planet_terraform_count: currentUserPlanet.terraformCount || 0,
-            planet_size_level: currentUserPlanet.sizeLevel || 0,
-            planet_history: currentUserPlanet.history || [],
-          }).eq('id', playerId);
-          setUserPlanets(prev => ({ ...prev, [username]: currentUserPlanet }));
-          migratedCount++;
-          console.log('[useSupabaseData] Migrated user planet');
-        }
-      }
-
-      // Migrate mascot history
-      const localMascotHistory = localStorage.getItem(STORAGE_KEYS.MASCOT_HISTORY);
-      if (localMascotHistory) {
-        const parsedHistory = JSON.parse(localMascotHistory) as MascotHistoryEntry[];
-        const cleanHistory = parsedHistory
-          .filter(entry => !entry.imageUrl.startsWith('data:'))
-          .slice(-50);
-        if (cleanHistory.length > 0) {
-          await supabase.from('players').update({ mascot_history: cleanHistory }).eq('id', playerId);
-          setMascotHistory(cleanHistory);
-          migratedCount++;
-          console.log('[useSupabaseData] Migrated mascot history:', cleanHistory.length);
-        }
-      }
-
-      // Migrate user ships
-      const localUserShips = localStorage.getItem(STORAGE_KEYS.USER_SHIPS);
-      if (localUserShips) {
-        const parsedShips = JSON.parse(localUserShips) as Record<string, {
-          baseImage: string;
-          currentImage: string;
-          upgrades: string[];
-          effects: Record<string, unknown>;
-        }>;
-        const currentUserShip = parsedShips[username];
-        if (currentUserShip && currentUserShip.currentImage && !currentUserShip.currentImage.startsWith('data:')) {
-          await supabase.from('players').update({
-            ship_current_image: currentUserShip.currentImage,
-            ship_upgrades: currentUserShip.upgrades || [],
-            ship_effects: currentUserShip.effects || {},
-          }).eq('id', playerId);
-          migratedCount++;
-          console.log('[useSupabaseData] Migrated user ship');
-        }
-      }
-
-      // Clear localStorage after successful migration
-      localStorage.removeItem(STORAGE_KEYS.GOALS);
-      localStorage.removeItem(STORAGE_KEYS.CUSTOM_PLANETS);
-      localStorage.removeItem(STORAGE_KEYS.USER_PLANETS);
-      localStorage.removeItem(STORAGE_KEYS.MASCOT_HISTORY);
-      localStorage.removeItem(STORAGE_KEYS.USER_SHIPS);
-
-      console.log('[useSupabaseData] Migration complete, cleared localStorage');
-
-      return {
-        success: true,
-        message: migratedCount > 0
-          ? `Migration complete! Migrated ${migratedCount} data types to Supabase.`
-          : 'No local data found to migrate. Everything is already in Supabase!'
-      };
-
-    } catch (err) {
-      console.error('[useSupabaseData] Migration error:', err);
-      return { success: false, message: 'Migration failed: ' + (err as Error).message };
-    }
-  }, [teamId, playerId, username]);
 
   // Initial load from Supabase
   useEffect(() => {
@@ -502,6 +378,7 @@ export function useSupabaseData(options: UseSupabaseDataOptions): UseSupabaseDat
           const data = payload.new as {
             username: string;
             planet_image_url: string;
+            planet_base_image: string;
             planet_terraform_count: number;
             planet_size_level: number;
             planet_history: UserPlanet['history'];
@@ -512,6 +389,7 @@ export function useSupabaseData(options: UseSupabaseDataOptions): UseSupabaseDat
               ...prev,
               [data.username]: {
                 imageUrl: data.planet_image_url || '',
+                baseImage: data.planet_base_image || prev[data.username]?.baseImage,
                 terraformCount: data.planet_terraform_count || 0,
                 sizeLevel: data.planet_size_level || 0,
                 history: data.planet_history || [],
@@ -537,7 +415,6 @@ export function useSupabaseData(options: UseSupabaseDataOptions): UseSupabaseDat
     saveCustomPlanets,
     saveUserPlanet,
     saveMascotHistory,
-    migrateFromLocalStorage,
     refreshData,
   };
 }

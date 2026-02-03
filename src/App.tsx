@@ -523,6 +523,7 @@ function App() {
     onOpenNotion: (url: string) => void;
     onTerraform: (planet: Planet) => void;
     onDestroyPlanet: (planet: Planet) => void;
+    onBlackHoleDeath: () => void;
   }>({
     onLand: () => {},
     onTakeoff: () => {},
@@ -531,6 +532,7 @@ function App() {
     onOpenNotion: () => {},
     onTerraform: () => {},
     onDestroyPlanet: () => {},
+    onBlackHoleDeath: () => {},
   });
   const [state, setState] = useState<SavedState>(loadState);
   const [customPlanets, setCustomPlanets] = useState<CustomPlanet[]>([]); // Loaded from Supabase
@@ -598,7 +600,18 @@ function App() {
 
   // Multiplayer state
   const [pointToast, setPointToast] = useState<PointTx | null>(null);
+  const [eventNotification, setEventNotification] = useState<{ message: string; type: 'join' | 'leave' | 'blackhole' | 'upgrade' | 'mission' } | null>(null);
   const positionBroadcastRef = useRef<number>(0);
+
+  // Black hole death messages (randomly selected)
+  const blackHoleMessages = [
+    '{name} got spaghettified',
+    '{name} found out what\'s inside a black hole',
+    '{name} crossed the event horizon. RIP.',
+    '{name} is now one with the singularity',
+    '{name} made a poor life choice',
+    '{name} got yeeted into the void',
+  ];
 
   // Get local player ID (persisted in localStorage)
   const localPlayerId = useRef(getLocalPlayerId());
@@ -648,9 +661,15 @@ function App() {
     },
     onPlayerJoined: (player) => {
       console.log('Player joined:', player.displayName);
+      setEventNotification({ message: `${player.displayName} warped into the party`, type: 'join' });
+      setTimeout(() => setEventNotification(null), 4000);
     },
     onPlayerLeft: (playerId) => {
       console.log('Player left:', playerId);
+      const player = teamPlayers.find(p => p.id === playerId);
+      const name = player?.displayName || 'Someone';
+      setEventNotification({ message: `${name} has left the galaxy`, type: 'leave' });
+      setTimeout(() => setEventNotification(null), 4000);
     },
     onPointsEarned: (tx) => {
       // Show toast for points earned by other players
@@ -701,6 +720,10 @@ function App() {
     claimPlanet: claimNotionPlanet,
   } = useNotionPlanets({
     teamId: team?.id || null,
+    onPlanetCreated: (planet) => {
+      setEventNotification({ message: `New mission: ${planet.name}`, type: 'mission' });
+      setTimeout(() => setEventNotification(null), 4000);
+    },
   });
 
   // Supabase data hook - SINGLE SOURCE OF TRUTH for goals, custom planets, user planets, mascot history
@@ -714,15 +737,11 @@ function App() {
     saveCustomPlanets: saveCustomPlanetsToSupabase,
     saveUserPlanet: saveUserPlanetToSupabase,
     saveMascotHistory: saveMascotHistoryToSupabase,
-    migrateFromLocalStorage,
   } = useSupabaseData({
     teamId: team?.id || null,
     playerId: currentDbPlayerId,
     username: state.currentUser || 'anonymous',
   });
-
-  // Migration state
-  const [migrationStatus, setMigrationStatus] = useState<string | null>(null);
 
   // Prompt history hook - tracks all AI generation prompts
   const { recordPrompt } = usePromptHistory({
@@ -799,11 +818,19 @@ function App() {
     upgradeCallbackRef.current = (playerId, data) => {
       if (data.isUpgrading) {
         gameRef.current?.setOtherPlayerUpgrading(playerId, data.targetPlanetId);
+        // Show notification for other player's upgrade
+        const player = teamPlayers.find(p => p.id === playerId);
+        const name = player?.displayName || 'Someone';
+        const message = data.targetPlanetId
+          ? `${name} is terraforming their planet`
+          : `${name} is upgrading their ship`;
+        setEventNotification({ message, type: 'upgrade' });
+        setTimeout(() => setEventNotification(null), 4000);
       } else {
         gameRef.current?.clearOtherPlayerUpgrading(playerId);
       }
     };
-  }, []);
+  }, [teamPlayers]);
 
   // Register the callback wrappers with the hook (these stay stable)
   useEffect(() => {
@@ -1499,26 +1526,19 @@ function App() {
         setPersonalPoints(prev => prev - 25);
         updateRemotePersonalPoints(-25);
 
-        setUserPlanets(prev => ({
-          ...prev,
-          [userId]: {
-            imageUrl: newImageUrl,
-            baseImage: newImageUrl, // Store base for reverting later
-            terraformCount: 0,
-            history: [],
-            sizeLevel: 0,
-          }
-        }));
+        const newPlanet = {
+          imageUrl: newImageUrl,
+          baseImage: newImageUrl, // Store base for reverting later
+          terraformCount: 0,
+          history: [] as { imageUrl: string; description: string; timestamp: number }[],
+          sizeLevel: 0,
+        };
+
+        // Update local state immediately AND sync to Supabase
+        setUserPlanets(prev => ({ ...prev, [userId]: newPlanet }));
+        saveUserPlanetToSupabase(userId, newPlanet);
 
         gameRef.current?.updateUserPlanetImage(userId, newImageUrl, 0, 0);
-
-        // Sync planet to backend for multiplayer (including empty history for new planet)
-        updatePlayerData({
-          planet_image_url: newImageUrl,
-          planet_terraform_count: 0,
-          planet_size_level: 0,
-          planet_history: [], // New planet starts with empty history
-        });
 
         // Record prompt for history
         recordPrompt({
@@ -1614,35 +1634,27 @@ function App() {
 
         // Update user's planet
         const newTerraformCount = currentPlanet.terraformCount + 1;
-        setUserPlanets(prev => ({
-          ...prev,
-          [userId]: {
-            imageUrl: newImageUrl,
-            terraformCount: newTerraformCount,
-            history: [...currentPlanet.history, {
-              imageUrl: newImageUrl,
-              description: promptText,
-              timestamp: Date.now(),
-            }],
-            sizeLevel: currentPlanet.sizeLevel,
-          }
-        }));
-
-        // Update in game (with new size)
-        gameRef.current?.updateUserPlanetImage(userId, newImageUrl, newTerraformCount, currentPlanet.sizeLevel);
-        soundManager.playPlanetUpgrade();
-
-        // Sync planet to backend for multiplayer (including history with prompts)
         const newHistory = [...currentPlanet.history, {
           imageUrl: newImageUrl,
           description: promptText,
           timestamp: Date.now(),
         }];
-        updatePlayerData({
-          planet_image_url: newImageUrl,
-          planet_terraform_count: newTerraformCount,
-          planet_history: newHistory,
-        });
+
+        const updatedPlanet = {
+          imageUrl: newImageUrl,
+          baseImage: currentPlanet.baseImage,
+          terraformCount: newTerraformCount,
+          history: newHistory,
+          sizeLevel: currentPlanet.sizeLevel,
+        };
+
+        // Update local state immediately AND sync to Supabase
+        setUserPlanets(prev => ({ ...prev, [userId]: updatedPlanet }));
+        saveUserPlanetToSupabase(userId, updatedPlanet);
+
+        // Update in game (with new size)
+        gameRef.current?.updateUserPlanetImage(userId, newImageUrl, newTerraformCount, currentPlanet.sizeLevel);
+        soundManager.playPlanetUpgrade();
 
         // Record prompt for history
         recordPrompt({
@@ -1690,9 +1702,21 @@ function App() {
     };
   };
 
-  // Get a user's planet (checks local state first, then teamPlayers for multiplayer data)
+  // Get a user's planet (checks Supabase data first, then local state, then teamPlayers)
   const getUserPlanet = (userId: string): UserPlanet => {
-    // First check local userPlanets (your own data with full history)
+    // First check supabaseUserPlanets (source of truth from hook)
+    const supabasePlanet = supabaseUserPlanets?.[userId];
+    if (supabasePlanet?.imageUrl) {
+      return {
+        imageUrl: supabasePlanet.imageUrl,
+        baseImage: supabasePlanet.baseImage,
+        terraformCount: supabasePlanet.terraformCount || 0,
+        history: supabasePlanet.history || [],
+        sizeLevel: supabasePlanet.sizeLevel || 0,
+      };
+    }
+
+    // Fallback to local userPlanets (for immediate updates before hook syncs)
     const planet = userPlanets[userId];
     if (planet?.imageUrl) {
       return {
@@ -1750,20 +1774,16 @@ function App() {
   // Select a planet image from history
   const selectPlanetFromHistory = (userId: string, imageUrl: string) => {
     const currentPlanet = getUserPlanet(userId);
-    setUserPlanets(prev => ({
-      ...prev,
-      [userId]: {
-        ...currentPlanet,
-        imageUrl,
-      }
-    }));
+    const updatedPlanet = {
+      ...currentPlanet,
+      imageUrl,
+    };
+
+    // Update local state immediately AND sync to Supabase
+    setUserPlanets(prev => ({ ...prev, [userId]: updatedPlanet }));
+    saveUserPlanetToSupabase(userId, updatedPlanet);
     gameRef.current?.updateUserPlanetImage(userId, imageUrl);
     soundManager.playUIClick();
-
-    // Sync selected planet image to backend (only if selecting for current user)
-    if (userId === state.currentUser) {
-      updatePlayerData({ planet_image_url: imageUrl });
-    }
   };
 
   // Buy planet size upgrade (max 5 levels)
@@ -1780,18 +1800,17 @@ function App() {
     // Deduct personal points and sync to backend
     setPersonalPoints(prev => prev - cost);
     updateRemotePersonalPoints(-cost);
-    setUserPlanets(prev => ({
-      ...prev,
-      [userId]: {
-        ...currentPlanet,
-        sizeLevel: newLevel,
-      }
-    }));
+
+    const updatedPlanet = {
+      ...currentPlanet,
+      sizeLevel: newLevel,
+    };
+
+    // Update local state immediately AND sync to Supabase
+    setUserPlanets(prev => ({ ...prev, [userId]: updatedPlanet }));
+    saveUserPlanetToSupabase(userId, updatedPlanet);
     gameRef.current?.updateUserPlanetSize(userId, newLevel);
     soundManager.playPlanetUpgrade();
-
-    // Sync planet size to backend for multiplayer
-    updatePlayerData({ planet_size_level: newLevel });
   };
 
   // Fire confetti based on size
@@ -2079,6 +2098,15 @@ function App() {
     }));
   }, [customPlanets, saveCustomPlanetsToSupabase]);
 
+  // Handle black hole death - show random funny message
+  const handleBlackHoleDeath = useCallback(() => {
+    const currentPlayer = teamPlayers.find(p => p.username === state.currentUser);
+    const name = currentPlayer?.displayName || 'Someone';
+    const randomMessage = blackHoleMessages[Math.floor(Math.random() * blackHoleMessages.length)].replace('{name}', name);
+    setEventNotification({ message: randomMessage, type: 'blackhole' });
+    setTimeout(() => setEventNotification(null), 4000);
+  }, [teamPlayers, state.currentUser, blackHoleMessages]);
+
   // Keep landing callbacks ref updated
   useEffect(() => {
     landingCallbacksRef.current = {
@@ -2089,8 +2117,9 @@ function App() {
       onOpenNotion: handleOpenNotion,
       onTerraform: handleTerraform,
       onDestroyPlanet: handleDestroyPlanet,
+      onBlackHoleDeath: handleBlackHoleDeath,
     };
-  }, [handleLand, handleTakeoff, handleColonize, handleClaimRequest, handleOpenNotion, handleTerraform, handleDestroyPlanet]);
+  }, [handleLand, handleTakeoff, handleColonize, handleClaimRequest, handleOpenNotion, handleTerraform, handleDestroyPlanet, handleBlackHoleDeath]);
 
   // Close all modals with Escape key
   useEffect(() => {
@@ -2610,6 +2639,7 @@ function App() {
       onOpenNotion: (url) => landingCallbacksRef.current.onOpenNotion(url),
       onTerraform: (planet) => landingCallbacksRef.current.onTerraform(planet),
       onDestroyPlanet: (planet) => landingCallbacksRef.current.onDestroyPlanet(planet),
+      onBlackHoleDeath: () => landingCallbacksRef.current.onBlackHoleDeath(),
     });
 
     // Sync notion planets immediately if already loaded
@@ -2773,6 +2803,32 @@ function App() {
           <span style={{ marginLeft: 6, color: '#aaa' }}>
             {pointToast.playerName || 'Someone'} earned points
             {pointToast.taskName && ` for: ${pointToast.taskName}`}
+          </span>
+        </div>
+      )}
+
+      {/* Event notification (join/leave/blackhole/upgrade/mission) */}
+      {eventNotification && (
+        <div style={{
+          ...styles.eventNotification,
+          borderColor: {
+            join: '#4ade80',
+            leave: '#666',
+            blackhole: '#8b5cf6',
+            upgrade: '#22d3ee',
+            mission: '#f59e0b',
+          }[eventNotification.type],
+        }}>
+          <span style={{
+            color: {
+              join: '#4ade80',
+              leave: '#888',
+              blackhole: '#a78bfa',
+              upgrade: '#67e8f9',
+              mission: '#fbbf24',
+            }[eventNotification.type],
+          }}>
+            {eventNotification.message}
           </span>
         </div>
       )}
@@ -3671,7 +3727,7 @@ function App() {
                     <h4 style={{ color: '#888', fontSize: '0.8rem', marginBottom: '0.5rem', textTransform: 'uppercase' }}>
                       Planet Versions
                     </h4>
-                    <div className="hidden-scrollbar" style={{ maxHeight: 120, overflowY: 'auto' }}>
+                    <div className="hidden-scrollbar" style={{ maxHeight: 200, overflowY: 'auto' }}>
                       {/* Base planet option */}
                       {getUserPlanet(state.currentUser || '').baseImage && (
                         <div style={{
@@ -4267,37 +4323,6 @@ function App() {
                     <p style={styles.resetWarning}>
                       Resets all of the above (points, ships, planets, goals)
                     </p>
-
-                    <div style={styles.resetDivider} />
-
-                    <h3 style={styles.resetSectionTitle}>Data Migration</h3>
-                    <p style={{ color: '#888', fontSize: '12px', marginBottom: '12px' }}>
-                      One-time migration from localStorage to Supabase. Run this once to sync your local data.
-                    </p>
-                    <button
-                      style={{
-                        ...styles.resetButtonSmall,
-                        background: migrationStatus ? (migrationStatus.includes('complete') ? '#22c55e' : '#ef4444') : '#3b82f6',
-                        width: '100%',
-                      }}
-                      onClick={async () => {
-                        setMigrationStatus('Migrating...');
-                        const result = await migrateFromLocalStorage();
-                        setMigrationStatus(result.message);
-                      }}
-                      disabled={migrationStatus === 'Migrating...'}
-                    >
-                      {migrationStatus === 'Migrating...' ? '⏳ Migrating...' : '📤 Migrate Local Data to Supabase'}
-                    </button>
-                    {migrationStatus && migrationStatus !== 'Migrating...' && (
-                      <p style={{
-                        color: migrationStatus.includes('complete') || migrationStatus.includes('already') ? '#4ade80' : '#ef4444',
-                        fontSize: '12px',
-                        marginTop: '8px',
-                      }}>
-                        {migrationStatus}
-                      </p>
-                    )}
                   </div>
                 )}
 
@@ -4728,6 +4753,12 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'rgba(0,0,0,0.9)', border: '1px solid #4ade80',
     color: '#fff', padding: '0.5rem 1rem', borderRadius: 8, fontSize: '0.85rem',
     display: 'flex', alignItems: 'center', animation: 'fadeIn 0.3s ease',
+  },
+  eventNotification: {
+    position: 'absolute', top: 110, left: '50%', transform: 'translateX(-50%)',
+    background: 'rgba(0,0,0,0.9)', border: '1px solid #666',
+    color: '#fff', padding: '0.5rem 1rem', borderRadius: 8, fontSize: '0.85rem',
+    animation: 'fadeIn 0.3s ease', whiteSpace: 'nowrap',
   },
   onlinePlayers: {
     position: 'absolute', left: 20, top: 70, background: 'rgba(0,0,0,0.7)',
