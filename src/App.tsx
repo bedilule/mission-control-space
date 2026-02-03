@@ -192,6 +192,7 @@ interface Goals {
 
 interface UserPlanet {
   imageUrl: string;
+  baseImage?: string; // Original base planet image (for reverting)
   terraformCount: number;
   history: { imageUrl: string; description: string; timestamp: number }[];
   sizeLevel: number; // 0-5 levels
@@ -1151,6 +1152,7 @@ function App() {
           ...prev,
           [userId]: {
             imageUrl: newImageUrl,
+            baseImage: newImageUrl, // Store base for reverting later
             terraformCount: 0,
             history: [],
             sizeLevel: 0,
@@ -1316,6 +1318,7 @@ function App() {
     const planet = userPlanets[userId];
     return {
       imageUrl: planet?.imageUrl || DEFAULT_PLANET_IMAGE,
+      baseImage: planet?.baseImage,
       terraformCount: planet?.terraformCount || 0,
       history: planet?.history || [],
       sizeLevel: planet?.sizeLevel || 0,
@@ -3079,12 +3082,30 @@ function App() {
                 })()}
 
                 {/* Terraform history */}
-                {getUserPlanet(state.currentUser || '').history.length > 0 && (
+                {(getUserPlanet(state.currentUser || '').baseImage || getUserPlanet(state.currentUser || '').history.length > 0) && (
                   <div style={{ marginBottom: '1rem' }}>
                     <h4 style={{ color: '#888', fontSize: '0.8rem', marginBottom: '0.5rem', textTransform: 'uppercase' }}>
-                      Terraform History
+                      Planet Versions
                     </h4>
                     <div className="hidden-scrollbar" style={{ maxHeight: 120, overflowY: 'auto' }}>
+                      {/* Base planet option */}
+                      {getUserPlanet(state.currentUser || '').baseImage && (
+                        <div style={{
+                          ...styles.historyItem,
+                          cursor: 'pointer',
+                          border: getUserPlanet(state.currentUser || '').imageUrl === getUserPlanet(state.currentUser || '').baseImage ? '2px solid #4ade80' : '2px solid transparent',
+                        }} onClick={() => selectPlanetFromHistory(state.currentUser || '', getUserPlanet(state.currentUser || '').baseImage!)}>
+                          <img src={getUserPlanet(state.currentUser || '').baseImage} alt="" style={styles.historyThumb} />
+                          <div style={styles.historyInfo}>
+                            <span style={styles.historyDesc}>Base Planet</span>
+                            <span style={styles.historyDate}>Original</span>
+                          </div>
+                          {getUserPlanet(state.currentUser || '').imageUrl === getUserPlanet(state.currentUser || '').baseImage && (
+                            <span style={{ color: '#4ade80', fontSize: '0.75rem' }}>✓</span>
+                          )}
+                        </div>
+                      )}
+                      {/* Terraform history */}
                       {getUserPlanet(state.currentUser || '').history.map((entry, i) => (
                         <div key={i} style={{
                           ...styles.historyItem,
