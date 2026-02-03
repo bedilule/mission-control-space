@@ -580,6 +580,11 @@ function App() {
   } | null>(null);
   const [showSyncDetails, setShowSyncDetails] = useState(false);
 
+  // Admin panel state
+  const [adminTab, setAdminTab] = useState<'goals' | 'players' | 'notion' | 'reset'>('goals');
+  const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
+  const [playerPointsInput, setPlayerPointsInput] = useState('');
+
   // Prompt configs (loaded from JSON)
   const [shipPrompts, setShipPrompts] = useState<ShipPrompts>(DEFAULT_SHIP_PROMPTS);
   const [planetPrompts, setPlanetPrompts] = useState<PlanetPrompts>(DEFAULT_PLANET_PROMPTS);
@@ -1031,6 +1036,203 @@ function App() {
       alert('Failed to reset everything. Check console for details.');
     }
   };
+
+  // ============ Individual Player Management Functions ============
+
+  // Set player's points to a specific value
+  const setPlayerPoints = async (playerId: string, points: number) => {
+    if (!team?.id) return;
+
+    try {
+      const player = teamPlayers.find(p => p.id === playerId);
+      if (!player) return;
+
+      // Update player's personal_points in Supabase
+      await supabase
+        .from('players')
+        .update({ personal_points: points })
+        .eq('id', playerId);
+
+      // Log as a manual adjustment transaction
+      const adjustment = points - player.personalPoints;
+      if (adjustment !== 0) {
+        await supabase.from('point_transactions').insert({
+          team_id: team.id,
+          player_id: playerId,
+          source: 'manual',
+          points: adjustment,
+          point_type: 'personal',
+          task_name: `Admin adjustment: set to ${points}`,
+        });
+      }
+
+      alert(`${player.displayName}'s points set to ${points}`);
+    } catch (err) {
+      console.error('Failed to set player points:', err);
+      alert('Failed to set player points. Check console for details.');
+    }
+  };
+
+  // Reset individual player's points to 0
+  const resetPlayerPoints = async (playerId: string) => {
+    if (!confirm('Reset this player\'s points to 0?')) return;
+
+    const player = teamPlayers.find(p => p.id === playerId);
+    if (!player) return;
+
+    await setPlayerPoints(playerId, 0);
+  };
+
+  // Reset individual player's ship
+  const resetPlayerShip = async (playerId: string) => {
+    if (!confirm('Reset this player\'s ship to default?')) return;
+
+    try {
+      const player = teamPlayers.find(p => p.id === playerId);
+      if (!player) return;
+
+      await supabase
+        .from('players')
+        .update({
+          ship_current_image: '/ship-base.png',
+          ship_effects: {
+            glowColor: null,
+            trailType: 'default',
+            sizeBonus: 0,
+            speedBonus: 0,
+            landingSpeedBonus: 0,
+            ownedGlows: [],
+            ownedTrails: [],
+            hasDestroyCanon: false,
+            destroyCanonEquipped: false,
+          },
+          ship_upgrades: [],
+        })
+        .eq('id', playerId);
+
+      // If it's the current user, also reset local state
+      if (player.username === state.currentUser) {
+        setUserShips(prev => {
+          const updated = { ...prev };
+          delete updated[player.username];
+          return updated;
+        });
+        setState(prev => ({
+          ...prev,
+          robotImage: '/ship-base.png',
+          robotDescription: 'A small friendly spaceship',
+          upgradeCount: 0,
+        }));
+      }
+
+      alert(`${player.displayName}'s ship has been reset!`);
+    } catch (err) {
+      console.error('Failed to reset player ship:', err);
+      alert('Failed to reset player ship. Check console for details.');
+    }
+  };
+
+  // Reset individual player's planet
+  const resetPlayerPlanet = async (playerId: string) => {
+    if (!confirm('Reset this player\'s planet? This will remove their terraforming progress.')) return;
+
+    try {
+      const player = teamPlayers.find(p => p.id === playerId);
+      if (!player) return;
+
+      await supabase
+        .from('players')
+        .update({
+          planet_image_url: null,
+          planet_terraform_count: 0,
+          planet_size_level: 0,
+          planet_history: [],
+        })
+        .eq('id', playerId);
+
+      // If it's the current user, also reset local state
+      if (player.username === state.currentUser) {
+        setUserPlanets(prev => {
+          const updated = { ...prev };
+          delete updated[player.username];
+          return updated;
+        });
+      }
+
+      alert(`${player.displayName}'s planet has been reset!`);
+    } catch (err) {
+      console.error('Failed to reset player planet:', err);
+      alert('Failed to reset player planet. Check console for details.');
+    }
+  };
+
+  // Reset individual player's everything
+  const resetPlayerAll = async (playerId: string) => {
+    if (!confirm('Reset ALL data for this player (points, ship, planet)?')) return;
+
+    try {
+      const player = teamPlayers.find(p => p.id === playerId);
+      if (!player) return;
+
+      // Delete player's point transactions
+      await supabase
+        .from('point_transactions')
+        .delete()
+        .eq('player_id', playerId);
+
+      // Reset all player data
+      await supabase
+        .from('players')
+        .update({
+          personal_points: 0,
+          ship_current_image: '/ship-base.png',
+          ship_effects: {
+            glowColor: null,
+            trailType: 'default',
+            sizeBonus: 0,
+            speedBonus: 0,
+            landingSpeedBonus: 0,
+            ownedGlows: [],
+            ownedTrails: [],
+            hasDestroyCanon: false,
+            destroyCanonEquipped: false,
+          },
+          ship_upgrades: [],
+          planet_image_url: null,
+          planet_terraform_count: 0,
+          planet_size_level: 0,
+          planet_history: [],
+        })
+        .eq('id', playerId);
+
+      // If it's the current user, also reset local state
+      if (player.username === state.currentUser) {
+        setUserShips(prev => {
+          const updated = { ...prev };
+          delete updated[player.username];
+          return updated;
+        });
+        setUserPlanets(prev => {
+          const updated = { ...prev };
+          delete updated[player.username];
+          return updated;
+        });
+        setState(prev => ({
+          ...prev,
+          robotImage: '/ship-base.png',
+          robotDescription: 'A small friendly spaceship',
+          upgradeCount: 0,
+        }));
+      }
+
+      alert(`${player.displayName}'s data has been completely reset!`);
+    } catch (err) {
+      console.error('Failed to reset player:', err);
+      alert('Failed to reset player. Check console for details.');
+    }
+  };
+
+  // ============ End Individual Player Management Functions ============
 
   // Sync with Notion (admin only)
   const syncWithNotion = async () => {
@@ -3312,174 +3514,388 @@ function App() {
 
             {!editingGoal ? (
               <>
-                {/* Goals by type */}
-                {(['business', 'product', 'achievement'] as const).map(type => (
-                  <div key={type} style={styles.goalsSection}>
-                    <div style={styles.goalsSectionHeader}>
-                      <h3 style={{ ...styles.goalsSectionTitle, color: type === 'business' ? '#4ade80' : type === 'product' ? '#5490ff' : '#ffd700' }}>
-                        {type === 'business' ? '💼' : type === 'product' ? '🚀' : '🏆'} {type.charAt(0).toUpperCase() + type.slice(1)}
-                      </h3>
-                      <button style={styles.addGoalButton} onClick={() => addGoal(type)}>+ Add</button>
-                    </div>
-                    <div style={styles.goalsList}>
-                      {goals[type].map(goal => (
-                        <div
-                          key={goal.id}
-                          style={{
-                            ...styles.goalItem,
-                            borderLeftColor: type === 'business' ? '#4ade80' : type === 'product' ? '#5490ff' : '#ffd700',
-                            opacity: state.completedPlanets.includes(goal.id) ? 0.5 : 1,
-                          }}
-                        >
-                          <div style={styles.goalInfo}>
-                            <span style={styles.goalName}>
-                              {state.completedPlanets.includes(goal.id) && '✓ '}
-                              {goal.name}
-                            </span>
-                            <span style={styles.goalSize}>{goal.size}</span>
-                          </div>
-                          <div style={styles.goalActions}>
-                            <button
-                              style={styles.editButton}
-                              onClick={() => setEditingGoal({ ...goal, type })}
-                            >
-                              Edit
-                            </button>
-                            <button
-                              style={styles.deleteButton}
-                              onClick={() => deleteGoal(type, goal.id)}
-                            >
-                              ×
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
+                {/* Tab Navigation */}
+                <div style={{
+                  display: 'flex',
+                  gap: '4px',
+                  marginBottom: '1rem',
+                  background: 'rgba(255,255,255,0.05)',
+                  borderRadius: '8px',
+                  padding: '4px',
+                }}>
+                  {([
+                    { id: 'goals', label: '🎯 Goals' },
+                    { id: 'players', label: '👥 Players' },
+                    { id: 'notion', label: '📋 Notion' },
+                    { id: 'reset', label: '🗑️ Reset' },
+                  ] as const).map(tab => (
+                    <button
+                      key={tab.id}
+                      style={{
+                        flex: 1,
+                        padding: '8px 12px',
+                        border: 'none',
+                        borderRadius: '6px',
+                        background: adminTab === tab.id ? 'rgba(255, 165, 0, 0.2)' : 'transparent',
+                        color: adminTab === tab.id ? '#ffa500' : '#888',
+                        fontWeight: adminTab === tab.id ? 'bold' : 'normal',
+                        cursor: 'pointer',
+                        fontSize: '0.85rem',
+                        transition: 'all 0.2s',
+                      }}
+                      onClick={() => setAdminTab(tab.id)}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
 
-                {/* Notion Sync Section */}
-                <div style={{ ...styles.resetSection, borderColor: '#00c8ff' }}>
-                  <h3 style={{ ...styles.resetSectionTitle, color: '#00c8ff' }}>📋 Notion Sync</h3>
-                  <p style={{ color: '#888', fontSize: '12px', marginBottom: '12px' }}>
-                    Sync planets with Notion database. Creates missing planets and removes deleted ones.
-                  </p>
-                  <button
-                    style={{
-                      ...styles.resetButtonSmall,
-                      background: isSyncingNotion ? '#333' : 'linear-gradient(135deg, #00c8ff, #0088cc)',
-                      color: '#fff',
-                      width: '100%',
-                    }}
-                    onClick={syncWithNotion}
-                    disabled={isSyncingNotion}
-                  >
-                    {isSyncingNotion ? '🔄 Syncing...' : '🔄 Sync with Notion'}
-                  </button>
-                  {syncResult && (
-                    <div style={{ marginTop: '12px' }}>
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          cursor: 'pointer',
-                          padding: '8px',
-                          background: 'rgba(255,255,255,0.05)',
-                          borderRadius: '6px',
-                        }}
-                        onClick={() => setShowSyncDetails(!showSyncDetails)}
-                      >
-                        <span style={{ fontSize: '12px', color: '#aaa' }}>
-                          ✅ {syncResult.created.length} | 🔄 {syncResult.updated.length} | 🗑️ {syncResult.deleted.length} | ❌ {syncResult.errors.length}
-                        </span>
-                        <span style={{ color: '#888' }}>{showSyncDetails ? '▲' : '▼'}</span>
+                {/* Goals Tab */}
+                {adminTab === 'goals' && (
+                  <>
+                    {(['business', 'product', 'achievement'] as const).map(type => (
+                      <div key={type} style={styles.goalsSection}>
+                        <div style={styles.goalsSectionHeader}>
+                          <h3 style={{ ...styles.goalsSectionTitle, color: type === 'business' ? '#4ade80' : type === 'product' ? '#5490ff' : '#ffd700' }}>
+                            {type === 'business' ? '💼' : type === 'product' ? '🚀' : '🏆'} {type.charAt(0).toUpperCase() + type.slice(1)}
+                          </h3>
+                          <button style={styles.addGoalButton} onClick={() => addGoal(type)}>+ Add</button>
+                        </div>
+                        <div style={styles.goalsList}>
+                          {goals[type].map(goal => (
+                            <div
+                              key={goal.id}
+                              style={{
+                                ...styles.goalItem,
+                                borderLeftColor: type === 'business' ? '#4ade80' : type === 'product' ? '#5490ff' : '#ffd700',
+                                opacity: state.completedPlanets.includes(goal.id) ? 0.5 : 1,
+                              }}
+                            >
+                              <div style={styles.goalInfo}>
+                                <span style={styles.goalName}>
+                                  {state.completedPlanets.includes(goal.id) && '✓ '}
+                                  {goal.name}
+                                </span>
+                                <span style={styles.goalSize}>{goal.size}</span>
+                              </div>
+                              <div style={styles.goalActions}>
+                                <button
+                                  style={styles.editButton}
+                                  onClick={() => setEditingGoal({ ...goal, type })}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  style={styles.deleteButton}
+                                  onClick={() => deleteGoal(type, goal.id)}
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                      {showSyncDetails && (
-                        <div style={{
-                          marginTop: '8px',
-                          padding: '10px',
-                          background: 'rgba(0,0,0,0.3)',
-                          borderRadius: '6px',
-                          maxHeight: '200px',
-                          overflowY: 'auto',
-                          fontSize: '11px',
-                        }}>
-                          {syncResult.created.length > 0 && (
-                            <div style={{ marginBottom: '8px' }}>
-                              <div style={{ color: '#4ade80', fontWeight: 'bold', marginBottom: '4px' }}>✅ Created ({syncResult.created.length}):</div>
-                              {syncResult.created.map((name, i) => (
-                                <div key={i} style={{ color: '#888', paddingLeft: '10px' }}>• {name}</div>
-                              ))}
-                            </div>
-                          )}
-                          {syncResult.updated.length > 0 && (
-                            <div style={{ marginBottom: '8px' }}>
-                              <div style={{ color: '#60a5fa', fontWeight: 'bold', marginBottom: '4px' }}>🔄 Updated ({syncResult.updated.length}):</div>
-                              {syncResult.updated.map((name, i) => (
-                                <div key={i} style={{ color: '#888', paddingLeft: '10px' }}>• {name}</div>
-                              ))}
-                            </div>
-                          )}
-                          {syncResult.deleted.length > 0 && (
-                            <div style={{ marginBottom: '8px' }}>
-                              <div style={{ color: '#f97316', fontWeight: 'bold', marginBottom: '4px' }}>🗑️ Deleted ({syncResult.deleted.length}):</div>
-                              {syncResult.deleted.map((name, i) => (
-                                <div key={i} style={{ color: '#888', paddingLeft: '10px' }}>• {name}</div>
-                              ))}
-                            </div>
-                          )}
-                          {syncResult.errors.length > 0 && (
-                            <div style={{ marginBottom: '8px' }}>
-                              <div style={{ color: '#ef4444', fontWeight: 'bold', marginBottom: '4px' }}>❌ Errors ({syncResult.errors.length}):</div>
-                              {syncResult.errors.map((err, i) => (
-                                <div key={i} style={{ color: '#888', paddingLeft: '10px', wordBreak: 'break-word' }}>• {err}</div>
-                              ))}
-                            </div>
-                          )}
-                          {syncResult.created.length === 0 && syncResult.updated.length === 0 && syncResult.deleted.length === 0 && syncResult.errors.length === 0 && (
-                            <div style={{ color: '#888' }}>Everything is in sync!</div>
-                          )}
-                        </div>
-                      )}
+                    ))}
+                  </>
+                )}
+
+                {/* Players Tab */}
+                {adminTab === 'players' && (
+                  <div style={{ ...styles.resetSection, borderColor: '#a855f7' }}>
+                    <h3 style={{ ...styles.resetSectionTitle, color: '#a855f7' }}>👥 Player Management</h3>
+
+                    {/* Player Selector */}
+                    <div style={{ marginBottom: '1rem' }}>
+                      <label style={{ ...styles.label, marginBottom: '8px', display: 'block' }}>Select Player</label>
+                      <select
+                        style={{
+                          ...styles.select,
+                          width: '100%',
+                          padding: '10px 12px',
+                          fontSize: '0.9rem',
+                        }}
+                        value={selectedPlayerId || ''}
+                        onChange={e => {
+                          setSelectedPlayerId(e.target.value || null);
+                          const player = teamPlayers.find(p => p.id === e.target.value);
+                          setPlayerPointsInput(player ? String(player.personalPoints) : '');
+                        }}
+                      >
+                        <option value="">Choose a player...</option>
+                        {teamPlayers.map(player => (
+                          <option key={player.id} value={player.id}>
+                            {player.displayName} ({player.username}) - ⭐ {player.personalPoints}
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                  )}
-                </div>
 
-                {/* Reset Section */}
-                <div style={styles.resetSection}>
-                  <h3 style={styles.resetSectionTitle}>Reset Options</h3>
+                    {/* Selected Player Info & Actions */}
+                    {selectedPlayerId && (() => {
+                      const player = teamPlayers.find(p => p.id === selectedPlayerId);
+                      if (!player) return null;
 
-                  <div style={styles.resetGrid}>
-                    <button style={styles.resetButtonSmall} onClick={resetPoints}>
-                      💰 Reset Points
-                    </button>
-                    <button style={styles.resetButtonSmall} onClick={resetShipUpgrades}>
-                      🚀 Reset Ships
-                    </button>
-                    <button style={styles.resetButtonSmall} onClick={resetPlanetProgress}>
-                      🌍 Reset Progress
-                    </button>
-                    <button style={styles.resetButtonSmall} onClick={resetPlanetUpgrades}>
-                      🔧 Reset Planet Upgrades
-                    </button>
-                    <button style={styles.resetButtonSmall} onClick={resetCustomPlanets}>
-                      🪐 Delete Custom Planets
-                    </button>
-                    <button style={styles.resetButtonSmall} onClick={resetGoals}>
-                      🎯 Reset Goals
-                    </button>
+                      return (
+                        <div style={{
+                          background: 'rgba(168, 85, 247, 0.1)',
+                          borderRadius: '8px',
+                          padding: '1rem',
+                          border: '1px solid rgba(168, 85, 247, 0.3)',
+                        }}>
+                          {/* Player Info Header */}
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '12px',
+                            marginBottom: '1rem',
+                            paddingBottom: '1rem',
+                            borderBottom: '1px solid rgba(255,255,255,0.1)',
+                          }}>
+                            <div style={{
+                              width: 48,
+                              height: 48,
+                              borderRadius: '50%',
+                              background: player.color,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '1.2rem',
+                              fontWeight: 'bold',
+                              color: '#fff',
+                            }}>
+                              {player.displayName.charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                              <div style={{ color: '#fff', fontWeight: 'bold', fontSize: '1.1rem' }}>
+                                {player.displayName}
+                              </div>
+                              <div style={{ color: '#888', fontSize: '0.8rem' }}>
+                                {player.isOnline ? '🟢 Online' : '⚫ Offline'} • Ship Lv.{player.shipLevel} • Planet Lv.{player.planetSizeLevel}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Points Adjustment */}
+                          <div style={{ marginBottom: '1rem' }}>
+                            <label style={{ ...styles.label, marginBottom: '8px', display: 'block' }}>Points</label>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <input
+                                type="number"
+                                style={{
+                                  ...styles.input,
+                                  flex: 1,
+                                  padding: '10px 12px',
+                                }}
+                                value={playerPointsInput}
+                                onChange={e => setPlayerPointsInput(e.target.value)}
+                                placeholder="Enter points..."
+                              />
+                              <button
+                                style={{
+                                  ...styles.saveButton,
+                                  padding: '10px 16px',
+                                  whiteSpace: 'nowrap',
+                                }}
+                                onClick={() => {
+                                  const points = parseInt(playerPointsInput, 10);
+                                  if (!isNaN(points) && points >= 0) {
+                                    setPlayerPoints(selectedPlayerId, points);
+                                  }
+                                }}
+                              >
+                                Set Points
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Individual Reset Actions */}
+                          <div style={{ marginBottom: '0.5rem' }}>
+                            <label style={{ ...styles.label, marginBottom: '8px', display: 'block' }}>Reset Actions</label>
+                            <div style={{
+                              display: 'grid',
+                              gridTemplateColumns: 'repeat(2, 1fr)',
+                              gap: '8px',
+                            }}>
+                              <button
+                                style={{
+                                  ...styles.resetButtonSmall,
+                                  background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
+                                }}
+                                onClick={() => resetPlayerPoints(selectedPlayerId)}
+                              >
+                                💰 Reset Points
+                              </button>
+                              <button
+                                style={{
+                                  ...styles.resetButtonSmall,
+                                  background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
+                                }}
+                                onClick={() => resetPlayerShip(selectedPlayerId)}
+                              >
+                                🚀 Reset Ship
+                              </button>
+                              <button
+                                style={{
+                                  ...styles.resetButtonSmall,
+                                  background: 'linear-gradient(135deg, #a855f7, #9333ea)',
+                                }}
+                                onClick={() => resetPlayerPlanet(selectedPlayerId)}
+                              >
+                                🌍 Reset Planet
+                              </button>
+                              <button
+                                style={{
+                                  ...styles.resetButtonSmall,
+                                  background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                                }}
+                                onClick={() => resetPlayerAll(selectedPlayerId)}
+                              >
+                                🗑️ Reset All
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {!selectedPlayerId && (
+                      <p style={{ color: '#666', textAlign: 'center', padding: '2rem 0' }}>
+                        Select a player to manage their data
+                      </p>
+                    )}
                   </div>
+                )}
 
-                  <div style={styles.resetDivider} />
+                {/* Notion Tab */}
+                {adminTab === 'notion' && (
+                  <div style={{ ...styles.resetSection, borderColor: '#00c8ff' }}>
+                    <h3 style={{ ...styles.resetSectionTitle, color: '#00c8ff' }}>📋 Notion Sync</h3>
+                    <p style={{ color: '#888', fontSize: '12px', marginBottom: '12px' }}>
+                      Sync planets with Notion database. Creates missing planets and removes deleted ones.
+                    </p>
+                    <button
+                      style={{
+                        ...styles.resetButtonSmall,
+                        background: isSyncingNotion ? '#333' : 'linear-gradient(135deg, #00c8ff, #0088cc)',
+                        color: '#fff',
+                        width: '100%',
+                      }}
+                      onClick={syncWithNotion}
+                      disabled={isSyncingNotion}
+                    >
+                      {isSyncingNotion ? '🔄 Syncing...' : '🔄 Sync with Notion'}
+                    </button>
+                    {syncResult && (
+                      <div style={{ marginTop: '12px' }}>
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            cursor: 'pointer',
+                            padding: '8px',
+                            background: 'rgba(255,255,255,0.05)',
+                            borderRadius: '6px',
+                          }}
+                          onClick={() => setShowSyncDetails(!showSyncDetails)}
+                        >
+                          <span style={{ fontSize: '12px', color: '#aaa' }}>
+                            ✅ {syncResult.created.length} | 🔄 {syncResult.updated.length} | 🗑️ {syncResult.deleted.length} | ❌ {syncResult.errors.length}
+                          </span>
+                          <span style={{ color: '#888' }}>{showSyncDetails ? '▲' : '▼'}</span>
+                        </div>
+                        {showSyncDetails && (
+                          <div style={{
+                            marginTop: '8px',
+                            padding: '10px',
+                            background: 'rgba(0,0,0,0.3)',
+                            borderRadius: '6px',
+                            maxHeight: '200px',
+                            overflowY: 'auto',
+                            fontSize: '11px',
+                          }}>
+                            {syncResult.created.length > 0 && (
+                              <div style={{ marginBottom: '8px' }}>
+                                <div style={{ color: '#4ade80', fontWeight: 'bold', marginBottom: '4px' }}>✅ Created ({syncResult.created.length}):</div>
+                                {syncResult.created.map((name, i) => (
+                                  <div key={i} style={{ color: '#888', paddingLeft: '10px' }}>• {name}</div>
+                                ))}
+                              </div>
+                            )}
+                            {syncResult.updated.length > 0 && (
+                              <div style={{ marginBottom: '8px' }}>
+                                <div style={{ color: '#60a5fa', fontWeight: 'bold', marginBottom: '4px' }}>🔄 Updated ({syncResult.updated.length}):</div>
+                                {syncResult.updated.map((name, i) => (
+                                  <div key={i} style={{ color: '#888', paddingLeft: '10px' }}>• {name}</div>
+                                ))}
+                              </div>
+                            )}
+                            {syncResult.deleted.length > 0 && (
+                              <div style={{ marginBottom: '8px' }}>
+                                <div style={{ color: '#f97316', fontWeight: 'bold', marginBottom: '4px' }}>🗑️ Deleted ({syncResult.deleted.length}):</div>
+                                {syncResult.deleted.map((name, i) => (
+                                  <div key={i} style={{ color: '#888', paddingLeft: '10px' }}>• {name}</div>
+                                ))}
+                              </div>
+                            )}
+                            {syncResult.errors.length > 0 && (
+                              <div style={{ marginBottom: '8px' }}>
+                                <div style={{ color: '#ef4444', fontWeight: 'bold', marginBottom: '4px' }}>❌ Errors ({syncResult.errors.length}):</div>
+                                {syncResult.errors.map((err, i) => (
+                                  <div key={i} style={{ color: '#888', paddingLeft: '10px', wordBreak: 'break-word' }}>• {err}</div>
+                                ))}
+                              </div>
+                            )}
+                            {syncResult.created.length === 0 && syncResult.updated.length === 0 && syncResult.deleted.length === 0 && syncResult.errors.length === 0 && (
+                              <div style={{ color: '#888' }}>Everything is in sync!</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
 
-                  <button style={styles.resetButton} onClick={resetEverything}>
-                    🗑️ Reset Everything
-                  </button>
-                  <p style={styles.resetWarning}>
-                    Resets all of the above (points, ships, planets, goals)
-                  </p>
-                </div>
+                {/* Reset Tab */}
+                {adminTab === 'reset' && (
+                  <div style={styles.resetSection}>
+                    <h3 style={styles.resetSectionTitle}>Reset All Players</h3>
+                    <p style={{ color: '#888', fontSize: '12px', marginBottom: '12px' }}>
+                      These actions affect ALL players in the team.
+                    </p>
+
+                    <div style={styles.resetGrid}>
+                      <button style={styles.resetButtonSmall} onClick={resetPoints}>
+                        💰 Reset Points
+                      </button>
+                      <button style={styles.resetButtonSmall} onClick={resetShipUpgrades}>
+                        🚀 Reset Ships
+                      </button>
+                      <button style={styles.resetButtonSmall} onClick={resetPlanetProgress}>
+                        🌍 Reset Progress
+                      </button>
+                      <button style={styles.resetButtonSmall} onClick={resetPlanetUpgrades}>
+                        🔧 Reset Planet Upgrades
+                      </button>
+                      <button style={styles.resetButtonSmall} onClick={resetCustomPlanets}>
+                        🪐 Delete Custom Planets
+                      </button>
+                      <button style={styles.resetButtonSmall} onClick={resetGoals}>
+                        🎯 Reset Goals
+                      </button>
+                    </div>
+
+                    <div style={styles.resetDivider} />
+
+                    <button style={styles.resetButton} onClick={resetEverything}>
+                      🗑️ Reset Everything
+                    </button>
+                    <p style={styles.resetWarning}>
+                      Resets all of the above (points, ships, planets, goals)
+                    </p>
+                  </div>
+                )}
 
                 <button style={styles.cancelButton} onClick={() => setShowSettings(false)}>
                   Close
