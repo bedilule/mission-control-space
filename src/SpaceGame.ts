@@ -2149,25 +2149,54 @@ export class SpaceGame {
       p.y += p.vy;
       p.life--;
 
-      // Check collision with planets
-      for (const planet of this.state.planets) {
-        // Only damage: completed planets that can be damaged
-        if (!this.canDamagePlanet(planet)) continue;
+      let bulletRemoved = false;
 
+      // Check collision with ALL planets
+      for (const planet of this.state.planets) {
         const dx = p.x - planet.x;
         const dy = p.y - planet.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
 
         if (dist < planet.radius) {
-          // Hit! Apply damage
-          this.damagePlanet(planet, p.damage, p.x, p.y);
-          this.projectiles.splice(i, 1);
-          break;
+          if (this.canDamagePlanet(planet)) {
+            // Hit damageable planet - apply damage and remove bullet
+            this.damagePlanet(planet, p.damage, p.x, p.y);
+            this.projectiles.splice(i, 1);
+            bulletRemoved = true;
+            break;
+          } else {
+            // Hit shielded planet - bounce off
+            const nx = dx / dist;
+            const ny = dy / dist;
+
+            // Push bullet out of planet
+            p.x = planet.x + nx * (planet.radius + 2);
+            p.y = planet.y + ny * (planet.radius + 2);
+
+            // Reflect velocity (like ship bounce)
+            const dot = p.vx * nx + p.vy * ny;
+            p.vx -= 2 * dot * nx * 0.8;
+            p.vy -= 2 * dot * ny * 0.8;
+
+            // Emit shield particles
+            this.emitShieldParticles(
+              planet.x + nx * planet.radius,
+              planet.y + ny * planet.radius,
+              nx, ny, planet.color
+            );
+
+            // Play bounce sound
+            soundManager.playCollision();
+
+            // Reduce bullet life on bounce
+            p.life = Math.min(p.life, 20);
+            break;
+          }
         }
       }
 
-      // Remove if life expired
-      if (p.life <= 0) {
+      // Remove if life expired (and not already removed)
+      if (!bulletRemoved && p.life <= 0) {
         this.projectiles.splice(i, 1);
       }
     }
@@ -2252,6 +2281,29 @@ export class SpaceGame {
         life: 20 + Math.random() * 10,
         maxLife: 30,
         size: Math.random() * 4 + 2,
+        color: colors[Math.floor(Math.random() * colors.length)],
+      });
+    }
+  }
+
+  // Emit shield particles when bullet bounces off protected planet
+  private emitShieldParticles(x: number, y: number, nx: number, ny: number, planetColor: string) {
+    // Cyan/blue shield colors mixed with planet color
+    const colors = ['#00ffff', '#44aaff', '#88ddff', '#ffffff', planetColor];
+    for (let i = 0; i < 8; i++) {
+      // Spread particles along the shield surface
+      const perpAngle = Math.atan2(ny, nx) + Math.PI / 2;
+      const spread = (Math.random() - 0.5) * 1.5;
+      const outSpeed = Math.random() * 3 + 1;
+
+      this.state.particles.push({
+        x: x + Math.cos(perpAngle + spread) * 5,
+        y: y + Math.sin(perpAngle + spread) * 5,
+        vx: nx * outSpeed + Math.cos(perpAngle + spread) * 2,
+        vy: ny * outSpeed + Math.sin(perpAngle + spread) * 2,
+        life: 15 + Math.random() * 10,
+        maxLife: 25,
+        size: Math.random() * 3 + 1,
         color: colors[Math.floor(Math.random() * colors.length)],
       });
     }
@@ -2520,18 +2572,25 @@ export class SpaceGame {
       }
     }
 
-    // Phase 3: Massive flash and explosion
+    // Phase 3: Flash and explosion (circular, planet-sized)
     if (this.destroyProgress >= 0.6 && this.destroyProgress < 0.8) {
       const flashIntensity = 1 - (this.destroyProgress - 0.6) / 0.2;
-      // Rifle destruction has bigger flash
-      const flashSize = this.destroyFromRifle ? 400 : 300;
-      ctx.fillStyle = `rgba(255, 200, 100, ${flashIntensity * (this.destroyFromRifle ? 1 : 0.9)})`;
-      ctx.fillRect(
-        planet.x - flashSize,
-        planet.y - flashSize,
-        flashSize * 2,
-        flashSize * 2
+      const flashRadius = planet.radius * (this.destroyFromRifle ? 2.5 : 2);
+
+      // Radial gradient flash centered on planet
+      const gradient = ctx.createRadialGradient(
+        planet.x, planet.y, 0,
+        planet.x, planet.y, flashRadius
       );
+      gradient.addColorStop(0, `rgba(255, 255, 200, ${flashIntensity * 0.9})`);
+      gradient.addColorStop(0.3, `rgba(255, 200, 100, ${flashIntensity * 0.7})`);
+      gradient.addColorStop(0.7, `rgba(255, 150, 50, ${flashIntensity * 0.4})`);
+      gradient.addColorStop(1, 'rgba(255, 100, 0, 0)');
+
+      ctx.beginPath();
+      ctx.arc(planet.x, planet.y, flashRadius, 0, Math.PI * 2);
+      ctx.fillStyle = gradient;
+      ctx.fill();
     }
 
     // Draw destroy particles

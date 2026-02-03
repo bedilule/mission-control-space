@@ -1,0 +1,146 @@
+index-B1KnSPer.js:101 [Player ID Lookup] Object
+index-B1KnSPer.js:101 [useTeam] Initializing team...
+index-B1KnSPer.js:101 [useTeam] Fetching existing team...
+index-B1KnSPer.js:101 [WS Effect] Running with teamId: null playerId: null
+index-B1KnSPer.js:101 [WS Effect] Missing teamId or playerId, skipping
+index-B1KnSPer.js:101 [Broadcast Effect] team: false gameReady: false
+index-B1KnSPer.js:101 [Broadcast Effect] Skipping - missing team or game not ready
+(index):1 Error handling response: Error: runtime/sendMessage: The message port closed before a response was received.
+    at chrome-extension://fdjamakpfbbddfjaooikfcpapjohcfmg/content/contentScripts/kwift.CHROME.js:1:197992
+index-B1KnSPer.js:101 [useTeam] Fetch result: Object
+index-B1KnSPer.js:101 Joined existing team: 4bc8a5bd-29f7-4c79-a88e-f7ed650f8784
+index-B1KnSPer.js:101 [WS Effect] Running with teamId: 4bc8a5bd-29f7-4c79-a88e-f7ed650f8784 playerId: null
+index-B1KnSPer.js:101 [WS Effect] Missing teamId or playerId, skipping
+index-B1KnSPer.js:101 [Broadcast Effect] team: true gameReady: false
+index-B1KnSPer.js:101 [Broadcast Effect] Skipping - missing team or game not ready
+index-B1KnSPer.js:101 [registerPlayer] Starting with username: armel teamId: 4bc8a5bd-29f7-4c79-a88e-f7ed650f8784
+index-B1KnSPer.js:101 [registerPlayer] Existing player: Object
+index-B1KnSPer.js:101 [Player ID Lookup] Object
+index-B1KnSPer.js:101 [WS Effect] Running with teamId: 4bc8a5bd-29f7-4c79-a88e-f7ed650f8784 playerId: 73dbbbe0-6602-4841-a47b-d89867e240d1
+index-B1KnSPer.js:101 [WS] Connecting to ws://13.250.26.247:8080 with playerId: 73dbbbe0-6602-4841-a47b-d89867e240d1
+index-B1KnSPer.js:101 [Broadcast Effect] team: true gameReady: false
+index-B1KnSPer.js:101 [Broadcast Effect] Skipping - missing team or game not ready
+index-B1KnSPer.js:101 [WS] Connected
+index-B1KnSPer.js:101 [WS] Joined team room
+index-B1KnSPer.js:101 [Player ID Lookup] Object
+index-B1KnSPer.js:101 [Broadcast Effect] team: true gameReady: true
+index-B1KnSPer.js:101 [Broadcast Effect] Starting broadcast loop
+index-B1KnSPer.js:101 Player left: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 Player left: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Upgrade Broadcast] Sending: {playerId: '73dbbbe0-6602-4841-a47b-d89867e240d1', isUpgrading: true, targetPlanetId: null}isUpgrading: trueplayerId: "73dbbbe0-6602-4841-a47b-d89867e240d1"targetPlanetId: null[[Prototype]]: Object
+index-B1KnSPer.js:101 Generating visual upgrade with prompt: Add one detail to this spaceship: Dark evil vessel. Subtle red ting. It's the dark lord rocket, ruling the galaxy. Ultimate menacing rocket. High Quality, imposing, big, evil.. Keep everything else exactly the same. Only add this one element.
+index-B1KnSPer.js:101  POST http://localhost:3456/save-image net::ERR_CONNECTION_REFUSED
+yl @ index-B1KnSPer.js:101
+Om @ index-B1KnSPer.js:101
+await in Om
+Pg @ index-B1KnSPer.js:37
+Cg @ index-B1KnSPer.js:37
+Eg @ index-B1KnSPer.js:37
+gd @ index-B1KnSPer.js:37
+$f @ index-B1KnSPer.js:37
+(anonymous) @ index-B1KnSPer.js:37
+lc @ index-B1KnSPer.js:40
+cf @ index-B1KnSPer.js:37
+Va @ index-B1KnSPer.js:37
+Nu @ index-B1KnSPer.js:37
+Hg @ index-B1KnSPer.js:37
+installHook.js:1 Local save server not running, using original URL as fallback
+overrideMethod @ installHook.js:1
+yl @ index-B1KnSPer.js:101
+await in yl
+Om @ index-B1KnSPer.js:101
+await in Om
+Pg @ index-B1KnSPer.js:37
+Cg @ index-B1KnSPer.js:37
+Eg @ index-B1KnSPer.js:37
+gd @ index-B1KnSPer.js:37
+$f @ index-B1KnSPer.js:37
+(anonymous) @ index-B1KnSPer.js:37
+lc @ index-B1KnSPer.js:40
+cf @ index-B1KnSPer.js:37
+Va @ index-B1KnSPer.js:37
+Nu @ index-B1KnSPer.js:37
+Hg @ index-B1KnSPer.js:37
+index-B1KnSPer.js:101 [Upgrade Broadcast] Sending: {playerId: '73dbbbe0-6602-4841-a47b-d89867e240d1', isUpgrading: false, targetPlanetId: null}isUpgrading: falseplayerId: "73dbbbe0-6602-4841-a47b-d89867e240d1"targetPlanetId: null[[Prototype]]: Object
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 Personal points updated: 225 + -75 = 150
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 Player left: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 Player left: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}currentUser: "armel"foundPlayer: id: "73dbbbe0-6602-4841-a47b-d89867e240d1"username: "armel"[[Prototype]]: ObjectteamPlayersUsernames: Array(6)0: {username: 'armel', id: '73dbbbe0-6602-4841-a47b-d89867e240d1', isOnline: false}1: {username: 'alex', id: 'd5f96a77-3f03-460e-b41a-7f4af82db37d', isOnline: false}2: {username: 'anonymous', id: 'c6322385-7aed-4fa3-a2b0-125fbf2c3211', isOnline: false}3: {username: 'hugues', id: '4fc1317b-497c-41b9-940e-78eef7e6d489', isOnline: false}4: {username: 'milya', id: 'c90acdff-055e-4b1b-a011-d3fc7d4122e8', isOnline: false}5: {username: 'quentin', id: '447bf07d-7951-4fe3-84b3-5178e59b688f', isOnline: false}length: 6[[Prototype]]: Array(0)[[Prototype]]: Object
+(index):1 Error handling response: Error: runtime/sendMessage: A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received
+    at chrome-extension://fdjamakpfbbddfjaooikfcpapjohcfmg/content/contentScripts/kwift.CHROME.js:1:197992
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 Player left: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 Player left: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 Player left: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 Player left: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-B1KnSPer.js:101 Player left: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 Player left: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-B1KnSPer.js:101 Player left: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 Player left: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 Player left: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 Player left: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 Player left: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 Player left: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 Player left: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 Player left: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 Player left: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 Player left: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 Player left: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 Player left: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 Player left: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 Player left: c6322385-7aed-4fa3-a2b0-125fbf2c3211
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 Player left: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+(index):1 Uncaught (in promise) Error: A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received
+(index):1 Uncaught (in promise) Error: A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received
+(index):1 Uncaught (in promise) Error: A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received
+(index):1 Uncaught (in promise) Error: A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received
+index-B1KnSPer.js:101 [Player ID Lookup] {currentUser: 'armel', teamPlayersUsernames: Array(6), foundPlayer: {…}}

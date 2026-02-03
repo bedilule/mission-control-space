@@ -1,0 +1,40 @@
+index-DLpNzTie.js:101 [Player ID Lookup] Object
+index-DLpNzTie.js:101 [useTeam] Initializing team...
+index-DLpNzTie.js:101 [useTeam] Fetching existing team...
+index-DLpNzTie.js:101 [WS Effect] Running with teamId: null playerId: null
+index-DLpNzTie.js:101 [WS Effect] Missing teamId or playerId, skipping
+index-DLpNzTie.js:101 [Broadcast Effect] team: false gameReady: false
+index-DLpNzTie.js:101 [Broadcast Effect] Skipping - missing team or game not ready
+index-DLpNzTie.js:101 [useTeam] Fetch result: Object
+index-DLpNzTie.js:101 Joined existing team: 4bc8a5bd-29f7-4c79-a88e-f7ed650f8784
+index-DLpNzTie.js:101 [WS Effect] Running with teamId: 4bc8a5bd-29f7-4c79-a88e-f7ed650f8784 playerId: null
+index-DLpNzTie.js:101 [WS Effect] Missing teamId or playerId, skipping
+index-DLpNzTie.js:101 [Broadcast Effect] team: true gameReady: false
+index-DLpNzTie.js:101 [Broadcast Effect] Skipping - missing team or game not ready
+index-DLpNzTie.js:101 [registerPlayer] Starting with username: quentin teamId: 4bc8a5bd-29f7-4c79-a88e-f7ed650f8784
+index-DLpNzTie.js:101 [registerPlayer] Existing player: Object
+index-DLpNzTie.js:101 [Broadcast Effect] team: true gameReady: true
+index-DLpNzTie.js:101 [Broadcast Effect] Starting broadcast loop
+index-DLpNzTie.js:101 [Player ID Lookup] Object
+index-DLpNzTie.js:101 [WS Effect] Running with teamId: 4bc8a5bd-29f7-4c79-a88e-f7ed650f8784 playerId: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-DLpNzTie.js:101 [WS] Connecting to ws://13.250.26.247:8080 with playerId: 447bf07d-7951-4fe3-84b3-5178e59b688f
+index-DLpNzTie.js:101 [Broadcast Effect] team: true gameReady: true
+index-DLpNzTie.js:101 [Broadcast Effect] Starting broadcast loop
+index-DLpNzTie.js:101 [WS] Connected
+index-DLpNzTie.js:101 [WS] Joined team room
+index-DLpNzTie.js:101 Player left: 73dbbbe0-6602-4841-a47b-d89867e240d1
+index-DLpNzTie.js:101 [Player ID Lookup] Object
+index-DLpNzTie.js:101 [Player ID Lookup] Object
+index-DLpNzTie.js:101 Player left: 73dbbbe0-6602-4841-a47b-d89867e240d1
+index-DLpNzTie.js:101 [Player ID Lookup] {currentUser: 'quentin', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-DLpNzTie.js:101 [Player ID Lookup] {currentUser: 'quentin', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-DLpNzTie.js:101 Player left: 73dbbbe0-6602-4841-a47b-d89867e240d1
+index-DLpNzTie.js:101 [Player ID Lookup] {currentUser: 'quentin', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-DLpNzTie.js:101 [Player ID Lookup] {currentUser: 'quentin', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-DLpNzTie.js:101 [Player ID Lookup] {currentUser: 'quentin', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-DLpNzTie.js:101 [Player ID Lookup] {currentUser: 'quentin', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-DLpNzTie.js:101 [Player ID Lookup] {currentUser: 'quentin', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-DLpNzTie.js:101 [Player ID Lookup] {currentUser: 'quentin', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-DLpNzTie.js:101 Player left: 73dbbbe0-6602-4841-a47b-d89867e240d1
+index-DLpNzTie.js:101 [Player ID Lookup] {currentUser: 'quentin', teamPlayersUsernames: Array(6), foundPlayer: {…}}
+index-DLpNzTie.js:101 [Player ID Lookup] {currentUser: 'quentin', teamPlayersUsernames: Array(6), foundPlayer: {…}}
