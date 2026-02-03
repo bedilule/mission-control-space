@@ -96,6 +96,30 @@ export interface Projectile {
   color: string;
 }
 
+export interface PlasmaProjectile {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  damage: number;
+  size: number;
+  rotation: number;
+}
+
+export interface Rocket {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  damage: number;
+  rotation: number;
+  targetPlanetId: string | null;
+}
+
 export interface Ship {
   x: number;
   y: number;
@@ -151,6 +175,10 @@ export interface ShipEffects {
   destroyCanonEquipped: boolean;
   hasSpaceRifle: boolean;
   spaceRifleEquipped: boolean;
+  hasPlasmaCanon: boolean;
+  plasmaCanonEquipped: boolean;
+  hasRocketLauncher: boolean;
+  rocketLauncherEquipped: boolean;
 }
 
 export interface MultiplayerTeam {

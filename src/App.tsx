@@ -112,8 +112,10 @@ const TRAIL_EFFECTS = [
 ];
 
 // Weapon costs (one-time purchases)
-const DESTROY_CANON_COST = 400;
+const DESTROY_CANON_COST = 400; // Legacy - kept for backwards compat
 const SPACE_RIFLE_COST = 300;
+const PLASMA_CANON_COST = 450;
+const ROCKET_LAUNCHER_COST = 550;
 
 // Default goals/milestones
 const DEFAULT_GOALS = {
@@ -281,6 +283,10 @@ interface ShipEffects {
   destroyCanonEquipped: boolean; // Canon is equipped and visible on ship
   hasSpaceRifle: boolean; // Owns Space Rifle weapon
   spaceRifleEquipped: boolean; // Space Rifle is equipped
+  hasPlasmaCanon: boolean; // Owns Plasma Canon weapon
+  plasmaCanonEquipped: boolean; // Plasma Canon is equipped
+  hasRocketLauncher: boolean; // Owns Rocket Launcher weapon
+  rocketLauncherEquipped: boolean; // Rocket Launcher is equipped
 }
 
 interface UserShip {
@@ -632,7 +638,7 @@ function App() {
     baseImage: '/ship-base.png',
     upgrades: [],
     currentImage: '/ship-base.png',
-    effects: { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, ownedGlows: [], ownedTrails: [], hasDestroyCanon: false, destroyCanonEquipped: false, hasSpaceRifle: false, spaceRifleEquipped: false },
+    effects: { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, ownedGlows: [], ownedTrails: [], hasDestroyCanon: false, destroyCanonEquipped: false, hasSpaceRifle: false, spaceRifleEquipped: false, hasPlasmaCanon: false, plasmaCanonEquipped: false, hasRocketLauncher: false, rocketLauncherEquipped: false },
   };
 
   // Multiplayer sync hook - handles team state sync
@@ -784,7 +790,19 @@ function App() {
 
       const { data, error } = await query;
 
-      console.log('[fetchPointsHistory] Result:', { data, error, count: data?.length });
+      console.log('[fetchPointsHistory] Result:', {
+        type,
+        teamId: team.id,
+        playerId: currentDbPlayerId,
+        error,
+        count: data?.length,
+        transactions: data?.map(t => ({
+          source: t.source,
+          points: t.points,
+          task: t.task_name,
+          player_id: t.player_id,
+        })),
+      });
 
       if (error) {
         console.error('Failed to fetch points history:', error);
@@ -957,6 +975,10 @@ function App() {
             destroyCanonEquipped: false,
             hasSpaceRifle: false,
             spaceRifleEquipped: false,
+            hasPlasmaCanon: false,
+            plasmaCanonEquipped: false,
+            hasRocketLauncher: false,
+            rocketLauncherEquipped: false,
           },
         };
       }
@@ -1057,7 +1079,7 @@ function App() {
           .from('players')
           .update({
             ship_current_image: '/ship-base.png',
-            ship_effects: { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, landingSpeedBonus: 0, ownedGlows: [], ownedTrails: [], hasDestroyCanon: false, destroyCanonEquipped: false, hasSpaceRifle: false, spaceRifleEquipped: false },
+            ship_effects: { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, landingSpeedBonus: 0, ownedGlows: [], ownedTrails: [], hasDestroyCanon: false, destroyCanonEquipped: false, hasSpaceRifle: false, spaceRifleEquipped: false, hasPlasmaCanon: false, plasmaCanonEquipped: false, hasRocketLauncher: false, rocketLauncherEquipped: false },
             ship_upgrades: [],
           })
           .eq('team_id', team.id);
@@ -1182,7 +1204,7 @@ function App() {
           .update({
             personal_points: 0,
             ship_current_image: '/ship-base.png',
-            ship_effects: { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, landingSpeedBonus: 0, ownedGlows: [], ownedTrails: [], hasDestroyCanon: false, destroyCanonEquipped: false, hasSpaceRifle: false, spaceRifleEquipped: false },
+            ship_effects: { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, landingSpeedBonus: 0, ownedGlows: [], ownedTrails: [], hasDestroyCanon: false, destroyCanonEquipped: false, hasSpaceRifle: false, spaceRifleEquipped: false, hasPlasmaCanon: false, plasmaCanonEquipped: false, hasRocketLauncher: false, rocketLauncherEquipped: false },
             ship_upgrades: [],
             planet_image_url: null,
             planet_terraform_count: 0,
@@ -1725,7 +1747,7 @@ function App() {
       baseImage: '/ship-base.png',
       upgrades: [],
       currentImage: '/ship-base.png',
-      effects: { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, landingSpeedBonus: 0, ownedGlows: [], ownedTrails: [], hasDestroyCanon: false, destroyCanonEquipped: false, hasSpaceRifle: false, spaceRifleEquipped: false },
+      effects: { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, landingSpeedBonus: 0, ownedGlows: [], ownedTrails: [], hasDestroyCanon: false, destroyCanonEquipped: false, hasSpaceRifle: false, spaceRifleEquipped: false, hasPlasmaCanon: false, plasmaCanonEquipped: false, hasRocketLauncher: false, rocketLauncherEquipped: false },
     };
   };
 
@@ -2512,6 +2534,84 @@ function App() {
     soundManager.playSelect();
   };
 
+  // Buy Plasma Canon (one-time purchase)
+  const buyPlasmaCanon = () => {
+    if (personalPoints < PLASMA_CANON_COST) return;
+
+    const userId = state.currentUser || 'default';
+    const currentShip = getCurrentUserShip();
+    const currentEffects = getEffectsWithDefaults(currentShip.effects);
+
+    if (currentEffects.hasPlasmaCanon) return; // Already owns it
+
+    const newEffects: ShipEffects = {
+      ...currentEffects,
+      hasPlasmaCanon: true,
+      plasmaCanonEquipped: true, // Auto-equip when purchased
+    };
+
+    setPersonalPoints(prev => prev - PLASMA_CANON_COST);
+    updateRemotePersonalPoints(-PLASMA_CANON_COST, 'Plasma Canon');
+    updateUserShipEffects(userId, currentShip, newEffects);
+    soundManager.playShipUpgrade();
+  };
+
+  // Toggle Plasma Canon equip state
+  const togglePlasmaCanon = () => {
+    const userId = state.currentUser || 'default';
+    const currentShip = getCurrentUserShip();
+    const currentEffects = getEffectsWithDefaults(currentShip.effects);
+
+    if (!currentEffects.hasPlasmaCanon) return;
+
+    const newEffects: ShipEffects = {
+      ...currentEffects,
+      plasmaCanonEquipped: !currentEffects.plasmaCanonEquipped,
+    };
+
+    updateUserShipEffects(userId, currentShip, newEffects);
+    soundManager.playSelect();
+  };
+
+  // Buy Rocket Launcher (one-time purchase)
+  const buyRocketLauncher = () => {
+    if (personalPoints < ROCKET_LAUNCHER_COST) return;
+
+    const userId = state.currentUser || 'default';
+    const currentShip = getCurrentUserShip();
+    const currentEffects = getEffectsWithDefaults(currentShip.effects);
+
+    if (currentEffects.hasRocketLauncher) return; // Already owns it
+
+    const newEffects: ShipEffects = {
+      ...currentEffects,
+      hasRocketLauncher: true,
+      rocketLauncherEquipped: true, // Auto-equip when purchased
+    };
+
+    setPersonalPoints(prev => prev - ROCKET_LAUNCHER_COST);
+    updateRemotePersonalPoints(-ROCKET_LAUNCHER_COST, 'Rocket Launcher');
+    updateUserShipEffects(userId, currentShip, newEffects);
+    soundManager.playShipUpgrade();
+  };
+
+  // Toggle Rocket Launcher equip state
+  const toggleRocketLauncher = () => {
+    const userId = state.currentUser || 'default';
+    const currentShip = getCurrentUserShip();
+    const currentEffects = getEffectsWithDefaults(currentShip.effects);
+
+    if (!currentEffects.hasRocketLauncher) return;
+
+    const newEffects: ShipEffects = {
+      ...currentEffects,
+      rocketLauncherEquipped: !currentEffects.rocketLauncherEquipped,
+    };
+
+    updateUserShipEffects(userId, currentShip, newEffects);
+    soundManager.playSelect();
+  };
+
   // Helper to get effects with defaults
   const getEffectsWithDefaults = (effects: ShipEffects | undefined): ShipEffects => ({
     glowColor: effects?.glowColor ?? null,
@@ -2525,6 +2625,10 @@ function App() {
     destroyCanonEquipped: effects?.destroyCanonEquipped ?? false,
     hasSpaceRifle: effects?.hasSpaceRifle ?? false,
     spaceRifleEquipped: effects?.spaceRifleEquipped ?? false,
+    hasPlasmaCanon: effects?.hasPlasmaCanon ?? false,
+    plasmaCanonEquipped: effects?.plasmaCanonEquipped ?? false,
+    hasRocketLauncher: effects?.hasRocketLauncher ?? false,
+    rocketLauncherEquipped: effects?.rocketLauncherEquipped ?? false,
   });
 
   // Helper to update ship effects
@@ -3509,7 +3613,99 @@ function App() {
                     </div>
                   );
                 })()}
-                {/* Destroy Canon */}
+                {/* Plasma Canon */}
+                {(() => {
+                  const effects = getEffectsWithDefaults(getCurrentUserShip().effects);
+                  const owned = effects.hasPlasmaCanon;
+                  const equipped = effects.plasmaCanonEquipped;
+                  const canBuy = !owned && personalPoints >= PLASMA_CANON_COST;
+                  return (
+                    <div style={styles.effectLane}>
+                      <div style={styles.effectLaneLabel}>
+                        <span style={styles.effectLaneIcon}>🟣</span>
+                        <span>Plasma Canon</span>
+                      </div>
+                      <div style={styles.effectLaneContent}>
+                        <span style={{ fontSize: '0.75rem', color: '#888', flex: 1 }}>
+                          Heavy plasma shots, high damage (Z key)
+                        </span>
+                        {owned ? (
+                          <button
+                            style={{
+                              ...styles.effectBuyButton,
+                              background: equipped ? 'rgba(136, 68, 255, 0.2)' : 'rgba(255,255,255,0.05)',
+                              borderColor: equipped ? '#8844ff' : '#444',
+                              color: equipped ? '#8844ff' : '#888',
+                              minWidth: 80,
+                            }}
+                            onClick={togglePlasmaCanon}
+                          >
+                            {equipped ? 'EQUIPPED' : 'EQUIP'}
+                          </button>
+                        ) : (
+                          <button
+                            style={{
+                              ...styles.effectBuyButton,
+                              opacity: canBuy ? 1 : 0.5,
+                              minWidth: 100,
+                            }}
+                            onClick={buyPlasmaCanon}
+                            disabled={!canBuy}
+                          >
+                            {PLASMA_CANON_COST} ⭐
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+                {/* Rocket Launcher */}
+                {(() => {
+                  const effects = getEffectsWithDefaults(getCurrentUserShip().effects);
+                  const owned = effects.hasRocketLauncher;
+                  const equipped = effects.rocketLauncherEquipped;
+                  const canBuy = !owned && personalPoints >= ROCKET_LAUNCHER_COST;
+                  return (
+                    <div style={styles.effectLane}>
+                      <div style={styles.effectLaneLabel}>
+                        <span style={styles.effectLaneIcon}>🚀</span>
+                        <span>Rocket Launcher</span>
+                      </div>
+                      <div style={styles.effectLaneContent}>
+                        <span style={{ fontSize: '0.75rem', color: '#888', flex: 1 }}>
+                          Homing missiles, tracks targets (V key)
+                        </span>
+                        {owned ? (
+                          <button
+                            style={{
+                              ...styles.effectBuyButton,
+                              background: equipped ? 'rgba(255, 68, 68, 0.2)' : 'rgba(255,255,255,0.05)',
+                              borderColor: equipped ? '#ff4444' : '#444',
+                              color: equipped ? '#ff4444' : '#888',
+                              minWidth: 80,
+                            }}
+                            onClick={toggleRocketLauncher}
+                          >
+                            {equipped ? 'EQUIPPED' : 'EQUIP'}
+                          </button>
+                        ) : (
+                          <button
+                            style={{
+                              ...styles.effectBuyButton,
+                              opacity: canBuy ? 1 : 0.5,
+                              minWidth: 100,
+                            }}
+                            onClick={buyRocketLauncher}
+                            disabled={!canBuy}
+                          >
+                            {ROCKET_LAUNCHER_COST} ⭐
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+                {/* Destroy Canon (Legacy) */}
                 {(() => {
                   const effects = getEffectsWithDefaults(getCurrentUserShip().effects);
                   const owned = effects.hasDestroyCanon;
@@ -3523,7 +3719,7 @@ function App() {
                       </div>
                       <div style={styles.effectLaneContent}>
                         <span style={{ fontSize: '0.75rem', color: '#888', flex: 1 }}>
-                          Destroy completed Notion planets
+                          Land & destroy planets (legacy)
                         </span>
                         {owned ? (
                           <button

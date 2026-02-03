@@ -87,6 +87,10 @@ const defaultShipEffects: ShipEffects = {
   destroyCanonEquipped: false,
   hasSpaceRifle: false,
   spaceRifleEquipped: false,
+  hasPlasmaCanon: false,
+  plasmaCanonEquipped: false,
+  hasRocketLauncher: false,
+  rocketLauncherEquipped: false,
 };
 
 export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlayerPositionsReturn {

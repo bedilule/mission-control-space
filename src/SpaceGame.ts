@@ -1,4 +1,4 @@
-import { Vector2, Planet, Star, Particle, Ship, GameState, RewardType, OtherPlayer, ShipEffects as TypedShipEffects, PositionSnapshot, InterpolationState, Projectile } from './types';
+import { Vector2, Planet, Star, Particle, Ship, GameState, RewardType, OtherPlayer, ShipEffects as TypedShipEffects, PositionSnapshot, InterpolationState, Projectile, PlasmaProjectile, Rocket } from './types';
 import { soundManager } from './SoundManager';
 
 interface CustomPlanetData {
@@ -45,6 +45,10 @@ interface ShipEffects {
   destroyCanonEquipped: boolean;
   hasSpaceRifle: boolean;
   spaceRifleEquipped: boolean;
+  hasPlasmaCanon: boolean;
+  plasmaCanonEquipped: boolean;
+  hasRocketLauncher: boolean;
+  rocketLauncherEquipped: boolean;
 }
 
 interface UpgradeSatellite {
@@ -143,9 +147,12 @@ export class SpaceGame {
   private shipImage: HTMLImageElement | null = null;
   private baseShipImage: HTMLImageElement | null = null; // Default ship for players without custom skin
   private hormoziPlanetImage: HTMLImageElement | null = null;
-  private canonImage: HTMLImageElement | null = null; // Destroy Canon weapon image
+  private canonImage: HTMLImageElement | null = null; // Legacy Destroy Canon (kept for backwards compat)
+  private rifleImage: HTMLImageElement | null = null; // Space Rifle weapon image
+  private plasmaCanonImage: HTMLImageElement | null = null; // Plasma Canon weapon image
+  private rocketLauncherImage: HTMLImageElement | null = null; // Rocket Launcher weapon image
   private shipLevel: number = 1;
-  private shipEffects: ShipEffects = { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, landingSpeedBonus: 0, ownedGlows: [], ownedTrails: [], hasDestroyCanon: false, destroyCanonEquipped: false, hasSpaceRifle: false, spaceRifleEquipped: false };
+  private shipEffects: ShipEffects = { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, landingSpeedBonus: 0, ownedGlows: [], ownedTrails: [], hasDestroyCanon: false, destroyCanonEquipped: false, hasSpaceRifle: false, spaceRifleEquipped: false, hasPlasmaCanon: false, plasmaCanonEquipped: false, hasRocketLauncher: false, rocketLauncherEquipped: false };
   private blackHole: BlackHole;
   private shipBeingSucked: boolean = false;
   private suckProgress: number = 0;
@@ -236,6 +243,24 @@ export class SpaceGame {
   private readonly BULLET_DAMAGE: number = 10;
   private readonly BULLET_RANGE: number = 500; // max travel distance
   private readonly PLANET_MAX_HEALTH: number = 100;
+
+  // Plasma Canon projectile system
+  private plasmaProjectiles: PlasmaProjectile[] = [];
+  private lastPlasmaTime: number = 0;
+  private readonly PLASMA_COOLDOWN: number = 800; // ms between shots (slower)
+  private readonly PLASMA_SPEED: number = 6; // slower than rifle
+  private readonly PLASMA_DAMAGE: number = 50; // high damage
+  private readonly PLASMA_RANGE: number = 600;
+  private readonly PLASMA_SIZE: number = 18;
+
+  // Rocket Launcher projectile system
+  private rockets: Rocket[] = [];
+  private lastRocketTime: number = 0;
+  private readonly ROCKET_COOLDOWN: number = 1200; // ms between shots (slowest)
+  private readonly ROCKET_SPEED: number = 8;
+  private readonly ROCKET_DAMAGE: number = 35;
+  private readonly ROCKET_TURN_SPEED: number = 0.08; // homing turn rate
+  private readonly ROCKET_RANGE: number = 800;
 
   constructor(canvas: HTMLCanvasElement, onDock: (planet: Planet) => void, customPlanets: CustomPlanetData[] = [], shipImageUrl?: string, goals?: GoalsData, upgradeCount: number = 0, userPlanets?: Record<string, UserPlanetData>, currentUser: string = 'quentin') {
     this.canvas = canvas;
@@ -343,12 +368,36 @@ export class SpaceGame {
       this.hormoziPlanetImage = hormoziImg;
     };
 
-    // Load Destroy Canon image
+    // Load Destroy Canon image (legacy)
     const canonImg = new Image();
     canonImg.crossOrigin = 'anonymous';
     canonImg.src = '/destroy-canon.png';
     canonImg.onload = () => {
       this.canonImage = canonImg;
+    };
+
+    // Load Space Rifle image
+    const rifleImg = new Image();
+    rifleImg.crossOrigin = 'anonymous';
+    rifleImg.src = '/space-rifle.png';
+    rifleImg.onload = () => {
+      this.rifleImage = rifleImg;
+    };
+
+    // Load Plasma Canon image
+    const plasmaImg = new Image();
+    plasmaImg.crossOrigin = 'anonymous';
+    plasmaImg.src = '/plasma-canon.png';
+    plasmaImg.onload = () => {
+      this.plasmaCanonImage = plasmaImg;
+    };
+
+    // Load Rocket Launcher image
+    const rocketImg = new Image();
+    rocketImg.crossOrigin = 'anonymous';
+    rocketImg.src = '/rocket-launcher.png';
+    rocketImg.onload = () => {
+      this.rocketLauncherImage = rocketImg;
     };
   }
 
@@ -1201,8 +1250,20 @@ export class SpaceGame {
       this.fireProjectile();
     }
 
+    // Plasma Canon: Fire with Z key while flying
+    if (this.keys.has('z') && this.shipEffects.plasmaCanonEquipped && !this.shipBeingSucked) {
+      this.firePlasma();
+    }
+
+    // Rocket Launcher: Fire with V key while flying
+    if (this.keys.has('v') && this.shipEffects.rocketLauncherEquipped && !this.shipBeingSucked) {
+      this.fireRocket();
+    }
+
     // Update projectiles (movement, collision, damage)
     this.updateProjectiles();
+    this.updatePlasmaProjectiles();
+    this.updateRockets();
 
     // World bounds (wrap around like classic arcade games)
     const wrapMargin = 50;
@@ -2379,6 +2440,374 @@ export class SpaceGame {
 
   // ==================== END SPACE RIFLE SYSTEM ====================
 
+  // ==================== PLASMA CANON SYSTEM ====================
+
+  // Fire a plasma ball from the ship
+  private firePlasma() {
+    const now = Date.now();
+    if (now - this.lastPlasmaTime < this.PLASMA_COOLDOWN) return;
+
+    this.lastPlasmaTime = now;
+    const { ship } = this.state;
+
+    const spawnDist = 30;
+    this.plasmaProjectiles.push({
+      x: ship.x + Math.cos(ship.rotation) * spawnDist,
+      y: ship.y + Math.sin(ship.rotation) * spawnDist,
+      vx: Math.cos(ship.rotation) * this.PLASMA_SPEED + ship.vx * 0.2,
+      vy: Math.sin(ship.rotation) * this.PLASMA_SPEED + ship.vy * 0.2,
+      life: this.PLASMA_RANGE / this.PLASMA_SPEED,
+      maxLife: this.PLASMA_RANGE / this.PLASMA_SPEED,
+      damage: this.PLASMA_DAMAGE,
+      size: this.PLASMA_SIZE,
+      rotation: 0,
+    });
+
+    // Plasma burst particles
+    this.emitPlasmaBurst(ship.x, ship.y, ship.rotation);
+    soundManager.playCollision(); // Placeholder sound
+  }
+
+  // Update plasma projectiles
+  private updatePlasmaProjectiles() {
+    for (let i = this.plasmaProjectiles.length - 1; i >= 0; i--) {
+      const p = this.plasmaProjectiles[i];
+
+      p.x += p.vx;
+      p.y += p.vy;
+      p.life--;
+      p.rotation += 0.1; // Spin effect
+
+      let removed = false;
+
+      // Check collision with planets
+      for (const planet of this.state.planets) {
+        const dx = p.x - planet.x;
+        const dy = p.y - planet.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < planet.radius + p.size / 2) {
+          if (this.canDamagePlanet(planet)) {
+            this.damagePlanet(planet, p.damage, p.x, p.y);
+            this.emitPlasmaExplosion(p.x, p.y);
+            this.plasmaProjectiles.splice(i, 1);
+            removed = true;
+            break;
+          } else {
+            // Bounce off shielded planet
+            const nx = dx / dist;
+            const ny = dy / dist;
+            p.x = planet.x + nx * (planet.radius + p.size / 2 + 2);
+            p.y = planet.y + ny * (planet.radius + p.size / 2 + 2);
+            const dot = p.vx * nx + p.vy * ny;
+            p.vx -= 2 * dot * nx * 0.6;
+            p.vy -= 2 * dot * ny * 0.6;
+            this.emitShieldParticles(planet.x + nx * planet.radius, planet.y + ny * planet.radius, nx, ny, planet.color);
+            soundManager.playCollision();
+            p.life = Math.min(p.life, 30);
+            break;
+          }
+        }
+      }
+
+      if (!removed && p.life <= 0) {
+        this.plasmaProjectiles.splice(i, 1);
+      }
+    }
+  }
+
+  // Emit plasma burst particles when firing
+  private emitPlasmaBurst(x: number, y: number, rotation: number) {
+    const colors = ['#8844ff', '#aa66ff', '#cc88ff', '#ffffff'];
+    for (let i = 0; i < 10; i++) {
+      const spread = (Math.random() - 0.5) * 1.2;
+      const speed = Math.random() * 5 + 3;
+      this.state.particles.push({
+        x: x + Math.cos(rotation) * 30,
+        y: y + Math.sin(rotation) * 30,
+        vx: Math.cos(rotation + spread) * speed,
+        vy: Math.sin(rotation + spread) * speed,
+        life: 15 + Math.random() * 10,
+        maxLife: 25,
+        size: Math.random() * 4 + 3,
+        color: colors[Math.floor(Math.random() * colors.length)],
+      });
+    }
+  }
+
+  // Emit plasma explosion on impact
+  private emitPlasmaExplosion(x: number, y: number) {
+    const colors = ['#8844ff', '#aa66ff', '#ff44aa', '#ffffff'];
+    for (let i = 0; i < 20; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 8 + 4;
+      this.state.particles.push({
+        x, y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 30 + Math.random() * 20,
+        maxLife: 50,
+        size: Math.random() * 6 + 3,
+        color: colors[Math.floor(Math.random() * colors.length)],
+      });
+    }
+  }
+
+  // Render plasma projectiles
+  private renderPlasmaProjectiles() {
+    const { ctx } = this;
+    const camera = this.state.camera;
+
+    for (const p of this.plasmaProjectiles) {
+      const x = p.x - camera.x;
+      const y = p.y - camera.y;
+      const alpha = Math.min(1, p.life / p.maxLife + 0.3);
+
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(p.rotation);
+
+      // Outer glow
+      ctx.shadowBlur = 25;
+      ctx.shadowColor = '#8844ff';
+
+      // Plasma ball gradient
+      const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, p.size);
+      gradient.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
+      gradient.addColorStop(0.3, `rgba(170, 102, 255, ${alpha})`);
+      gradient.addColorStop(0.7, `rgba(136, 68, 255, ${alpha * 0.8})`);
+      gradient.addColorStop(1, 'rgba(136, 68, 255, 0)');
+
+      ctx.beginPath();
+      ctx.arc(0, 0, p.size, 0, Math.PI * 2);
+      ctx.fillStyle = gradient;
+      ctx.fill();
+
+      // Inner core
+      ctx.beginPath();
+      ctx.arc(0, 0, p.size * 0.4, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+      ctx.fill();
+
+      ctx.restore();
+      ctx.shadowBlur = 0;
+    }
+  }
+
+  // ==================== END PLASMA CANON SYSTEM ====================
+
+  // ==================== ROCKET LAUNCHER SYSTEM ====================
+
+  // Fire a homing rocket from the ship
+  private fireRocket() {
+    const now = Date.now();
+    if (now - this.lastRocketTime < this.ROCKET_COOLDOWN) return;
+
+    this.lastRocketTime = now;
+    const { ship } = this.state;
+
+    // Find nearest damageable planet as target
+    let nearestTarget: Planet | null = null;
+    let nearestDist = Infinity;
+    for (const planet of this.state.planets) {
+      if (!this.canDamagePlanet(planet)) continue;
+      const dx = planet.x - ship.x;
+      const dy = planet.y - ship.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < nearestDist && dist < this.ROCKET_RANGE * 1.5) {
+        nearestDist = dist;
+        nearestTarget = planet;
+      }
+    }
+
+    const spawnDist = 25;
+    this.rockets.push({
+      x: ship.x + Math.cos(ship.rotation) * spawnDist,
+      y: ship.y + Math.sin(ship.rotation) * spawnDist,
+      vx: Math.cos(ship.rotation) * this.ROCKET_SPEED + ship.vx * 0.3,
+      vy: Math.sin(ship.rotation) * this.ROCKET_SPEED + ship.vy * 0.3,
+      life: this.ROCKET_RANGE / this.ROCKET_SPEED,
+      maxLife: this.ROCKET_RANGE / this.ROCKET_SPEED,
+      damage: this.ROCKET_DAMAGE,
+      rotation: ship.rotation,
+      targetPlanetId: nearestTarget?.id || null,
+    });
+
+    // Rocket launch particles
+    this.emitRocketSmoke(ship.x, ship.y, ship.rotation);
+    soundManager.playCollision(); // Placeholder sound
+  }
+
+  // Update rockets with homing behavior
+  private updateRockets() {
+    for (let i = this.rockets.length - 1; i >= 0; i--) {
+      const r = this.rockets[i];
+
+      // Homing logic - turn towards target
+      if (r.targetPlanetId) {
+        const target = this.state.planets.find(p => p.id === r.targetPlanetId);
+        if (target && this.canDamagePlanet(target)) {
+          const dx = target.x - r.x;
+          const dy = target.y - r.y;
+          const targetAngle = Math.atan2(dy, dx);
+
+          // Calculate angle difference and turn
+          let angleDiff = targetAngle - r.rotation;
+          while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+          while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+
+          r.rotation += Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), this.ROCKET_TURN_SPEED);
+        } else {
+          r.targetPlanetId = null; // Target destroyed or invalid
+        }
+      }
+
+      // Update velocity based on rotation
+      const speed = Math.sqrt(r.vx * r.vx + r.vy * r.vy);
+      r.vx = Math.cos(r.rotation) * speed;
+      r.vy = Math.sin(r.rotation) * speed;
+
+      r.x += r.vx;
+      r.y += r.vy;
+      r.life--;
+
+      // Emit trail
+      if (Math.random() < 0.5) {
+        this.state.particles.push({
+          x: r.x - Math.cos(r.rotation) * 10,
+          y: r.y - Math.sin(r.rotation) * 10,
+          vx: (Math.random() - 0.5) * 2,
+          vy: (Math.random() - 0.5) * 2,
+          life: 15 + Math.random() * 10,
+          maxLife: 25,
+          size: Math.random() * 3 + 2,
+          color: Math.random() < 0.5 ? '#ff6600' : '#ffaa00',
+        });
+      }
+
+      let removed = false;
+
+      // Check collision with planets
+      for (const planet of this.state.planets) {
+        const dx = r.x - planet.x;
+        const dy = r.y - planet.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < planet.radius + 8) {
+          if (this.canDamagePlanet(planet)) {
+            this.damagePlanet(planet, r.damage, r.x, r.y);
+            this.emitRocketExplosion(r.x, r.y);
+            this.rockets.splice(i, 1);
+            removed = true;
+            break;
+          } else {
+            // Rockets explode on shields (no bounce)
+            this.emitShieldParticles(planet.x + dx / dist * planet.radius, planet.y + dy / dist * planet.radius, dx / dist, dy / dist, planet.color);
+            this.emitRocketExplosion(r.x, r.y);
+            soundManager.playCollision();
+            this.rockets.splice(i, 1);
+            removed = true;
+            break;
+          }
+        }
+      }
+
+      if (!removed && r.life <= 0) {
+        this.emitRocketExplosion(r.x, r.y);
+        this.rockets.splice(i, 1);
+      }
+    }
+  }
+
+  // Emit smoke when rocket launches
+  private emitRocketSmoke(x: number, y: number, rotation: number) {
+    const colors = ['#666666', '#888888', '#aaaaaa', '#ff6600'];
+    for (let i = 0; i < 8; i++) {
+      const spread = (Math.random() - 0.5) * 1.5;
+      const speed = Math.random() * 3 + 2;
+      this.state.particles.push({
+        x: x - Math.cos(rotation) * 20,
+        y: y - Math.sin(rotation) * 20,
+        vx: -Math.cos(rotation + spread) * speed,
+        vy: -Math.sin(rotation + spread) * speed,
+        life: 20 + Math.random() * 15,
+        maxLife: 35,
+        size: Math.random() * 5 + 3,
+        color: colors[Math.floor(Math.random() * colors.length)],
+      });
+    }
+  }
+
+  // Emit rocket explosion on impact
+  private emitRocketExplosion(x: number, y: number) {
+    const colors = ['#ff4400', '#ff6600', '#ff8800', '#ffaa00', '#ffffff'];
+    for (let i = 0; i < 25; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 10 + 5;
+      this.state.particles.push({
+        x, y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 35 + Math.random() * 25,
+        maxLife: 60,
+        size: Math.random() * 7 + 4,
+        color: colors[Math.floor(Math.random() * colors.length)],
+      });
+    }
+  }
+
+  // Render rockets
+  private renderRockets() {
+    const { ctx } = this;
+    const camera = this.state.camera;
+
+    for (const r of this.rockets) {
+      const x = r.x - camera.x;
+      const y = r.y - camera.y;
+
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(r.rotation);
+
+      // Rocket body
+      ctx.fillStyle = '#cc4444';
+      ctx.beginPath();
+      ctx.moveTo(12, 0);
+      ctx.lineTo(-8, -5);
+      ctx.lineTo(-8, 5);
+      ctx.closePath();
+      ctx.fill();
+
+      // Fins
+      ctx.fillStyle = '#aa3333';
+      ctx.beginPath();
+      ctx.moveTo(-8, -5);
+      ctx.lineTo(-12, -8);
+      ctx.lineTo(-8, -3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(-8, 5);
+      ctx.lineTo(-12, 8);
+      ctx.lineTo(-8, 3);
+      ctx.closePath();
+      ctx.fill();
+
+      // Thruster glow
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = '#ff6600';
+      ctx.fillStyle = '#ff8800';
+      ctx.beginPath();
+      ctx.arc(-10, 0, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+      ctx.shadowBlur = 0;
+    }
+  }
+
+  // ==================== END ROCKET LAUNCHER SYSTEM ====================
+
   // Start destroy animation (for cleaning up completed planets)
   private startDestroyAnimation(planet: Planet, fromRifle: boolean = false) {
     this.isDestroying = true;
@@ -3155,6 +3584,12 @@ export class SpaceGame {
     // Draw projectiles (space rifle bullets)
     this.renderProjectiles();
 
+    // Draw plasma projectiles
+    this.renderPlasmaProjectiles();
+
+    // Draw rockets
+    this.renderRockets();
+
     // Draw other players' ships (behind local ship)
     this.renderOtherPlayers();
 
@@ -3246,7 +3681,13 @@ export class SpaceGame {
     } else {
       let flightHint = 'W/↑ Thrust  •  A/← D/→ Rotate  •  S/↓ Brake  •  SHIFT Boost  •  SPACE Dock';
       if (this.shipEffects.spaceRifleEquipped) {
-        flightHint += '  •  X Shoot';
+        flightHint += '  •  X Rifle';
+      }
+      if (this.shipEffects.plasmaCanonEquipped) {
+        flightHint += '  •  Z Plasma';
+      }
+      if (this.shipEffects.rocketLauncherEquipped) {
+        flightHint += '  •  V Rocket';
       }
       ctx.fillText(flightHint, 20, canvas.height - 15);
     }

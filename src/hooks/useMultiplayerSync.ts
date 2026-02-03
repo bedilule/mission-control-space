@@ -58,6 +58,10 @@ const defaultShipEffects: ShipEffects = {
   destroyCanonEquipped: false,
   hasSpaceRifle: false,
   spaceRifleEquipped: false,
+  hasPlasmaCanon: false,
+  plasmaCanonEquipped: false,
+  hasRocketLauncher: false,
+  rocketLauncherEquipped: false,
 };
 
 // How long before we consider a player offline even if is_online is true
@@ -253,12 +257,11 @@ export function useMultiplayerSync(options: UseMultiplayerSyncOptions): UseMulti
       .select()
       .eq('team_id', teamId);
 
-    // Fetch total earned per player (sum of positive personal transactions)
+    // Fetch total earned per player (sum of all positive transactions)
     const { data: earnedData } = await supabase
       .from('point_transactions')
       .select('player_id, points')
       .eq('team_id', teamId)
-      .eq('point_type', 'personal')
       .gt('points', 0);
 
     // Build a map of player_id -> total earned
