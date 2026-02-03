@@ -69,6 +69,7 @@ interface CachedPosition {
   rotation: number;
   thrusting: boolean;
   receivedAt: number;
+  senderTimestamp: number; // Timestamp from sender's clock (for ordering comparison)
 }
 
 const defaultShipEffects: ShipEffects = {
@@ -258,6 +259,7 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
           rotation: pos.rotation,
           thrusting: pos.thrusting,
           receivedAt: now,
+          senderTimestamp: 0, // Initial fetch - any WebSocket message will be newer
         });
       }
 
@@ -304,7 +306,8 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
             const cached = positionCacheRef.current.get(data.playerId);
 
             // Only update if this is newer than what we have
-            if (cached && cached.receivedAt > data.timestamp) return;
+            // IMPORTANT: Compare sender timestamps (same clock source) to avoid clock skew issues
+            if (cached && cached.senderTimestamp > data.timestamp) return;
 
             // Update cache
             positionCacheRef.current.set(data.playerId, {
@@ -316,6 +319,7 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
               rotation: data.rotation,
               thrusting: data.thrusting,
               receivedAt: now,
+              senderTimestamp: data.timestamp,
             });
 
             // Call direct callback first (bypasses React for lower latency)
