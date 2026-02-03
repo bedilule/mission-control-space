@@ -121,6 +121,10 @@ export interface OtherPlayer {
   shipImage: string;
   shipEffects: ShipEffects;
   shipLevel: number; // 1 + upgrade count (affects ship size)
+  // Planet data for multiplayer sync
+  planetImageUrl?: string;
+  planetTerraformCount?: number;
+  planetSizeLevel?: number;
 }
 
 export interface ShipEffects {

@@ -215,6 +215,7 @@ export class SpaceGame {
   private otherPlayers: OtherPlayer[] = [];
   private otherPlayerImages: Map<string, HTMLImageElement> = new Map();
   private otherPlayerImageUrls: Map<string, string> = new Map(); // Track loaded URLs for change detection
+  private otherPlayerPlanetUrls: Map<string, string> = new Map(); // Track planet image URLs for change detection
   // Snapshot interpolation for smooth rendering (replaces simple lerp)
   private playerSnapshots: Map<string, PositionSnapshot[]> = new Map();
   private renderStates: Map<string, InterpolationState> = new Map();
@@ -4198,6 +4199,20 @@ export class SpaceGame {
       if (!this.otherPlayerImages.has(player.id) || cachedUrl !== newUrl) {
         this.loadOtherPlayerImage(player.id, player.shipImage);
         this.otherPlayerImageUrls.set(player.id, newUrl);
+      }
+
+      // Update planet image if it changed
+      if (player.planetImageUrl) {
+        const cachedPlanetUrl = this.otherPlayerPlanetUrls.get(player.username);
+        if (cachedPlanetUrl !== player.planetImageUrl) {
+          this.updateUserPlanetImage(
+            player.username,
+            player.planetImageUrl,
+            player.planetTerraformCount,
+            player.planetSizeLevel
+          );
+          this.otherPlayerPlanetUrls.set(player.username, player.planetImageUrl);
+        }
       }
 
       // Initialize render state if this is a new player

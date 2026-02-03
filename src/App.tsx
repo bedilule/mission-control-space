@@ -654,6 +654,9 @@ function App() {
       shipEffects: p.shipEffects,
       shipLevel: p.shipLevel,
       isOnline: p.isOnline,
+      planetImageUrl: p.planetImageUrl,
+      planetTerraformCount: p.planetTerraformCount,
+      planetSizeLevel: p.planetSizeLevel,
     })),
     [teamPlayers]
   );
@@ -1317,6 +1320,27 @@ function App() {
       history: planet?.history || [],
       sizeLevel: planet?.sizeLevel || 0,
     };
+  };
+
+  // Calculate planet population (vanity metric)
+  // Population starts after 3 terraformings, grows with each terraform and size upgrade
+  const getPlanetPopulation = (terraformCount: number, sizeLevel: number): number => {
+    if (terraformCount < 3) return 0;
+
+    // Base population after 3 terraforms
+    const basePop = 100;
+    // Each terraform after 3 multiplies population
+    const terraformMultiplier = Math.pow(2.5, terraformCount - 3);
+    // Each size level adds significant population
+    const sizeMultiplier = Math.pow(3, sizeLevel);
+
+    const population = Math.floor(basePop * terraformMultiplier * sizeMultiplier);
+    return population;
+  };
+
+  // Format population number with commas
+  const formatPopulation = (pop: number): string => {
+    return pop.toLocaleString();
   };
 
   // Select a planet image from history
@@ -2981,6 +3005,15 @@ function App() {
                   ? 'Generate your base planet first!'
                   : `Terraformed ${getUserPlanet(state.currentUser || '').terraformCount} times`}
               </p>
+              {(() => {
+                const planet = getUserPlanet(state.currentUser || '');
+                const population = getPlanetPopulation(planet.terraformCount, planet.sizeLevel);
+                return population > 0 ? (
+                  <p style={{ color: '#4ade80', fontSize: '0.8rem', marginTop: '0.25rem', fontWeight: 500 }}>
+                    🏘️ Population: {formatPopulation(population)} inhabitants
+                  </p>
+                ) : null;
+              })()}
             </div>
 
             {/* Show generate base planet button if no planet yet */}

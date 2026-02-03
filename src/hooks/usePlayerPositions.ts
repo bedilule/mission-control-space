@@ -16,6 +16,9 @@ interface PlayerInfo {
   shipEffects: ShipEffects;
   shipLevel: number;
   isOnline: boolean;
+  planetImageUrl?: string;
+  planetTerraformCount?: number;
+  planetSizeLevel?: number;
 }
 
 interface UsePlayerPositionsOptions {
@@ -249,6 +252,9 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
           shipImage: playerInfo.shipImage,
           shipEffects: playerInfo.shipEffects || defaultShipEffects,
           shipLevel: playerInfo.shipLevel || 1,
+          planetImageUrl: playerInfo.planetImageUrl,
+          planetTerraformCount: playerInfo.planetTerraformCount,
+          planetSizeLevel: playerInfo.planetSizeLevel,
         });
         positionCacheRef.current.set(pos.player_id, {
           player_id: pos.player_id,
@@ -357,6 +363,9 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
                 shipImage: playerInfo.shipImage,
                 shipEffects: playerInfo.shipEffects || defaultShipEffects,
                 shipLevel: playerInfo.shipLevel || 1,
+                planetImageUrl: playerInfo.planetImageUrl,
+                planetTerraformCount: playerInfo.planetTerraformCount,
+                planetSizeLevel: playerInfo.planetSizeLevel,
               };
 
               if (existing >= 0) {
@@ -482,7 +491,7 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
     };
   }, [teamId, playerId, fetchInitialPositions]);
 
-  // Update other players when player list changes (for new ship images, etc.)
+  // Update other players when player list changes (for new ship images, planet images, etc.)
   // NOTE: We do NOT filter based on database isOnline status here.
   // The WebSocket position updates have their own staleness check (10 second timeout).
   // Filtering based on isOnline causes jitter when there's clock skew between clients,
@@ -490,7 +499,7 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
   useEffect(() => {
     setOtherPlayers((prev) =>
       prev
-        // Update players' info (ship image, effects, etc.)
+        // Update players' info (ship image, planet image, effects, etc.)
         .map((op) => {
           const playerInfo = players.find((p) => p.id === op.id);
           if (playerInfo) {
@@ -502,6 +511,9 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
               shipImage: playerInfo.shipImage,
               shipEffects: playerInfo.shipEffects || defaultShipEffects,
               shipLevel: playerInfo.shipLevel || 1,
+              planetImageUrl: playerInfo.planetImageUrl,
+              planetTerraformCount: playerInfo.planetTerraformCount,
+              planetSizeLevel: playerInfo.planetSizeLevel,
             };
           }
           return op;
