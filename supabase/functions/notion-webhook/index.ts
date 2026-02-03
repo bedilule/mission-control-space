@@ -66,8 +66,37 @@ const PRIORITY_POINTS: Record<string, number> = {
 const PLANET_RADIUS = 50;
 const MIN_DISTANCE = PLANET_RADIUS * 3;
 
+// Minimum distance from home planet for assigned tasks
+const MIN_HOME_DISTANCE = 380;
+
 function distance(p1: { x: number; y: number }, p2: { x: number; y: number }): number {
   return Math.sqrt((p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2);
+}
+
+// Check if a position needs repositioning (too close to home or overlapping)
+function needsRepositioning(
+  position: { x: number; y: number },
+  assignedTo: string | null | undefined,
+  otherPlanets: { x: number; y: number }[]
+): boolean {
+  const isAssigned = assignedTo && PLAYER_ZONES[assignedTo.toLowerCase()];
+
+  // Check if too close to home planet (for assigned planets)
+  if (isAssigned) {
+    const homeZone = PLAYER_ZONES[assignedTo.toLowerCase()];
+    if (distance(position, homeZone) < MIN_HOME_DISTANCE) {
+      return true;
+    }
+  }
+
+  // Check if overlapping with another planet
+  for (const other of otherPlanets) {
+    if (distance(position, other) < MIN_DISTANCE) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function findNonOverlappingPosition(
@@ -461,28 +490,94 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Handle archived status - mark as completed but never recreate if deleted
+    // Handle archived status - mark as completed and award points
     if (isArchived) {
-      if (existingPlanet) {
+      if (existingPlanet && !existingPlanet.completed) {
         // Mark as completed
         await supabase
           .from('notion_planets')
           .update({ completed: true })
           .eq('id', existingPlanet.id);
         console.log(`Marked planet "${payload.name}" as completed - status is Archived`);
+
+        // Award personal points for completion - find player by Notion ID or name
+        if (payload.assigned_to || payload.assigned_to_notion_id) {
+          const player = await findPlayerByNotionUser(
+            supabase,
+            team.id,
+            payload.assigned_to_notion_id,
+            payload.assigned_to
+          );
+
+          if (player) {
+            // Get points from planet or calculate from priority
+            const { data: planetData } = await supabase
+              .from('notion_planets')
+              .select('points')
+              .eq('id', existingPlanet.id)
+              .single();
+
+            const points = planetData?.points || calculatePoints(payload.priority);
+
+            await supabase.from('point_transactions').insert({
+              team_id: team.id,
+              player_id: player.id,
+              source: 'notion',
+              notion_task_id: payload.id,
+              task_name: `Completed: ${payload.name}`,
+              points: points,
+              point_type: 'personal',
+            });
+
+            // Update player's personal points
+            const { data: playerPointsData } = await supabase
+              .from('players')
+              .select('personal_points')
+              .eq('id', player.id)
+              .single();
+
+            await supabase
+              .from('players')
+              .update({ personal_points: (playerPointsData?.personal_points || 0) + points })
+              .eq('id', player.id);
+
+            console.log(`Awarded ${points} personal points to ${player.username} for completing "${payload.name}"`);
+          }
+        }
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            action: 'completed',
+            reason: 'status_archived',
+            planet_name: payload.name,
+            points_awarded: true,
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      } else if (existingPlanet && existingPlanet.completed) {
+        console.log(`Skipping "${payload.name}" - already completed`);
+        return new Response(
+          JSON.stringify({
+            success: true,
+            action: 'skipped',
+            reason: 'already_completed',
+            planet_name: payload.name,
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
       } else {
         console.log(`Skipping "${payload.name}" - status is Archived, planet doesn't exist (was destroyed)`);
+        return new Response(
+          JSON.stringify({
+            success: true,
+            action: 'skipped',
+            reason: 'planet_not_found',
+            planet_name: payload.name,
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
       }
-
-      return new Response(
-        JSON.stringify({
-          success: true,
-          action: existingPlanet ? 'completed' : 'skipped',
-          reason: 'status_archived',
-          planet_name: payload.name,
-        }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
     }
 
     // If status is not "Ticket Open" and planet doesn't exist, skip creating it
@@ -508,6 +603,21 @@ Deno.serve(async (req) => {
       // Check if assignment changed - need to move planet
       const assignmentChanged = existingPlanet.assigned_to !== resolvedAssignedTo;
 
+      // Get other planets for overlap/position checks
+      const { data: otherPlanetsData } = await supabase
+        .from('notion_planets')
+        .select('x, y')
+        .eq('team_id', team.id)
+        .neq('id', existingPlanet.id);
+      const otherPlanets = otherPlanetsData || [];
+
+      // Check if current position needs fixing (too close to home or overlapping)
+      const positionNeedsFix = needsRepositioning(
+        { x: existingPlanet.x, y: existingPlanet.y },
+        resolvedAssignedTo,
+        otherPlanets
+      );
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const updates: any = {
         name: payload.name,
@@ -518,23 +628,18 @@ Deno.serve(async (req) => {
         notion_url: payload.url || null,
       };
 
-      // If assignment changed, calculate new position
-      if (assignmentChanged) {
-        const { data: existingPlanets } = await supabase
-          .from('notion_planets')
-          .select('x, y')
-          .eq('team_id', team.id)
-          .neq('id', existingPlanet.id);
-
+      // If assignment changed OR position needs fixing, calculate new position
+      if (assignmentChanged || positionNeedsFix) {
         const newPosition = findNonOverlappingPosition(
           resolvedAssignedTo,
-          existingPlanets || []
+          otherPlanets
         );
         updates.assigned_to = resolvedAssignedTo;
         updates.x = Math.round(newPosition.x);
         updates.y = Math.round(newPosition.y);
 
-        console.log(`Moving planet "${payload.name}" to ${resolvedAssignedTo || 'unassigned'} zone`);
+        const reason = assignmentChanged ? 'assignment changed' : 'position fix (overlap/too close)';
+        console.log(`Moving planet "${payload.name}" to ${resolvedAssignedTo || 'unassigned'} zone (${reason})`);
       }
 
       // Check if status indicates completion (archived = done)
