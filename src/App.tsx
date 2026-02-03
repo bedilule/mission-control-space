@@ -7,6 +7,8 @@ import { useTeam } from './hooks/useTeam';
 import { useMultiplayerSync } from './hooks/useMultiplayerSync';
 import { usePlayerPositions } from './hooks/usePlayerPositions';
 import { useNotionPlanets } from './hooks/useNotionPlanets';
+import { useSupabaseData } from './hooks/useSupabaseData';
+import { usePromptHistory } from './hooks/usePromptHistory';
 import { getLocalPlayerId, supabase } from './lib/supabase';
 
 const FAL_API_KEY = 'c2df5aba-75d9-4626-95bb-aa366317d09e:8f90bb335a773f0ce3f261354107daa6';
@@ -531,14 +533,14 @@ function App() {
     onDestroyPlanet: () => {},
   });
   const [state, setState] = useState<SavedState>(loadState);
-  const [customPlanets, setCustomPlanets] = useState<CustomPlanet[]>(loadCustomPlanets);
-  const [teamPoints, setTeamPoints] = useState(loadTeamPoints);
+  const [customPlanets, setCustomPlanets] = useState<CustomPlanet[]>([]); // Loaded from Supabase
+  const [teamPoints, setTeamPoints] = useState(0); // Loaded from Supabase via useMultiplayerSync
   const [gameReady, setGameReady] = useState(false); // Track when game is initialized
   const [personalPoints, setPersonalPoints] = useState(0);
-  const [userShips, setUserShips] = useState<Record<string, UserShip>>(loadUserShips);
-  const [mascotHistory, setMascotHistory] = useState<MascotHistoryEntry[]>(loadMascotHistory);
-  const [goals, setGoals] = useState<Goals>(loadGoals);
-  const [userPlanets, setUserPlanets] = useState<Record<string, UserPlanet>>(loadUserPlanets);
+  const [userShips, setUserShips] = useState<Record<string, UserShip>>({}); // Loaded from Supabase via teamPlayers
+  const [mascotHistory, setMascotHistory] = useState<MascotHistoryEntry[]>([]); // Loaded from Supabase
+  const [goals, setGoals] = useState<Goals>(DEFAULT_GOALS as Goals); // Loaded from Supabase
+  const [userPlanets, setUserPlanets] = useState<Record<string, UserPlanet>>({}); // Loaded from Supabase
   const [showTerraform, setShowTerraform] = useState(false);
   const [terraformPrompt, setTerraformPrompt] = useState('');
   const [viewingPlanetOwner, setViewingPlanetOwner] = useState<string | null>(null);
@@ -698,6 +700,33 @@ function App() {
     teamId: team?.id || null,
   });
 
+  // Supabase data hook - SINGLE SOURCE OF TRUTH for goals, custom planets, user planets, mascot history
+  const {
+    goals: supabaseGoals,
+    customPlanets: supabaseCustomPlanets,
+    userPlanets: supabaseUserPlanets,
+    mascotHistory: supabaseMascotHistory,
+    isLoading: isSupabaseLoading,
+    saveGoals: saveGoalsToSupabase,
+    saveCustomPlanets: saveCustomPlanetsToSupabase,
+    saveUserPlanet: saveUserPlanetToSupabase,
+    saveMascotHistory: saveMascotHistoryToSupabase,
+    migrateFromLocalStorage,
+  } = useSupabaseData({
+    teamId: team?.id || null,
+    playerId: currentDbPlayerId,
+    username: state.currentUser || 'anonymous',
+  });
+
+  // Migration state
+  const [migrationStatus, setMigrationStatus] = useState<string | null>(null);
+
+  // Prompt history hook - tracks all AI generation prompts
+  const { recordPrompt } = usePromptHistory({
+    teamId: team?.id || null,
+    playerId: currentDbPlayerId,
+  });
+
   // Sync notion planets to game (store ref for immediate sync on game init)
   const notionPlanetsRef = useRef(notionGamePlanets);
   notionPlanetsRef.current = notionGamePlanets;
@@ -808,33 +837,74 @@ function App() {
   }, []);
 
   // Save state when it changes
+  // Save currentUser to sessionStorage (this is the only thing in localStorage now)
   useEffect(() => {
     saveState(state);
   }, [state]);
 
+  // Sync userShips from teamPlayers (Supabase is the source of truth)
   useEffect(() => {
-    saveCustomPlanets(customPlanets);
-  }, [customPlanets]);
+    if (teamPlayers.length === 0) return;
+
+    const shipsFromSupabase: Record<string, UserShip> = {};
+    for (const player of teamPlayers) {
+      if (player.shipImage) {
+        shipsFromSupabase[player.username] = {
+          baseImage: player.shipImage,
+          currentImage: player.shipImage,
+          upgrades: [], // Upgrade count is tracked via shipLevel
+          effects: player.shipEffects || {
+            glowColor: null,
+            trailType: 'default',
+            sizeBonus: 0,
+            speedBonus: 0,
+            landingSpeedBonus: 0,
+            ownedGlows: [],
+            ownedTrails: [],
+            hasDestroyCanon: false,
+            destroyCanonEquipped: false,
+          },
+        };
+      }
+    }
+
+    // Merge with local state (local state may have pending changes)
+    setUserShips(prev => {
+      const merged = { ...shipsFromSupabase };
+      // Keep any local ships that aren't in Supabase yet
+      for (const [userId, ship] of Object.entries(prev)) {
+        if (!merged[userId] && ship.currentImage) {
+          merged[userId] = ship;
+        }
+      }
+      return merged;
+    });
+  }, [teamPlayers]);
+
+  // Sync data FROM Supabase to local state when it loads/changes
+  useEffect(() => {
+    if (!isSupabaseLoading && supabaseGoals) {
+      setGoals(supabaseGoals);
+    }
+  }, [supabaseGoals, isSupabaseLoading]);
 
   useEffect(() => {
-    saveTeamPoints(teamPoints);
-  }, [teamPoints]);
+    if (!isSupabaseLoading && supabaseCustomPlanets) {
+      setCustomPlanets(supabaseCustomPlanets);
+    }
+  }, [supabaseCustomPlanets, isSupabaseLoading]);
 
   useEffect(() => {
-    saveUserShips(userShips);
-  }, [userShips]);
+    if (!isSupabaseLoading && supabaseUserPlanets) {
+      setUserPlanets(supabaseUserPlanets);
+    }
+  }, [supabaseUserPlanets, isSupabaseLoading]);
 
   useEffect(() => {
-    saveMascotHistory(mascotHistory);
-  }, [mascotHistory]);
-
-  useEffect(() => {
-    saveGoals(goals);
-  }, [goals]);
-
-  useEffect(() => {
-    saveUserPlanets(userPlanets);
-  }, [userPlanets]);
+    if (!isSupabaseLoading && supabaseMascotHistory) {
+      setMascotHistory(supabaseMascotHistory);
+    }
+  }, [supabaseMascotHistory, isSupabaseLoading]);
 
   // Reset Points (local + Supabase)
   const resetPoints = async () => {
@@ -1273,15 +1343,17 @@ function App() {
     }
   };
 
-  // Update a goal
+  // Update a goal (saves to Supabase)
   const updateGoal = (type: 'business' | 'product' | 'achievement', goalId: string, updates: Partial<Goal>) => {
-    setGoals(prev => ({
-      ...prev,
-      [type]: prev[type].map(g => g.id === goalId ? { ...g, ...updates } : g)
-    }));
+    const newGoals = {
+      ...goals,
+      [type]: goals[type].map(g => g.id === goalId ? { ...g, ...updates } : g)
+    };
+    setGoals(newGoals);
+    saveGoalsToSupabase(newGoals);
   };
 
-  // Add a new goal
+  // Add a new goal (saves to Supabase)
   const addGoal = (type: 'business' | 'product' | 'achievement') => {
     const newId = `${type[0]}${Date.now()}`;
     const newGoal: Goal = {
@@ -1290,20 +1362,24 @@ function App() {
       size: 'medium',
       description: 'Description here',
     };
-    setGoals(prev => ({
-      ...prev,
-      [type]: [...prev[type], newGoal]
-    }));
+    const newGoals = {
+      ...goals,
+      [type]: [...goals[type], newGoal]
+    };
+    setGoals(newGoals);
+    saveGoalsToSupabase(newGoals);
     setEditingGoal({ ...newGoal, type });
   };
 
-  // Delete a goal
+  // Delete a goal (saves to Supabase)
   const deleteGoal = (type: 'business' | 'product' | 'achievement', goalId: string) => {
     if (!confirm('Delete this goal?')) return;
-    setGoals(prev => ({
-      ...prev,
-      [type]: prev[type].filter(g => g.id !== goalId)
-    }));
+    const newGoals = {
+      ...goals,
+      [type]: goals[type].filter(g => g.id !== goalId)
+    };
+    setGoals(newGoals);
+    saveGoalsToSupabase(newGoals);
   };
 
   // Generate base planet (for first-time setup)
@@ -1383,6 +1459,15 @@ function App() {
           planet_image_url: newImageUrl,
           planet_terraform_count: 0,
           planet_size_level: 0,
+        });
+
+        // Record prompt for history
+        recordPrompt({
+          promptType: 'planet_base',
+          promptText: prompt,
+          userInput: userColor,
+          apiUsed: apiEndpoint,
+          resultImageUrl: newImageUrl,
         });
       }
 
@@ -1492,6 +1577,16 @@ function App() {
         updatePlayerData({
           planet_image_url: newImageUrl,
           planet_terraform_count: newTerraformCount,
+        });
+
+        // Record prompt for history
+        recordPrompt({
+          promptType: 'planet_terraform',
+          promptText: prompt,
+          userInput: promptText,
+          apiUsed: apiEndpoint,
+          sourceImageUrl: currentPlanet.imageUrl,
+          resultImageUrl: newImageUrl,
         });
       }
 
@@ -1902,15 +1997,17 @@ function App() {
       return;
     }
 
-    // Handle custom planets - remove from local state
-    setCustomPlanets(prev => prev.filter(p => p.id !== planet.id));
+    // Handle custom planets - remove from local state and save to Supabase
+    const newCustomPlanets = customPlanets.filter(p => p.id !== planet.id);
+    setCustomPlanets(newCustomPlanets);
+    saveCustomPlanetsToSupabase(newCustomPlanets);
 
     // Remove from completed planets
     setState(prev => ({
       ...prev,
       completedPlanets: prev.completedPlanets.filter(id => id !== planet.id),
     }));
-  }, []);
+  }, [customPlanets, saveCustomPlanetsToSupabase]);
 
   // Keep landing callbacks ref updated
   useEffect(() => {
@@ -2049,13 +2146,26 @@ function App() {
           ship_upgrades: [...currentShip.upgrades, upgradeId],
         });
 
-        // Add to mascot history
-        setMascotHistory(prev => [...prev, {
+        // Add to mascot history and save to Supabase
+        const newHistoryEntry = {
           imageUrl: newImageUrl,
           planetName: promptText.substring(0, 30) + (promptText.length > 30 ? '...' : ''),
           timestamp: Date.now(),
           earnedBy: state.currentUser || 'unknown',
-        }]);
+        };
+        const newMascotHistory = [...mascotHistory, newHistoryEntry];
+        setMascotHistory(newMascotHistory);
+        saveMascotHistoryToSupabase(newMascotHistory);
+
+        // Record prompt for history
+        recordPrompt({
+          promptType: 'ship_upgrade',
+          promptText: prompt,
+          userInput: promptText,
+          apiUsed: apiEndpoint,
+          sourceImageUrl: currentShip.currentImage,
+          resultImageUrl: newImageUrl,
+        });
       }
 
       setIsUpgrading(false);
@@ -2342,6 +2452,15 @@ function App() {
           finalUrl
         );
         setPlanetImagePreview(localPath);
+
+        // Record prompt for history
+        recordPrompt({
+          promptType: 'planet_create',
+          promptText: prompt,
+          userInput: imagePrompt,
+          apiUsed: apiEndpoint,
+          resultImageUrl: localPath,
+        });
       }
     } catch (error) {
       console.error('Failed to generate planet image:', error);
@@ -2395,7 +2514,9 @@ function App() {
         createdBy: state.currentUser || 'unknown',
       };
 
-      setCustomPlanets(prev => [...prev, planet]);
+      const newCustomPlanets = [...customPlanets, planet];
+      setCustomPlanets(newCustomPlanets);
+      saveCustomPlanetsToSupabase(newCustomPlanets);
       gameRef.current?.addCustomPlanet(planet);
     }
 
@@ -2648,9 +2769,10 @@ function App() {
         <div style={styles.modalOverlay} onClick={() => setShowLeaderboard(false)}>
           <div style={{ ...styles.modal, maxWidth: 400 }} onClick={e => e.stopPropagation()}>
             <h2 style={styles.modalTitle}>🏆 Leaderboard</h2>
+            <p style={{ color: '#888', fontSize: '0.8rem', marginTop: '0.5rem', marginBottom: '0' }}>Total points earned</p>
             <div style={{ marginTop: '1rem' }}>
               {[...teamPlayers]
-                .sort((a, b) => b.personalPoints - a.personalPoints)
+                .sort((a, b) => b.totalEarned - a.totalEarned)
                 .map((player, index) => (
                   <div
                     key={player.id}
@@ -2698,7 +2820,7 @@ function App() {
                       fontWeight: 600,
                       fontSize: '1rem',
                     }}>
-                      ⭐ {player.personalPoints}
+                      ⭐ {player.totalEarned}
                     </span>
                   </div>
                 ))}
@@ -3924,6 +4046,37 @@ function App() {
                     <p style={styles.resetWarning}>
                       Resets all of the above (points, ships, planets, goals)
                     </p>
+
+                    <div style={styles.resetDivider} />
+
+                    <h3 style={styles.resetSectionTitle}>Data Migration</h3>
+                    <p style={{ color: '#888', fontSize: '12px', marginBottom: '12px' }}>
+                      One-time migration from localStorage to Supabase. Run this once to sync your local data.
+                    </p>
+                    <button
+                      style={{
+                        ...styles.resetButtonSmall,
+                        background: migrationStatus ? (migrationStatus.includes('complete') ? '#22c55e' : '#ef4444') : '#3b82f6',
+                        width: '100%',
+                      }}
+                      onClick={async () => {
+                        setMigrationStatus('Migrating...');
+                        const result = await migrateFromLocalStorage();
+                        setMigrationStatus(result.message);
+                      }}
+                      disabled={migrationStatus === 'Migrating...'}
+                    >
+                      {migrationStatus === 'Migrating...' ? '⏳ Migrating...' : '📤 Migrate Local Data to Supabase'}
+                    </button>
+                    {migrationStatus && migrationStatus !== 'Migrating...' && (
+                      <p style={{
+                        color: migrationStatus.includes('complete') || migrationStatus.includes('already') ? '#4ade80' : '#ef4444',
+                        fontSize: '12px',
+                        marginTop: '8px',
+                      }}>
+                        {migrationStatus}
+                      </p>
+                    )}
                   </div>
                 )}
 

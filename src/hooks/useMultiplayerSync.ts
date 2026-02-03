@@ -16,6 +16,7 @@ interface PlayerData {
   planetTerraformCount: number;
   planetSizeLevel: number;
   personalPoints: number;
+  totalEarned: number; // Sum of all points earned (not spent)
 }
 
 interface UseMultiplayerSyncOptions {
@@ -64,7 +65,7 @@ const defaultShipEffects: ShipEffects = {
 const ONLINE_TIMEOUT_MS = 60000; // 60 seconds
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const playerRowToData = (row: any): PlayerData => {
+const playerRowToData = (row: any, totalEarned: number = 0): PlayerData => {
   // Check if player is truly online based on last_seen timestamp
   const lastSeen = row.last_seen ? new Date(row.last_seen).getTime() : 0;
   const isRecentlyActive = Date.now() - lastSeen < ONLINE_TIMEOUT_MS;
@@ -83,6 +84,7 @@ const playerRowToData = (row: any): PlayerData => {
     planetTerraformCount: row.planet_terraform_count,
     planetSizeLevel: row.planet_size_level,
     personalPoints: row.personal_points || 0,
+    totalEarned,
   };
 };
 
@@ -259,11 +261,30 @@ export function useMultiplayerSync(options: UseMultiplayerSyncOptions): UseMulti
       .select()
       .eq('team_id', teamId);
 
+    // Fetch total earned per player (sum of positive personal transactions)
+    const { data: earnedData } = await supabase
+      .from('point_transactions')
+      .select('player_id, points')
+      .eq('team_id', teamId)
+      .eq('point_type', 'personal')
+      .gt('points', 0);
+
+    // Build a map of player_id -> total earned
+    const earnedByPlayer: Record<string, number> = {};
+    if (earnedData) {
+      for (const tx of earnedData) {
+        if (tx.player_id) {
+          earnedByPlayer[tx.player_id] = (earnedByPlayer[tx.player_id] || 0) + tx.points;
+        }
+      }
+    }
+
     if (playersData) {
       // Map to PlayerData, but ensure current player is always marked online
       // (the fetch might return stale data due to replication lag)
       const mappedPlayers = playersData.map((row) => {
-        const player = playerRowToData(row);
+        const totalEarned = earnedByPlayer[row.id] || 0;
+        const player = playerRowToData(row, totalEarned);
         // Force current player to be online - we just registered them
         if (playerDbIdRef.current && player.id === playerDbIdRef.current) {
           return { ...player, isOnline: true };
