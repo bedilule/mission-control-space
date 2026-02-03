@@ -39,6 +39,9 @@ const PLAYER_ZONES: Record<string, { x: number; y: number }> = {
 const PLANET_RADIUS = 50;
 const MIN_DISTANCE = PLANET_RADIUS * 3;
 
+// Minimum distance from home planet for assigned tasks (must match other functions)
+const MIN_HOME_DISTANCE = 380;
+
 function distance(p1: { x: number; y: number }, p2: { x: number; y: number }): number {
   return Math.sqrt((p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2);
 }
@@ -74,9 +77,13 @@ function findNonOverlappingPosition(
     const radius = baseRadius + ring * ringSpacing;
     const angle = slotInRing * angleStep + (ring * 0.35); // Offset each ring
 
+    // Add random jitter to prevent race condition overlaps
+    const radiusJitter = (Math.random() - 0.5) * 40; // ±20 units
+    const angleJitter = (Math.random() - 0.5) * 0.1;
+
     const candidate = {
-      x: baseZone.x + Math.cos(angle) * radius,
-      y: baseZone.y + Math.sin(angle) * radius,
+      x: baseZone.x + Math.cos(angle + angleJitter) * (radius + radiusJitter),
+      y: baseZone.y + Math.sin(angle + angleJitter) * (radius + radiusJitter),
     };
 
     let isValid = true;

@@ -182,9 +182,13 @@ function findNonOverlappingPosition(
       const radius = baseRadius + ring * ringSpacing;
       const angle = slotInRing * angleStep + (ring * 0.35); // Offset each ring
 
+      // Add random jitter to prevent race condition overlaps when multiple webhooks fire simultaneously
+      const radiusJitter = (Math.random() - 0.5) * 40; // ±20 units
+      const angleJitter = (Math.random() - 0.5) * 0.1;  // Small angle variation
+
       const candidate = {
-        x: baseZone.x + Math.cos(angle) * radius,
-        y: baseZone.y + Math.sin(angle) * radius,
+        x: baseZone.x + Math.cos(angle + angleJitter) * (radius + radiusJitter),
+        y: baseZone.y + Math.sin(angle + angleJitter) * (radius + radiusJitter),
       };
 
       let isValid = true;
@@ -293,13 +297,23 @@ function parseNativeNotionPayload(raw: any): NotionWebhookPayload | null {
     priority = props['Priority'].select.name.toLowerCase();
   }
 
-  // Extract Status
+  // Extract Status - handle multiple property types
   let status = '';
-  if (props['Status']?.select?.name) {
-    status = props['Status'].select.name.toLowerCase();
-  } else if (props['Status']?.status?.name) {
-    status = props['Status'].status.name.toLowerCase();
+  const statusProp = props['Status'];
+  if (statusProp?.select?.name) {
+    status = statusProp.select.name.toLowerCase();
+  } else if (statusProp?.status?.name) {
+    status = statusProp.status.name.toLowerCase();
+  } else if (statusProp?.multi_select?.[0]?.name) {
+    status = statusProp.multi_select[0].name.toLowerCase();
+  } else if (typeof statusProp?.formula?.string === 'string') {
+    status = statusProp.formula.string.toLowerCase();
+  } else if (typeof statusProp?.rollup?.array?.[0]?.title?.[0]?.plain_text === 'string') {
+    status = statusProp.rollup.array[0].title[0].plain_text.toLowerCase();
   }
+
+  // Log the raw status property for debugging
+  console.log('RAW STATUS PROPERTY:', JSON.stringify(statusProp));
 
   return {
     id: data.id,
@@ -382,6 +396,10 @@ Deno.serve(async (req) => {
   try {
     const url = new URL(req.url);
     const rawPayload = await req.json();
+
+    console.log('='.repeat(60));
+    console.log('NOTION WEBHOOK RECEIVED AT:', new Date().toISOString());
+    console.log('='.repeat(60));
     console.log('RAW PAYLOAD:', JSON.stringify(rawPayload, null, 2));
 
     // Debug mode
@@ -406,7 +424,18 @@ Deno.serve(async (req) => {
     const statusLower = (payload.status || '').toLowerCase();
     const isTicketOpen = statusLower === 'ticket open';
     const isArchived = statusLower === 'archived' || statusLower.includes('archived');
-    const isDestroyed = statusLower === 'destroyed';
+    const isDestroyed = statusLower === 'destroyed' || statusLower.includes('destroyed');
+
+    const debugInfo = {
+      payloadStatus: payload.status,
+      statusLower,
+      isTicketOpen,
+      isArchived,
+      isDestroyed,
+      payloadId: payload.id,
+      payloadName: payload.name,
+    };
+    console.log('WEBHOOK DEBUG:', JSON.stringify(debugInfo));
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -463,20 +492,57 @@ Deno.serve(async (req) => {
     }
 
     // Handle destroyed status - ALWAYS delete/skip, never create or keep
+    console.log('='.repeat(40));
+    console.log('STATUS ROUTING CHECK:');
+    console.log('  - Raw status value:', JSON.stringify(payload.status));
+    console.log('  - Lowercase status:', statusLower);
+    console.log('  - isTicketOpen:', isTicketOpen);
+    console.log('  - isArchived:', isArchived);
+    console.log('  - isDestroyed:', isDestroyed);
+    console.log('  - Planet exists in DB:', !!existingPlanet);
+    if (existingPlanet) {
+      console.log('  - Existing planet ID:', existingPlanet.id);
+      console.log('  - Existing notion_task_id:', existingPlanet.notion_task_id);
+    }
+    console.log('  - Payload ID (raw):', payload.id);
+    console.log('  - Payload ID (normalized):', normalizedTaskId);
+    console.log('='.repeat(40));
+
     if (isDestroyed) {
+      console.log('>>> ENTERING DESTROY BLOCK <<<');
       if (existingPlanet) {
-        const { error: deleteError } = await supabase
+        console.log(`Attempting to DELETE planet: ${existingPlanet.id} ("${payload.name}")`);
+        const { data: deleteData, error: deleteError, count: deleteCount } = await supabase
           .from('notion_planets')
           .delete()
-          .eq('id', existingPlanet.id);
+          .eq('id', existingPlanet.id)
+          .select();
 
         if (deleteError) {
-          console.error('Failed to delete destroyed planet:', deleteError);
+          console.error('!!! DELETE FAILED !!!');
+          console.error('Error code:', deleteError.code);
+          console.error('Error message:', deleteError.message);
+          console.error('Error details:', deleteError.details);
+          console.error('Error hint:', deleteError.hint);
+          return new Response(
+            JSON.stringify({
+              success: false,
+              action: 'delete_failed',
+              error: deleteError.message,
+              planet_name: payload.name,
+              debug: debugInfo,
+            }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
         } else {
-          console.log(`Deleted planet "${payload.name}" - status is Destroyed`);
+          console.log('>>> DELETE SUCCESSFUL <<<');
+          console.log(`Deleted planet "${payload.name}" (ID: ${existingPlanet.id})`);
+          console.log('Delete response data:', JSON.stringify(deleteData));
         }
       } else {
-        console.log(`Skipping "${payload.name}" - status is Destroyed, planet doesn't exist`);
+        console.log(`SKIP - No planet found for "${payload.name}" (already deleted or never created)`);
+        console.log('  Searched with normalized ID:', normalizedTaskId);
+        console.log('  Also tried raw ID:', payload.id);
       }
 
       return new Response(
@@ -485,6 +551,7 @@ Deno.serve(async (req) => {
           action: existingPlanet ? 'deleted' : 'skipped',
           reason: 'status_destroyed',
           planet_name: payload.name,
+          debug: debugInfo,
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -582,7 +649,9 @@ Deno.serve(async (req) => {
 
     // If status is not "Ticket Open" and planet doesn't exist, skip creating it
     if (!isTicketOpen && !existingPlanet) {
-      console.log(`Skipping "${payload.name}" - status is "${payload.status}", not Ticket Open`);
+      console.log('>>> SKIPPING - Status is not "Ticket Open" and planet does not exist <<<');
+      console.log(`  Status: "${payload.status}"`);
+      console.log(`  Task: "${payload.name}"`);
       return new Response(
         JSON.stringify({
           success: true,
@@ -758,6 +827,39 @@ Deno.serve(async (req) => {
         JSON.stringify({ error: 'Failed to create planet', details: planetError.message }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
+    }
+
+    // Post-insert overlap check: detect race condition where multiple webhooks created planets at same position
+    const { data: overlappingPlanets } = await supabase
+      .from('notion_planets')
+      .select('id, x, y')
+      .eq('team_id', team.id)
+      .neq('id', planet.id)
+      .gte('x', planet.x - MIN_DISTANCE)
+      .lte('x', planet.x + MIN_DISTANCE)
+      .gte('y', planet.y - MIN_DISTANCE)
+      .lte('y', planet.y + MIN_DISTANCE);
+
+    const hasOverlap = overlappingPlanets?.some(other =>
+      distance({ x: planet.x, y: planet.y }, { x: other.x, y: other.y }) < MIN_DISTANCE
+    );
+
+    if (hasOverlap) {
+      console.log(`Race condition detected for "${payload.name}" - repositioning to avoid overlap`);
+      // Re-fetch all positions and find a new spot
+      const { data: allCurrentPlanets } = await supabase
+        .from('notion_planets')
+        .select('x, y')
+        .eq('team_id', team.id)
+        .neq('id', planet.id);
+
+      const newPosition = findNonOverlappingPosition(resolvedAssignedTo, allCurrentPlanets || []);
+      await supabase
+        .from('notion_planets')
+        .update({ x: Math.round(newPosition.x), y: Math.round(newPosition.y) })
+        .eq('id', planet.id);
+
+      console.log(`Repositioned "${payload.name}" from (${planet.x}, ${planet.y}) to (${Math.round(newPosition.x)}, ${Math.round(newPosition.y)})`);
     }
 
     // Award 10 personal points to the creator for creating the task

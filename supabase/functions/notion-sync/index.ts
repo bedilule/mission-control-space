@@ -12,6 +12,7 @@ const corsHeaders = {
 const NOTION_DATABASE_ID = '2467d5a8-0344-8198-a604-c6bd91473887';
 
 interface ExistingPlanet {
+  id: string;  // Planet ID for filtering
   x: number;
   y: number;
 }
@@ -57,18 +58,47 @@ function distance(p1: { x: number; y: number }, p2: { x: number; y: number }): n
   return Math.sqrt((p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2);
 }
 
+// Minimum distance from home planet for assigned tasks
+const MIN_HOME_DISTANCE = 380;
+
 // Check if a position is in the correct zone for the assigned player
+// Also checks that assigned planets are at least MIN_HOME_DISTANCE from home
 function isInCorrectZone(
   position: { x: number; y: number },
   assignedTo: string | null | undefined
 ): boolean {
-  const expectedZone = assignedTo && PLAYER_ZONES[assignedTo.toLowerCase()]
+  const isAssigned = assignedTo && PLAYER_ZONES[assignedTo.toLowerCase()];
+  const expectedZone = isAssigned
     ? PLAYER_ZONES[assignedTo.toLowerCase()]
     : DEFAULT_ZONE;
 
   // Consider "in zone" if within 1000 units of the zone center
   const MAX_ZONE_DISTANCE = 1000;
-  return distance(position, expectedZone) <= MAX_ZONE_DISTANCE;
+  const distFromZone = distance(position, expectedZone);
+
+  if (distFromZone > MAX_ZONE_DISTANCE) {
+    return false; // Too far from zone
+  }
+
+  // For assigned planets, also check minimum distance from home planet
+  if (isAssigned && distFromZone < MIN_HOME_DISTANCE) {
+    return false; // Too close to home planet
+  }
+
+  return true;
+}
+
+// Check if a planet overlaps with any other planet
+function hasOverlap(
+  position: { x: number; y: number },
+  otherPlanets: ExistingPlanet[]
+): boolean {
+  for (const other of otherPlanets) {
+    if (distance(position, other) < MIN_DISTANCE) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function findNonOverlappingPosition(
@@ -147,16 +177,28 @@ function findNonOverlappingPosition(
     };
   }
 
-  // For assigned tasks: rings around player zone
+  // For assigned tasks: tight rings around player's home planet
+  // Ring 1 at 380 units, Ring 2 at 480 units, etc.
+  // 9 planets per ring, offset so they don't line up
+  // MUST match notion-webhook and notion-claim for consistency
+  const baseRadius = 380;
+  const ringSpacing = 100;
+  const angleStep = 0.7; // ~40 degrees, fits ~9 planets per ring
+  const planetsPerRing = 9;
+
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const ring = Math.floor(attempt / 8);
-    const angleIndex = attempt % 8;
-    const baseRadius = 200 + ring * 150;
-    const angle = (angleIndex / 8) * Math.PI * 2 + (ring * 0.3);
+    const ring = Math.floor(attempt / planetsPerRing);
+    const slotInRing = attempt % planetsPerRing;
+    const radius = baseRadius + ring * ringSpacing;
+    const angle = slotInRing * angleStep + (ring * 0.35); // Offset each ring
+
+    // Add random jitter to prevent race condition overlaps
+    const radiusJitter = (Math.random() - 0.5) * 40; // ±20 units
+    const angleJitter = (Math.random() - 0.5) * 0.1;
 
     const candidate = {
-      x: baseZone.x + Math.cos(angle) * baseRadius,
-      y: baseZone.y + Math.sin(angle) * baseRadius,
+      x: baseZone.x + Math.cos(angle + angleJitter) * (radius + radiusJitter),
+      y: baseZone.y + Math.sin(angle + angleJitter) * (radius + radiusJitter),
     };
 
     let isValid = true;
@@ -172,7 +214,9 @@ function findNonOverlappingPosition(
     }
   }
 
-  const fallbackRadius = 600 + Math.random() * 400;
+  // Fallback: outer rings around home planet (matches notion-webhook)
+  const fallbackRing = 2 + Math.floor(Math.random() * 3); // Rings 2-4
+  const fallbackRadius = baseRadius + fallbackRing * ringSpacing;
   const fallbackAngle = Math.random() * Math.PI * 2;
   return {
     x: baseZone.x + Math.cos(fallbackAngle) * fallbackRadius,
@@ -437,7 +481,7 @@ Deno.serve(async (req) => {
     const existingPositions: ExistingPlanet[] = [];
     for (const planet of allPlanets || []) {
       existingByTaskId.set(normalizeId(planet.notion_task_id), { ...planet });
-      existingPositions.push({ x: planet.x, y: planet.y });
+      existingPositions.push({ id: planet.id, x: planet.x, y: planet.y });
     }
 
     // Find planets whose Notion tasks are no longer "Ticket Open"
@@ -493,10 +537,16 @@ Deno.serve(async (req) => {
         // Update existing planet with latest data
         const points = calculatePoints(parsed.priority);
 
-        // Check if assignment changed or planet is in wrong zone - need to reposition planet
+        // Check if planet needs repositioning:
+        // 1. Assignment changed (moved to different player)
+        // 2. In wrong zone (too far from expected zone OR too close to home planet)
+        // 3. Overlaps with another planet
         const assignmentChanged = existing.assigned_to !== resolvedAssignedTo;
         const inWrongZone = !isInCorrectZone({ x: existing.x, y: existing.y }, resolvedAssignedTo);
-        const needsReposition = assignmentChanged || inWrongZone;
+        // Filter by ID, not position (important for detecting overlaps with planets at same position)
+        const otherPositions = existingPositions.filter(p => p.id !== existing.id);
+        const overlapsOther = hasOverlap({ x: existing.x, y: existing.y }, otherPositions);
+        const needsReposition = assignmentChanged || inWrongZone || overlapsOther;
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const updateData: any = {
@@ -509,20 +559,17 @@ Deno.serve(async (req) => {
           notion_url: parsed.url || null,
         };
 
-        // Recalculate position if assignment changed or planet is in wrong zone
+        // Recalculate position if needed (assignment changed, wrong zone, or overlapping)
         if (needsReposition) {
-          // Get other planets' positions (excluding this one)
-          const otherPositions = existingPositions.filter(
-            p => p.x !== existing.x || p.y !== existing.y
-          );
+          // otherPositions already calculated above for overlap check
           const newPosition = findNonOverlappingPosition(resolvedAssignedTo, otherPositions);
           updateData.x = Math.round(newPosition.x);
           updateData.y = Math.round(newPosition.y);
 
-          // Update our tracking of positions
-          const idx = existingPositions.findIndex(p => p.x === existing.x && p.y === existing.y);
+          // Update our tracking of positions (find by ID, not position)
+          const idx = existingPositions.findIndex(p => p.id === existing.id);
           if (idx >= 0) {
-            existingPositions[idx] = newPosition;
+            existingPositions[idx] = { id: existing.id, x: newPosition.x, y: newPosition.y };
           }
         }
 
@@ -545,8 +592,8 @@ Deno.serve(async (req) => {
       // Find position for new planet using resolved player username
       const position = findNonOverlappingPosition(resolvedAssignedTo, existingPositions);
 
-      // Add to existing positions for next iteration
-      existingPositions.push(position);
+      // Add to existing positions for next iteration (use notion task id as temp identifier)
+      existingPositions.push({ id: parsed.id, x: position.x, y: position.y });
 
       // Create or update planet (upsert on notion_task_id conflict)
       const { data: upsertResult, error: upsertError } = await supabase

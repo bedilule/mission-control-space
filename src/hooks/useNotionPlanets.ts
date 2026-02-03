@@ -202,12 +202,16 @@ export function useNotionPlanets(options: UseNotionPlanetsOptions): UseNotionPla
       { event: '*', schema: 'public', table: 'notion_planets', filter: `team_id=eq.${teamId}` },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (payload: any) => {
+        console.log('[useNotionPlanets] Realtime event received:', payload.eventType, payload);
+
         if (payload.eventType === 'INSERT') {
           const planet = rowToNotionPlanet(payload.new);
+          console.log('[useNotionPlanets] INSERT - Adding planet:', planet.name);
           setNotionPlanets((prev) => [planet, ...prev]);
           onPlanetCreatedRef.current?.(planet);
         } else if (payload.eventType === 'UPDATE') {
           const planet = rowToNotionPlanet(payload.new);
+          console.log('[useNotionPlanets] UPDATE - Updating planet:', planet.name);
           setNotionPlanets((prev) =>
             prev.map((p) => (p.id === planet.id ? planet : p))
           );
@@ -216,7 +220,16 @@ export function useNotionPlanets(options: UseNotionPlanetsOptions): UseNotionPla
           }
         } else if (payload.eventType === 'DELETE') {
           const oldPlanet = payload.old as { id: string };
-          setNotionPlanets((prev) => prev.filter((p) => p.id !== oldPlanet.id));
+          console.log('[useNotionPlanets] DELETE - Removing planet with id:', oldPlanet?.id, 'payload.old:', payload.old);
+          if (oldPlanet?.id) {
+            setNotionPlanets((prev) => {
+              const filtered = prev.filter((p) => p.id !== oldPlanet.id);
+              console.log('[useNotionPlanets] DELETE - Filtered from', prev.length, 'to', filtered.length, 'planets');
+              return filtered;
+            });
+          } else {
+            console.warn('[useNotionPlanets] DELETE - No id in payload.old, cannot remove planet');
+          }
         }
       }
     );

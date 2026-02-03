@@ -339,17 +339,91 @@ Players can "destroy" completed planets with X key:
 |---------------|------|-------------|
 | `Ticket` | Title | Task name |
 | `Description` | Rich Text | Task details |
-| `Status` | Status | Workflow status (Archived = completed) |
+| `Status` | Select | Workflow status (see Status Values below) |
 | `Priority` | Select | Critical, High, Medium, Low |
 | `What is it ?` | Select | Bug, Enhancement, etc. |
 | `Attributed to` | People | Assigned player |
 | `Créé par` | Created by | Auto-filled creator |
+
+### Status Values
+
+The webhook handler recognizes these status values:
+
+| Status | Game Action |
+|--------|-------------|
+| `Ticket Open` | Creates planet (if new) or updates it |
+| `Archived` | Marks planet as completed, awards points |
+| `Destroyed` | Deletes planet from game |
+| Any other status | Skips planet creation (updates only if exists) |
+
+**Note**: Status matching is case-insensitive and uses `includes()`, so "🗑️ Destroyed" or "Task Destroyed" will work.
 
 ### Database ID
 
 ```
 NOTION_DATABASE_ID = '2467d5a8-0344-8198-a604-c6bd91473887'
 ```
+
+## Notion Automation Setup (Recommended)
+
+### Single Webhook Approach
+
+**You only need ONE Notion automation** that fires on any property change. The webhook handler routes based on the Status value.
+
+#### Step-by-Step Setup:
+
+1. **Go to your Notion database** → Click `...` → `Automations`
+
+2. **Create ONE automation:**
+   - Trigger: "When a page is edited"
+   - Filter: Database is your task database
+   - Action: "Send HTTP request"
+   - URL: `https://qdizfhhsqolvuddoxugj.supabase.co/functions/v1/notion-webhook`
+   - Method: POST
+   - Body: Include the page properties (Notion will send the full page data)
+
+3. **Delete redundant automations** if you have separate ones for "edited", "archived", "destroyed"
+
+#### Why Single Automation Works:
+
+The `notion-webhook` handler checks the Status property and routes accordingly:
+
+```
+Status = "Ticket Open"  → Create/update planet
+Status = "Archived"     → Complete planet + award points
+Status = "Destroyed"    → Delete planet from game
+Status = anything else  → Skip (no planet created)
+```
+
+This means:
+- When you change status to "Destroyed" in Notion → webhook fires → planet deleted
+- When you change status to "Archived" in Notion → webhook fires → planet completed
+- When you edit any property → webhook fires → planet updated
+
+#### Debugging
+
+If planets aren't being deleted when status changes to "Destroyed":
+
+1. **Check Supabase logs** for the `notion-webhook` function
+2. Look for these log lines:
+   ```
+   STATUS ROUTING CHECK:
+     - Raw status value: "destroyed"
+     - isDestroyed: true
+   >>> ENTERING DESTROY BLOCK <<<
+   ```
+
+3. **Test manually** with debug mode:
+   ```bash
+   curl -X POST "https://qdizfhhsqolvuddoxugj.supabase.co/functions/v1/notion-webhook?debug=true" \
+     -H "Content-Type: application/json" \
+     -d '{"data":{"id":"PAGE-ID","properties":{"Status":{"select":{"name":"Destroyed"}},"Ticket":{"title":[{"plain_text":"Test"}]}}}}'
+   ```
+
+4. **Verify Notion is sending the webhook** by checking:
+   - Notion automation is enabled
+   - Automation triggers on property changes (not just creation)
+   - No filters excluding "Destroyed" status
 
 ## Environment Variables
 
@@ -403,6 +477,15 @@ Admin panel includes a sync button that:
 3. Explosion animation plays
 4. `notion-delete` removes from database
 5. Planet disappears from game
+
+### Destroying a Task from Notion
+
+1. User changes task status to "Destroyed" in Notion
+2. Notion automation sends webhook
+3. `notion-webhook` detects `isDestroyed = true`
+4. Planet deleted from database
+5. Realtime subscription triggers DELETE event
+6. Planet disappears from all players' games
 
 ### Full Sync (Admin)
 

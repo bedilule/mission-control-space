@@ -66,6 +66,9 @@ const PRIORITY_EMOJI: Record<string, string> = {
 const PLANET_RADIUS = 50;
 const MIN_DISTANCE = PLANET_RADIUS * 3;
 
+// Minimum distance from home planet for assigned tasks (must match other functions)
+const MIN_HOME_DISTANCE = 380;
+
 function distance(p1: { x: number; y: number }, p2: { x: number; y: number }): number {
   return Math.sqrt((p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2);
 }
@@ -146,16 +149,28 @@ function findNonOverlappingPosition(
     };
   }
 
-  // For assigned tasks: rings around player zone
+  // For assigned tasks: tight rings around player's home planet
+  // Ring 1 at 380 units, Ring 2 at 480 units, etc.
+  // 9 planets per ring, offset so they don't line up
+  // MUST match notion-webhook and notion-claim for consistency
+  const baseRadius = 380;
+  const ringSpacing = 100;
+  const angleStep = 0.7; // ~40 degrees, fits ~9 planets per ring
+  const planetsPerRing = 9;
+
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const ring = Math.floor(attempt / 8);
-    const angleIndex = attempt % 8;
-    const baseRadius = 200 + ring * 150;
-    const angle = (angleIndex / 8) * Math.PI * 2 + (ring * 0.3);
+    const ring = Math.floor(attempt / planetsPerRing);
+    const slotInRing = attempt % planetsPerRing;
+    const radius = baseRadius + ring * ringSpacing;
+    const angle = slotInRing * angleStep + (ring * 0.35); // Offset each ring
+
+    // Add random jitter to prevent race condition overlaps
+    const radiusJitter = (Math.random() - 0.5) * 40; // ±20 units
+    const angleJitter = (Math.random() - 0.5) * 0.1;
 
     const candidate = {
-      x: baseZone.x + Math.cos(angle) * baseRadius,
-      y: baseZone.y + Math.sin(angle) * baseRadius,
+      x: baseZone.x + Math.cos(angle + angleJitter) * (radius + radiusJitter),
+      y: baseZone.y + Math.sin(angle + angleJitter) * (radius + radiusJitter),
     };
 
     let isValid = true;
@@ -171,7 +186,9 @@ function findNonOverlappingPosition(
     }
   }
 
-  const fallbackRadius = 600 + Math.random() * 400;
+  // Fallback: outer rings around home planet (matches notion-webhook)
+  const fallbackRing = 2 + Math.floor(Math.random() * 3); // Rings 2-4
+  const fallbackRadius = baseRadius + fallbackRing * ringSpacing;
   const fallbackAngle = Math.random() * Math.PI * 2;
   return {
     x: baseZone.x + Math.cos(fallbackAngle) * fallbackRadius,
