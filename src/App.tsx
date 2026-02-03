@@ -955,6 +955,8 @@ function App() {
             ownedTrails: [],
             hasDestroyCanon: false,
             destroyCanonEquipped: false,
+            hasSpaceRifle: false,
+            spaceRifleEquipped: false,
           },
         };
       }
@@ -972,6 +974,15 @@ function App() {
       return merged;
     });
   }, [teamPlayers]);
+
+  // Sync current user's ship effects to game when they change (e.g., loaded from Supabase)
+  useEffect(() => {
+    if (!gameRef.current || !state.currentUser) return;
+    const currentShip = userShips[state.currentUser];
+    if (currentShip?.effects) {
+      gameRef.current.updateShipEffects(currentShip.effects);
+    }
+  }, [userShips, state.currentUser]);
 
   // Sync data FROM Supabase to local state when it loads/changes
   useEffect(() => {
