@@ -1211,7 +1211,10 @@ export class SpaceGame {
       this.state.nearbyPlanet = closestPlanet;
       // Check if close enough to dock (and not completed)
       // Also check ownership: can interact with shared planets (ownerId null) or own planets
-      const canInteract = closestPlanet.ownerId === null ||
+      // User planets can always be landed on (for viewing other players' planets)
+      const isUserPlanetType = closestPlanet.id.startsWith('user-planet-');
+      const canInteract = isUserPlanetType ||
+                          closestPlanet.ownerId === null ||
                           closestPlanet.ownerId === undefined ||
                           closestPlanet.ownerId === this.currentUser;
 
