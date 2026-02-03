@@ -112,10 +112,10 @@ const TRAIL_EFFECTS = [
 ];
 
 // Weapon costs (one-time purchases)
-const DESTROY_CANON_COST = 400; // Legacy - kept for backwards compat
 const SPACE_RIFLE_COST = 300;
-const PLASMA_CANON_COST = 450;
-const ROCKET_LAUNCHER_COST = 550;
+const SPACE_TNT_COST = 500;
+const PLASMA_CANON_COST = 650;
+const ROCKET_LAUNCHER_COST = 1000;
 
 // Default goals/milestones
 const DEFAULT_GOALS = {
@@ -2454,9 +2454,9 @@ function App() {
     }
   };
 
-  // Buy Destroy Canon (one-time purchase)
-  const buyDestroyCanon = () => {
-    if (personalPoints < DESTROY_CANON_COST) return;
+  // Buy Space TNT (one-time purchase)
+  const buySpaceTNT = () => {
+    if (personalPoints < SPACE_TNT_COST) return;
 
     const userId = state.currentUser || 'default';
     const currentShip = getCurrentUserShip();
@@ -2468,26 +2468,35 @@ function App() {
       ...currentEffects,
       hasDestroyCanon: true,
       destroyCanonEquipped: true, // Auto-equip when purchased
+      // Unequip other weapons
+      spaceRifleEquipped: false,
+      plasmaCanonEquipped: false,
+      rocketLauncherEquipped: false,
     };
 
     // Deduct personal points and sync to backend
-    setPersonalPoints(prev => prev - DESTROY_CANON_COST);
-    updateRemotePersonalPoints(-DESTROY_CANON_COST, 'Destroy Canon');
+    setPersonalPoints(prev => prev - SPACE_TNT_COST);
+    updateRemotePersonalPoints(-SPACE_TNT_COST, 'Space TNT');
     updateUserShipEffects(userId, currentShip, newEffects);
     soundManager.playShipUpgrade();
   };
 
-  // Toggle Destroy Canon equip state
-  const toggleDestroyCanon = () => {
+  // Toggle Space TNT equip state (only one weapon at a time)
+  const toggleSpaceTNT = () => {
     const userId = state.currentUser || 'default';
     const currentShip = getCurrentUserShip();
     const currentEffects = getEffectsWithDefaults(currentShip.effects);
 
     if (!currentEffects.hasDestroyCanon) return; // Doesn't own it
 
+    const willEquip = !currentEffects.destroyCanonEquipped;
     const newEffects: ShipEffects = {
       ...currentEffects,
-      destroyCanonEquipped: !currentEffects.destroyCanonEquipped,
+      destroyCanonEquipped: willEquip,
+      // Unequip other weapons if equipping this one
+      spaceRifleEquipped: willEquip ? false : currentEffects.spaceRifleEquipped,
+      plasmaCanonEquipped: willEquip ? false : currentEffects.plasmaCanonEquipped,
+      rocketLauncherEquipped: willEquip ? false : currentEffects.rocketLauncherEquipped,
     };
 
     updateUserShipEffects(userId, currentShip, newEffects);
@@ -2508,6 +2517,10 @@ function App() {
       ...currentEffects,
       hasSpaceRifle: true,
       spaceRifleEquipped: true, // Auto-equip when purchased
+      // Unequip other weapons
+      destroyCanonEquipped: false,
+      plasmaCanonEquipped: false,
+      rocketLauncherEquipped: false,
     };
 
     // Deduct personal points and sync to backend
@@ -2517,7 +2530,7 @@ function App() {
     soundManager.playShipUpgrade();
   };
 
-  // Toggle Space Rifle equip state
+  // Toggle Space Rifle equip state (only one weapon at a time)
   const toggleSpaceRifle = () => {
     const userId = state.currentUser || 'default';
     const currentShip = getCurrentUserShip();
@@ -2525,9 +2538,14 @@ function App() {
 
     if (!currentEffects.hasSpaceRifle) return; // Doesn't own it
 
+    const willEquip = !currentEffects.spaceRifleEquipped;
     const newEffects: ShipEffects = {
       ...currentEffects,
-      spaceRifleEquipped: !currentEffects.spaceRifleEquipped,
+      spaceRifleEquipped: willEquip,
+      // Unequip other weapons if equipping this one
+      destroyCanonEquipped: willEquip ? false : currentEffects.destroyCanonEquipped,
+      plasmaCanonEquipped: willEquip ? false : currentEffects.plasmaCanonEquipped,
+      rocketLauncherEquipped: willEquip ? false : currentEffects.rocketLauncherEquipped,
     };
 
     updateUserShipEffects(userId, currentShip, newEffects);
@@ -2548,6 +2566,10 @@ function App() {
       ...currentEffects,
       hasPlasmaCanon: true,
       plasmaCanonEquipped: true, // Auto-equip when purchased
+      // Unequip other weapons
+      destroyCanonEquipped: false,
+      spaceRifleEquipped: false,
+      rocketLauncherEquipped: false,
     };
 
     setPersonalPoints(prev => prev - PLASMA_CANON_COST);
@@ -2556,7 +2578,7 @@ function App() {
     soundManager.playShipUpgrade();
   };
 
-  // Toggle Plasma Canon equip state
+  // Toggle Plasma Canon equip state (only one weapon at a time)
   const togglePlasmaCanon = () => {
     const userId = state.currentUser || 'default';
     const currentShip = getCurrentUserShip();
@@ -2564,9 +2586,14 @@ function App() {
 
     if (!currentEffects.hasPlasmaCanon) return;
 
+    const willEquip = !currentEffects.plasmaCanonEquipped;
     const newEffects: ShipEffects = {
       ...currentEffects,
-      plasmaCanonEquipped: !currentEffects.plasmaCanonEquipped,
+      plasmaCanonEquipped: willEquip,
+      // Unequip other weapons if equipping this one
+      destroyCanonEquipped: willEquip ? false : currentEffects.destroyCanonEquipped,
+      spaceRifleEquipped: willEquip ? false : currentEffects.spaceRifleEquipped,
+      rocketLauncherEquipped: willEquip ? false : currentEffects.rocketLauncherEquipped,
     };
 
     updateUserShipEffects(userId, currentShip, newEffects);
@@ -2587,6 +2614,10 @@ function App() {
       ...currentEffects,
       hasRocketLauncher: true,
       rocketLauncherEquipped: true, // Auto-equip when purchased
+      // Unequip other weapons
+      destroyCanonEquipped: false,
+      spaceRifleEquipped: false,
+      plasmaCanonEquipped: false,
     };
 
     setPersonalPoints(prev => prev - ROCKET_LAUNCHER_COST);
@@ -2595,7 +2626,7 @@ function App() {
     soundManager.playShipUpgrade();
   };
 
-  // Toggle Rocket Launcher equip state
+  // Toggle Rocket Launcher equip state (only one weapon at a time)
   const toggleRocketLauncher = () => {
     const userId = state.currentUser || 'default';
     const currentShip = getCurrentUserShip();
@@ -2603,9 +2634,14 @@ function App() {
 
     if (!currentEffects.hasRocketLauncher) return;
 
+    const willEquip = !currentEffects.rocketLauncherEquipped;
     const newEffects: ShipEffects = {
       ...currentEffects,
-      rocketLauncherEquipped: !currentEffects.rocketLauncherEquipped,
+      rocketLauncherEquipped: willEquip,
+      // Unequip other weapons if equipping this one
+      destroyCanonEquipped: willEquip ? false : currentEffects.destroyCanonEquipped,
+      spaceRifleEquipped: willEquip ? false : currentEffects.spaceRifleEquipped,
+      plasmaCanonEquipped: willEquip ? false : currentEffects.plasmaCanonEquipped,
     };
 
     updateUserShipEffects(userId, currentShip, newEffects);
@@ -3567,7 +3603,7 @@ function App() {
             {/* Weapons Tab */}
             {shopTab === 'weapons' && (
               <div style={styles.shopSection}>
-                {/* Space Rifle */}
+                {/* Space Rifle - 300 pts */}
                 {(() => {
                   const effects = getEffectsWithDefaults(getCurrentUserShip().effects);
                   const owned = effects.hasSpaceRifle;
@@ -3581,7 +3617,7 @@ function App() {
                       </div>
                       <div style={styles.effectLaneContent}>
                         <span style={{ fontSize: '0.75rem', color: '#888', flex: 1 }}>
-                          Shoot bullets to destroy planets (X key)
+                          Fast bullets (X key)
                         </span>
                         {owned ? (
                           <button
@@ -3613,7 +3649,53 @@ function App() {
                     </div>
                   );
                 })()}
-                {/* Plasma Canon */}
+                {/* Space TNT - 500 pts */}
+                {(() => {
+                  const effects = getEffectsWithDefaults(getCurrentUserShip().effects);
+                  const owned = effects.hasDestroyCanon;
+                  const equipped = effects.destroyCanonEquipped;
+                  const canBuy = !owned && personalPoints >= SPACE_TNT_COST;
+                  return (
+                    <div style={styles.effectLane}>
+                      <div style={styles.effectLaneLabel}>
+                        <span style={styles.effectLaneIcon}>💥</span>
+                        <span>Space TNT</span>
+                      </div>
+                      <div style={styles.effectLaneContent}>
+                        <span style={{ fontSize: '0.75rem', color: '#888', flex: 1 }}>
+                          Land & detonate (X key)
+                        </span>
+                        {owned ? (
+                          <button
+                            style={{
+                              ...styles.effectBuyButton,
+                              background: equipped ? 'rgba(255, 165, 0, 0.2)' : 'rgba(255,255,255,0.05)',
+                              borderColor: equipped ? '#ffa500' : '#444',
+                              color: equipped ? '#ffa500' : '#888',
+                              minWidth: 80,
+                            }}
+                            onClick={toggleSpaceTNT}
+                          >
+                            {equipped ? 'EQUIPPED' : 'EQUIP'}
+                          </button>
+                        ) : (
+                          <button
+                            style={{
+                              ...styles.effectBuyButton,
+                              opacity: canBuy ? 1 : 0.5,
+                              minWidth: 100,
+                            }}
+                            onClick={buySpaceTNT}
+                            disabled={!canBuy}
+                          >
+                            {SPACE_TNT_COST} ⭐
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+                {/* Plasma Canon - 650 pts */}
                 {(() => {
                   const effects = getEffectsWithDefaults(getCurrentUserShip().effects);
                   const owned = effects.hasPlasmaCanon;
@@ -3627,7 +3709,7 @@ function App() {
                       </div>
                       <div style={styles.effectLaneContent}>
                         <span style={{ fontSize: '0.75rem', color: '#888', flex: 1 }}>
-                          Heavy plasma shots, high damage (Z key)
+                          Heavy plasma shots (X key)
                         </span>
                         {owned ? (
                           <button
@@ -3659,7 +3741,7 @@ function App() {
                     </div>
                   );
                 })()}
-                {/* Rocket Launcher */}
+                {/* Rocket Launcher - 1000 pts */}
                 {(() => {
                   const effects = getEffectsWithDefaults(getCurrentUserShip().effects);
                   const owned = effects.hasRocketLauncher;
@@ -3673,7 +3755,7 @@ function App() {
                       </div>
                       <div style={styles.effectLaneContent}>
                         <span style={{ fontSize: '0.75rem', color: '#888', flex: 1 }}>
-                          Homing missiles, tracks targets (V key)
+                          Homing missiles (X key)
                         </span>
                         {owned ? (
                           <button
@@ -3699,52 +3781,6 @@ function App() {
                             disabled={!canBuy}
                           >
                             {ROCKET_LAUNCHER_COST} ⭐
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })()}
-                {/* Destroy Canon (Legacy) */}
-                {(() => {
-                  const effects = getEffectsWithDefaults(getCurrentUserShip().effects);
-                  const owned = effects.hasDestroyCanon;
-                  const equipped = effects.destroyCanonEquipped;
-                  const canBuy = !owned && personalPoints >= DESTROY_CANON_COST;
-                  return (
-                    <div style={styles.effectLane}>
-                      <div style={styles.effectLaneLabel}>
-                        <span style={styles.effectLaneIcon}>💥</span>
-                        <span>Destroy Canon</span>
-                      </div>
-                      <div style={styles.effectLaneContent}>
-                        <span style={{ fontSize: '0.75rem', color: '#888', flex: 1 }}>
-                          Land & destroy planets (legacy)
-                        </span>
-                        {owned ? (
-                          <button
-                            style={{
-                              ...styles.effectBuyButton,
-                              background: equipped ? 'rgba(255, 165, 0, 0.2)' : 'rgba(255,255,255,0.05)',
-                              borderColor: equipped ? '#ffa500' : '#444',
-                              color: equipped ? '#ffa500' : '#888',
-                              minWidth: 80,
-                            }}
-                            onClick={toggleDestroyCanon}
-                          >
-                            {equipped ? 'EQUIPPED' : 'EQUIP'}
-                          </button>
-                        ) : (
-                          <button
-                            style={{
-                              ...styles.effectBuyButton,
-                              opacity: canBuy ? 1 : 0.5,
-                              minWidth: 100,
-                            }}
-                            onClick={buyDestroyCanon}
-                            disabled={!canBuy}
-                          >
-                            {DESTROY_CANON_COST} ⭐
                           </button>
                         )}
                       </div>

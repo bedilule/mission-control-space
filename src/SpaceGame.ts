@@ -147,7 +147,7 @@ export class SpaceGame {
   private shipImage: HTMLImageElement | null = null;
   private baseShipImage: HTMLImageElement | null = null; // Default ship for players without custom skin
   private hormoziPlanetImage: HTMLImageElement | null = null;
-  private canonImage: HTMLImageElement | null = null; // Legacy Destroy Canon (kept for backwards compat)
+  private canonImage: HTMLImageElement | null = null; // Space TNT weapon image
   private rifleImage: HTMLImageElement | null = null; // Space Rifle weapon image
   private plasmaCanonImage: HTMLImageElement | null = null; // Plasma Canon weapon image
   private rocketLauncherImage: HTMLImageElement | null = null; // Rocket Launcher weapon image
@@ -368,10 +368,10 @@ export class SpaceGame {
       this.hormoziPlanetImage = hormoziImg;
     };
 
-    // Load Destroy Canon image (legacy)
+    // Load Space TNT image
     const canonImg = new Image();
     canonImg.crossOrigin = 'anonymous';
-    canonImg.src = '/destroy-canon.png';
+    canonImg.src = '/space-tnt.png';
     canonImg.onload = () => {
       this.canonImage = canonImg;
     };
@@ -1245,19 +1245,16 @@ export class SpaceGame {
       }
     }
 
-    // Space Rifle: Fire projectile with X key while flying (not landed)
-    if (this.keys.has('x') && this.shipEffects.spaceRifleEquipped && !this.shipBeingSucked) {
-      this.fireProjectile();
-    }
-
-    // Plasma Canon: Fire with Z key while flying
-    if (this.keys.has('z') && this.shipEffects.plasmaCanonEquipped && !this.shipBeingSucked) {
-      this.firePlasma();
-    }
-
-    // Rocket Launcher: Fire with V key while flying
-    if (this.keys.has('v') && this.shipEffects.rocketLauncherEquipped && !this.shipBeingSucked) {
-      this.fireRocket();
+    // All weapons fire with X key (only one weapon can be equipped at a time)
+    if (this.keys.has('x') && !this.shipBeingSucked) {
+      if (this.shipEffects.spaceRifleEquipped) {
+        this.fireProjectile();
+      } else if (this.shipEffects.plasmaCanonEquipped) {
+        this.firePlasma();
+      } else if (this.shipEffects.rocketLauncherEquipped) {
+        this.fireRocket();
+      }
+      // Space TNT (destroyCanonEquipped) is handled in handleLandedControls when landed
     }
 
     // Update projectiles (movement, collision, damage)
@@ -2436,6 +2433,135 @@ export class SpaceGame {
     }
 
     ctx.restore();
+  }
+
+  // Draw the currently equipped weapon on the ship
+  private drawEquippedWeapon(ctx: CanvasRenderingContext2D, shipSize: number, scale: number) {
+    const weaponSize = shipSize * 0.7;
+    const weaponX = shipSize * 0.25;
+    const weaponY = -shipSize * 0.1;
+
+    // Determine which weapon is equipped and get its image and glow color
+    let weaponImage: HTMLImageElement | null = null;
+    let glowColor = '#ffffff';
+
+    if (this.shipEffects.spaceRifleEquipped && this.rifleImage) {
+      weaponImage = this.rifleImage;
+      glowColor = '#ffcc00'; // Yellow for rifle
+    } else if (this.shipEffects.destroyCanonEquipped && this.canonImage) {
+      weaponImage = this.canonImage;
+      glowColor = '#ff6600'; // Orange for Space TNT
+    } else if (this.shipEffects.plasmaCanonEquipped && this.plasmaCanonImage) {
+      weaponImage = this.plasmaCanonImage;
+      glowColor = '#8844ff'; // Purple for plasma
+    } else if (this.shipEffects.rocketLauncherEquipped && this.rocketLauncherImage) {
+      weaponImage = this.rocketLauncherImage;
+      glowColor = '#ff4444'; // Red for rockets
+    }
+
+    if (weaponImage) {
+      ctx.save();
+      ctx.translate(weaponX, weaponY);
+      ctx.rotate(-Math.PI / 4); // Angle forward-right (45 degrees)
+
+      // Draw the weapon image
+      ctx.drawImage(
+        weaponImage,
+        -weaponSize / 2,
+        -weaponSize / 2,
+        weaponSize,
+        weaponSize
+      );
+
+      // Add glow effect
+      ctx.shadowColor = glowColor;
+      ctx.shadowBlur = 10;
+      ctx.globalAlpha = 0.3;
+      ctx.drawImage(
+        weaponImage,
+        -weaponSize / 2,
+        -weaponSize / 2,
+        weaponSize,
+        weaponSize
+      );
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
+
+      ctx.restore();
+    } else if (this.shipEffects.destroyCanonEquipped) {
+      // Fallback procedural weapon if image not loaded (Space TNT)
+      const canonScale = scale * 0.8;
+      const canonX = shipSize * 0.35;
+      const canonY = -shipSize * 0.05;
+
+      ctx.save();
+      ctx.translate(canonX, canonY);
+      ctx.rotate(-Math.PI / 6);
+
+      ctx.fillStyle = '#444';
+      ctx.fillRect(-4 * canonScale, -15 * canonScale, 8 * canonScale, 18 * canonScale);
+
+      ctx.beginPath();
+      ctx.arc(0, -15 * canonScale, 5 * canonScale, 0, Math.PI * 2);
+      ctx.fillStyle = '#ff6600';
+      ctx.fill();
+
+      ctx.restore();
+    }
+  }
+
+  // Draw the currently equipped weapon for other players
+  private drawOtherPlayerWeapon(ctx: CanvasRenderingContext2D, player: OtherPlayer, shipSize: number) {
+    const weaponSize = shipSize * 0.7;
+    const weaponX = shipSize * 0.25;
+    const weaponY = -shipSize * 0.1;
+
+    // Determine which weapon is equipped
+    let weaponImage: HTMLImageElement | null = null;
+    let glowColor = '#ffffff';
+
+    if (player.shipEffects?.spaceRifleEquipped && this.rifleImage) {
+      weaponImage = this.rifleImage;
+      glowColor = '#ffcc00';
+    } else if (player.shipEffects?.destroyCanonEquipped && this.canonImage) {
+      weaponImage = this.canonImage;
+      glowColor = '#ff6600';
+    } else if (player.shipEffects?.plasmaCanonEquipped && this.plasmaCanonImage) {
+      weaponImage = this.plasmaCanonImage;
+      glowColor = '#8844ff';
+    } else if (player.shipEffects?.rocketLauncherEquipped && this.rocketLauncherImage) {
+      weaponImage = this.rocketLauncherImage;
+      glowColor = '#ff4444';
+    }
+
+    if (weaponImage) {
+      ctx.save();
+      ctx.translate(weaponX, weaponY);
+      ctx.rotate(-Math.PI / 4);
+
+      ctx.drawImage(
+        weaponImage,
+        -weaponSize / 2,
+        -weaponSize / 2,
+        weaponSize,
+        weaponSize
+      );
+
+      ctx.shadowColor = glowColor;
+      ctx.shadowBlur = 10;
+      ctx.globalAlpha = 0.3;
+      ctx.drawImage(
+        weaponImage,
+        -weaponSize / 2,
+        -weaponSize / 2,
+        weaponSize,
+        weaponSize
+      );
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
+
+      ctx.restore();
+    }
   }
 
   // ==================== END SPACE RIFLE SYSTEM ====================
@@ -4272,62 +4398,8 @@ export class SpaceGame {
         shipSize
       );
 
-      // Draw Destroy Canon if equipped
-      if (this.shipEffects.destroyCanonEquipped && this.canonImage) {
-        const canonSize = shipSize * 0.7; // Canon size relative to ship
-        const canonX = shipSize * 0.25; // Right side of ship
-        const canonY = -shipSize * 0.1; // Slightly forward
-
-        ctx.save();
-        ctx.translate(canonX, canonY);
-        ctx.rotate(-Math.PI / 4); // Angle forward-right (45 degrees)
-
-        // Draw the canon image
-        ctx.drawImage(
-          this.canonImage,
-          -canonSize / 2,
-          -canonSize / 2,
-          canonSize,
-          canonSize
-        );
-
-        // Add glow effect around the canon
-        ctx.shadowColor = '#ff6600';
-        ctx.shadowBlur = 10;
-        ctx.globalAlpha = 0.3;
-        ctx.drawImage(
-          this.canonImage,
-          -canonSize / 2,
-          -canonSize / 2,
-          canonSize,
-          canonSize
-        );
-        ctx.globalAlpha = 1;
-        ctx.shadowBlur = 0;
-
-        ctx.restore();
-      } else if (this.shipEffects.destroyCanonEquipped) {
-        // Fallback procedural canon if image not loaded
-        const canonScale = scale * 0.8;
-        const canonX = shipSize * 0.35;
-        const canonY = -shipSize * 0.05;
-
-        ctx.save();
-        ctx.translate(canonX, canonY);
-        ctx.rotate(-Math.PI / 6);
-
-        // Simple barrel
-        ctx.fillStyle = '#444';
-        ctx.fillRect(-4 * canonScale, -15 * canonScale, 8 * canonScale, 18 * canonScale);
-
-        // Glowing tip
-        ctx.beginPath();
-        ctx.arc(0, -15 * canonScale, 5 * canonScale, 0, Math.PI * 2);
-        ctx.fillStyle = '#ff6600';
-        ctx.fill();
-
-        ctx.restore();
-      }
+      // Draw equipped weapon on ship
+      this.drawEquippedWeapon(ctx, shipSize, scale);
 
       // Level glow effect (legacy - kept for high levels)
       if (this.shipLevel >= 5 && !this.shipEffects.glowColor) {
@@ -4856,19 +4928,19 @@ export class SpaceGame {
         ctx.fillText('[ N ] Open Notion', boxX + boxWidth / 2 + 80, currentY);
       }
     } else if (planet.completed && !isSpecialPlanet && planet.type === 'notion') {
-      // Destroy hint for completed Notion planets (requires Destroy Canon equipped)
+      // Destroy hint for completed Notion planets (requires Space TNT equipped)
       if (this.shipEffects.destroyCanonEquipped) {
         ctx.fillStyle = '#ff4444';
         ctx.font = 'bold 14px Space Grotesk';
-        ctx.fillText('[ X ] Destroy Planet', boxX + boxWidth / 2 - (hasNotionUrl ? 80 : 0), currentY);
+        ctx.fillText('[ X ] Detonate Planet', boxX + boxWidth / 2 - (hasNotionUrl ? 80 : 0), currentY);
       } else if (this.shipEffects.hasDestroyCanon) {
         ctx.fillStyle = '#888';
         ctx.font = '12px Space Grotesk';
-        ctx.fillText('🔒 Equip Canon in Shop', boxX + boxWidth / 2 - (hasNotionUrl ? 80 : 0), currentY);
+        ctx.fillText('🔒 Equip Space TNT in Shop', boxX + boxWidth / 2 - (hasNotionUrl ? 80 : 0), currentY);
       } else {
         ctx.fillStyle = '#666';
         ctx.font = '12px Space Grotesk';
-        ctx.fillText('🔒 Destroy Canon needed (Shop)', boxX + boxWidth / 2 - (hasNotionUrl ? 80 : 0), currentY);
+        ctx.fillText('🔒 Space TNT needed (Shop)', boxX + boxWidth / 2 - (hasNotionUrl ? 80 : 0), currentY);
       }
 
       // Notion hint
@@ -5473,40 +5545,8 @@ export class SpaceGame {
       ctx.stroke();
     }
 
-    // Draw Destroy Canon if equipped (same as local player)
-    if (player.shipEffects?.destroyCanonEquipped && this.canonImage) {
-      const canonSize = shipSize * 0.7;
-      const canonX = shipSize * 0.25;
-      const canonY = -shipSize * 0.1;
-
-      ctx.save();
-      ctx.translate(canonX, canonY);
-      ctx.rotate(-Math.PI / 4);
-
-      ctx.drawImage(
-        this.canonImage,
-        -canonSize / 2,
-        -canonSize / 2,
-        canonSize,
-        canonSize
-      );
-
-      // Add glow effect
-      ctx.shadowColor = '#ff6600';
-      ctx.shadowBlur = 10;
-      ctx.globalAlpha = 0.3;
-      ctx.drawImage(
-        this.canonImage,
-        -canonSize / 2,
-        -canonSize / 2,
-        canonSize,
-        canonSize
-      );
-      ctx.globalAlpha = 1;
-      ctx.shadowBlur = 0;
-
-      ctx.restore();
-    }
+    // Draw equipped weapon for other players
+    this.drawOtherPlayerWeapon(ctx, player, shipSize);
 
     ctx.restore();
 
