@@ -3210,13 +3210,38 @@ function App() {
               })()}
             </div>
 
-            {/* Terraform history */}
-            {getUserPlanet(viewingPlanetOwner).history.length > 0 ? (
+            {/* Planet versions */}
+            {(getUserPlanet(viewingPlanetOwner).baseImage || getUserPlanet(viewingPlanetOwner).history.length > 0) ? (
               <div style={{ marginBottom: '1rem' }}>
                 <h4 style={{ color: '#888', fontSize: '0.8rem', marginBottom: '0.5rem', textTransform: 'uppercase' }}>
-                  Terraform History
+                  Planet Versions
                 </h4>
                 <div className="hidden-scrollbar" style={{ maxHeight: 200, overflowY: 'auto' }}>
+                  {/* Base planet option */}
+                  {getUserPlanet(viewingPlanetOwner).baseImage && (() => {
+                    const isOwner = viewingPlanetOwner === state.currentUser;
+                    const isSelected = getUserPlanet(viewingPlanetOwner).imageUrl === getUserPlanet(viewingPlanetOwner).baseImage;
+                    return (
+                      <div
+                        style={{
+                          ...styles.historyItem,
+                          cursor: isOwner ? 'pointer' : 'default',
+                          border: isSelected ? '2px solid #4ade80' : '2px solid transparent',
+                        }}
+                        onClick={isOwner ? () => selectPlanetFromHistory(viewingPlanetOwner, getUserPlanet(viewingPlanetOwner).baseImage!) : undefined}
+                      >
+                        <img src={getUserPlanet(viewingPlanetOwner).baseImage} alt="" style={styles.historyThumb} />
+                        <div style={styles.historyInfo}>
+                          <span style={styles.historyDesc}>Base Planet</span>
+                          <span style={styles.historyDate}>Original</span>
+                        </div>
+                        {isSelected && (
+                          <span style={{ color: '#4ade80', fontSize: '0.75rem' }}>✓</span>
+                        )}
+                      </div>
+                    );
+                  })()}
+                  {/* Terraform history */}
                   {getUserPlanet(viewingPlanetOwner).history.map((entry, i) => {
                     const isOwner = viewingPlanetOwner === state.currentUser;
                     const isSelected = getUserPlanet(viewingPlanetOwner).imageUrl === entry.imageUrl;
