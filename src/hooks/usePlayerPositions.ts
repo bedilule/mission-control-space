@@ -230,8 +230,9 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
         if (pos.player_id === playerId) continue; // Skip self
 
         const playerInfo = currentPlayers.find((p) => p.id === pos.player_id);
-        // Skip offline players
-        if (!playerInfo || !playerInfo.isOnline) continue;
+        // Only skip if player doesn't exist at all (not based on isOnline status)
+        // The WebSocket staleness check (10 second timeout) handles removing inactive players
+        if (!playerInfo) continue;
 
         others.push({
           id: pos.player_id,
@@ -478,16 +479,14 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
   }, [teamId, playerId, fetchInitialPositions]);
 
   // Update other players when player list changes (for new ship images, etc.)
-  // Also remove offline players from the map
+  // NOTE: We do NOT filter based on database isOnline status here.
+  // The WebSocket position updates have their own staleness check (10 second timeout).
+  // Filtering based on isOnline causes jitter when there's clock skew between clients,
+  // as players get constantly added/removed from the render list.
   useEffect(() => {
     setOtherPlayers((prev) =>
       prev
-        // Filter out offline players
-        .filter((op) => {
-          const playerInfo = players.find((p) => p.id === op.id);
-          return playerInfo?.isOnline !== false;
-        })
-        // Update remaining players' info
+        // Update players' info (ship image, effects, etc.)
         .map((op) => {
           const playerInfo = players.find((p) => p.id === op.id);
           if (playerInfo) {
