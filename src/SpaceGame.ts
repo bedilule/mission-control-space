@@ -261,6 +261,7 @@ export class SpaceGame {
   private sendVelocityX: number = 0;
   private sendVelocityY: number = 0;
   private sendRocketFlame: number = 0;
+  private sendPendingPlanet: Planet | null = null; // Updated planet data to add after animation
   private sendTrailPoints: { x: number; y: number; size: number; alpha: number }[] = [];
   private sendRocketImage: HTMLImageElement | null = null;
 
@@ -894,8 +895,8 @@ export class SpaceGame {
         // Store the new planet data to apply after animation completes
         this.claimPendingPlanet = planet;
       } else if (planet.id === sendingPlanetId) {
-        // Skip - animation controls this planet's position until it arrives
-        // The planet will be removed when animation completes
+        // Store the updated planet data to add after animation completes
+        this.sendPendingPlanet = planet;
       } else {
         this.state.planets.push(planet);
 
@@ -1976,6 +1977,7 @@ export class SpaceGame {
     this.sendTargetReady = false;
     this.sendTrailPoints = [];
     this.sendRocketFlame = 0;
+    this.sendPendingPlanet = null;
 
     // Start flying immediately in a random direction
     const randomAngle = Math.random() * Math.PI * 2;
@@ -2027,10 +2029,17 @@ export class SpaceGame {
       const dist = Math.sqrt(dx * dx + dy * dy);
 
       if (dist < 50) {
-        // Arrived! Remove planet
+        // Arrived! Replace with updated planet at new position
         this.isSending = false;
         this.sendTrailPoints = [];
         this.state.planets = this.state.planets.filter(p => p.id !== this.sendPlanetId);
+
+        // Add the pending planet (with updated position from DB)
+        if (this.sendPendingPlanet) {
+          this.state.planets.push(this.sendPendingPlanet);
+          this.sendPendingPlanet = null;
+        }
+
         this.sendPlanetId = null;
         return;
       }
