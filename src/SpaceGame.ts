@@ -874,21 +874,28 @@ export class SpaceGame {
     // so the animation can continue controlling its position
     const claimingPlanetId = this.isClaiming && this.claimPlanet ? this.claimPlanet.id : null;
 
+    // If we're in a send animation, preserve that planet's reference
+    // so the animation can continue controlling its position
+    const sendingPlanetId = this.isSending ? this.sendPlanetId : null;
+
     // If landed on a notion planet, track it so we can update the reference
     const landedPlanetId = this.isLanded && this.landedPlanet?.id.startsWith('notion-') ? this.landedPlanet.id : null;
 
-    // Claiming planet is protected during animation (not replaced by sync)
+    // Claiming/sending planet is protected during animation (not replaced by sync)
 
-    // Remove old notion planets EXCEPT the one being claimed (animation controls it)
+    // Remove old notion planets EXCEPT the one being claimed/sent (animation controls it)
     this.state.planets = this.state.planets.filter(p =>
-      !p.id.startsWith('notion-') || p.id === claimingPlanetId
+      !p.id.startsWith('notion-') || p.id === claimingPlanetId || p.id === sendingPlanetId
     );
 
-    // Add new notion planets EXCEPT the one being claimed (keep animation's reference)
+    // Add new notion planets EXCEPT the one being claimed/sent (keep animation's reference)
     for (const planet of notionPlanets) {
       if (planet.id === claimingPlanetId) {
         // Store the new planet data to apply after animation completes
         this.claimPendingPlanet = planet;
+      } else if (planet.id === sendingPlanetId) {
+        // Skip - animation controls this planet's position until it arrives
+        // The planet will be removed when animation completes
       } else {
         this.state.planets.push(planet);
 
@@ -905,6 +912,14 @@ export class SpaceGame {
       const stillExists = this.state.planets.some(p => p.id === claimingPlanetId);
       if (!stillExists) {
         console.error('[ClaimSync] WARNING: Claiming planet was removed from state.planets!');
+      }
+    }
+
+    // Safety check: ensure the sending planet is still in state.planets
+    if (sendingPlanetId) {
+      const stillExists = this.state.planets.some(p => p.id === sendingPlanetId);
+      if (!stillExists) {
+        console.error('[SendSync] WARNING: Sending planet was removed from state.planets!');
       }
     }
   }
