@@ -3320,6 +3320,7 @@ export class SpaceGame {
     this.isUpgrading = true;
     this.upgradeTargetPlanetId = planetId;
     soundManager.startLoadingSound();
+    soundManager.playShipUpgrade(); // Plays upgrade1 + upgrade2 layered
 
     // Get target size for appropriate orbit distance
     let baseDistance = 50;
