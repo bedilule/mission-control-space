@@ -20,7 +20,7 @@ interface Goals {
 interface CustomPlanet {
   id: string;
   name: string;
-  description: string;
+  description?: string;
   type: 'business' | 'product' | 'achievement' | 'notion';
   size: 'small' | 'medium' | 'big';
   realWorldReward?: string;

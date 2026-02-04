@@ -3941,7 +3941,15 @@ function App() {
       {/* Planet Creator Modal */}
       {showPlanetCreator && (
         <div style={styles.modalOverlay}>
-          <div style={{ ...styles.modal, minWidth: newPlanet.type ? '400px' : '500px' }}>
+          <div
+            style={{ ...styles.modal, minWidth: newPlanet.type ? '400px' : '500px' }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !(e.target as HTMLElement).tagName.match(/TEXTAREA/i) && newPlanet.name && !isCreatingPlanet) {
+                e.preventDefault();
+                savePlanet();
+              }
+            }}
+          >
             <h2 style={styles.modalTitle}>Create New Planet</h2>
 
             {/* Big Type Selection Buttons - Always visible */}

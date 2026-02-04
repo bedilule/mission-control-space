@@ -4,7 +4,7 @@ import { soundManager } from './SoundManager';
 interface CustomPlanetData {
   id: string;
   name: string;
-  description: string;
+  description?: string;
   type: 'business' | 'product' | 'achievement' | 'notion';
   size: 'small' | 'medium' | 'big';
   realWorldReward?: string;
