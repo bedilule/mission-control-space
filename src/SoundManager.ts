@@ -110,18 +110,19 @@ const SOUND_CONFIGS: Record<string, SoundConfig> = {
 
 // Background music configs (separate from SFX)
 const MUSIC_CONFIGS: Record<string, SoundConfig> = {
-  // Intro music - plays once on first login
-  intro: {
-    src: [`${SOUNDS_PATH}intro-music.mp3`, `${SOUNDS_PATH}intro-music.ogg`],
-    volume: 0.4,
-    loop: false,
-  },
   // Ambient space background - loops during gameplay
   ambient: {
     src: [`${SOUNDS_PATH}space-ambient.mp3`, `${SOUNDS_PATH}space-ambient.ogg`],
     volume: 0.25,
     loop: true,
   },
+};
+
+// Intro sound (treated as SFX, not music)
+const INTRO_CONFIG: SoundConfig = {
+  src: [`${SOUNDS_PATH}intro-music.mp3`, `${SOUNDS_PATH}intro-music.ogg`],
+  volume: 0.4,
+  loop: false,
 };
 
 export class SoundManager {
@@ -201,13 +202,25 @@ export class SoundManager {
           // Music files are optional - don't warn if missing
           console.log(`Music file "${name}" not found - add ${config.src[0]} to enable`);
         },
-        onend: name === 'intro' ? () => {
-          // When intro ends, start ambient music
-          this.startAmbientMusic();
-        } : undefined,
       });
       this.music.set(name, music);
     });
+
+    // Load intro sound (treated as SFX)
+    const introSound = new Howl({
+      src: INTRO_CONFIG.src,
+      volume: INTRO_CONFIG.volume ?? 0.4,
+      loop: false,
+      preload: true,
+      onloaderror: () => {
+        console.log(`Intro sound not found - add ${INTRO_CONFIG.src[0]} to enable`);
+      },
+      onend: () => {
+        // When intro ends, start ambient music if music is enabled
+        this.startAmbientMusic();
+      },
+    });
+    this.sounds.set('intro', introSound);
 
     // Start black hole ambient (at 0 volume initially)
     const blackHoleAmbient = this.sounds.get('blackHoleAmbient');
@@ -381,13 +394,13 @@ export class SoundManager {
     return this.muted;
   }
 
-  // Background music controls
+  // Intro sound (treated as SFX, not music)
   public playIntroMusic() {
-    if (!this.initialized || this.introPlayed || !this.prefs.musicEnabled) return;
+    if (!this.initialized || this.introPlayed || !this.prefs.sfxEnabled) return;
 
-    const intro = this.music.get('intro');
+    const intro = this.sounds.get('intro');
     if (!intro) {
-      // No intro music configured, start ambient directly
+      // No intro sound configured, start ambient directly
       this.startAmbientMusic();
       return;
     }
@@ -396,13 +409,13 @@ export class SoundManager {
 
     // If already loaded, play immediately
     if (intro.state() === 'loaded') {
-      intro.volume(this.prefs.musicVolume);
+      intro.volume(INTRO_CONFIG.volume ?? 0.4);
       this.introMusicId = intro.play();
     } else {
       // Wait for load, then play
       intro.once('load', () => {
-        if (this.prefs.musicEnabled) {
-          intro.volume(this.prefs.musicVolume);
+        if (this.prefs.sfxEnabled) {
+          intro.volume(INTRO_CONFIG.volume ?? 0.4);
           this.introMusicId = intro.play();
         }
       });
@@ -446,7 +459,8 @@ export class SoundManager {
   }
 
   public stopAllMusic() {
-    const intro = this.music.get('intro');
+    // Stop intro sound (it's in sounds, not music)
+    const intro = this.sounds.get('intro');
     if (intro && this.introMusicId !== null) {
       intro.stop(this.introMusicId);
       this.introMusicId = null;
