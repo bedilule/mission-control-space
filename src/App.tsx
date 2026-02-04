@@ -2057,6 +2057,7 @@ function App() {
 
       fireConfetti(planet.size);
       soundManager.playDockingSound();
+      soundManager.playTaskVoiceLine();
 
       // Optimistic update: add points instantly (based on priority, stored on planet)
       if (planet.points) {
@@ -2076,6 +2077,7 @@ function App() {
 
     // Sound: docking celebration
     soundManager.playDockingSound();
+    soundManager.playTaskVoiceLine();
 
     // Award team points
     const pointsEarned = POINTS_PER_SIZE[planet.size];
@@ -2164,6 +2166,7 @@ function App() {
       // Already assigned - complete it
       fireConfetti(planet.size);
       soundManager.playDockingSound();
+      soundManager.playTaskVoiceLine();
 
       // Optimistic update: add points instantly (based on priority, stored on planet)
       if (planet.points) {
@@ -2186,6 +2189,7 @@ function App() {
 
       fireConfetti(planet.size);
       soundManager.playDockingSound();
+      soundManager.playTaskVoiceLine();
 
       const pointsEarned = POINTS_PER_SIZE[planet.size];
       setTeamPoints(prev => prev + pointsEarned);

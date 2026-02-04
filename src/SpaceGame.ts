@@ -4211,6 +4211,13 @@ export class SpaceGame {
     soundManager.startLoadingSound();
     soundManager.playVisualUpgrade(); // Plays upgrade1 + upgrade2 layered
 
+    // Play appropriate voice line
+    if (planetId && planetId.startsWith('user-planet-')) {
+      soundManager.playPlanetVoiceLine(); // Terraform
+    } else {
+      soundManager.playShipVoiceLine(); // Ship upgrade
+    }
+
     // Get target size for appropriate orbit distance
     let baseDistance = 50;
     if (planetId) {

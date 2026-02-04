@@ -146,6 +146,29 @@ const INTRO_CONFIG: SoundConfig = {
   loop: false,
 };
 
+// Voice line files for different events
+const SHIP_VOICE_LINES = [
+  `${SOUNDS_PATH}ship/9KWN_wDysXJ94T87fsIhV_music_generated.mp3`,
+  `${SOUNDS_PATH}ship/-RS3xcx2iXOZmr6n8kc92_music_generated.mp3`,
+  `${SOUNDS_PATH}ship/CRKO7KB_tQsNdV1EFwERx_music_generated.mp3`,
+  `${SOUNDS_PATH}ship/ojVzw-mc8WaN8ddBGlrjR_music_generated.mp3`,
+];
+
+const PLANET_VOICE_LINES = [
+  `${SOUNDS_PATH}planet/E86vbzqyFlFv1Upv8-RtW_music_generated.mp3`,
+  `${SOUNDS_PATH}planet/KXI4R9P2wZABj1bL-gxJs_music_generated.mp3`,
+  `${SOUNDS_PATH}planet/njMq_LvOdeiltf7CGL2KT_music_generated.mp3`,
+];
+
+const TASK_VOICE_LINES = [
+  `${SOUNDS_PATH}tasks/hdx7UY7uuFhwNinypEkY4_music_generated.mp3`,
+  `${SOUNDS_PATH}tasks/HZyyuyTpyA9AyEsRM3FYY_music_generated.mp3`,
+  `${SOUNDS_PATH}tasks/ICMQ_Jpf7Tna346c3sZ8f_music_generated.mp3`,
+  `${SOUNDS_PATH}tasks/obu406CoYZ1Vilipwia15_music_generated.mp3`,
+  `${SOUNDS_PATH}tasks/Rk0RdJOqQQoF1beUcsqNQ_music_generated.mp3`,
+  `${SOUNDS_PATH}tasks/vcWj8PPN9-U6V3BZHV73p_music_generated.mp3`,
+];
+
 export class SoundManager {
   private sounds: Map<string, Howl> = new Map();
   private music: Map<string, Howl> = new Map();
@@ -155,6 +178,14 @@ export class SoundManager {
 
   // Audio preferences
   private prefs: AudioPreferences = { ...DEFAULT_PREFS };
+
+  // Voice lines
+  private shipVoiceLines: Howl[] = [];
+  private planetVoiceLines: Howl[] = [];
+  private taskVoiceLines: Howl[] = [];
+  private shipVoiceIndex = 0;
+  private planetVoiceIndex = 0;
+  private taskVoiceIndex = 0;
 
   // Track playing instances for looping sounds
   private thrustId: number | null = null;
@@ -254,6 +285,30 @@ export class SoundManager {
     if (shopAmbient) {
       this.shopAmbientId = shopAmbient.play();
     }
+
+    // Load voice lines
+    this.shipVoiceLines = SHIP_VOICE_LINES.map(src => new Howl({
+      src: [src],
+      volume: 0.7,
+      preload: true,
+    }));
+
+    this.planetVoiceLines = PLANET_VOICE_LINES.map(src => new Howl({
+      src: [src],
+      volume: 0.7,
+      preload: true,
+    }));
+
+    this.taskVoiceLines = TASK_VOICE_LINES.map(src => new Howl({
+      src: [src],
+      volume: 0.7,
+      preload: true,
+    }));
+
+    // Shuffle indices for variety
+    this.shipVoiceIndex = Math.floor(Math.random() * SHIP_VOICE_LINES.length);
+    this.planetVoiceIndex = Math.floor(Math.random() * PLANET_VOICE_LINES.length);
+    this.taskVoiceIndex = Math.floor(Math.random() * TASK_VOICE_LINES.length);
 
     this.initialized = true;
   }
@@ -361,6 +416,28 @@ export class SoundManager {
   public playVisualUpgrade() {
     this.play('upgrade1');
     this.play('upgrade2');
+  }
+
+  // Voice lines - play next in sequence for variety
+  public playShipVoiceLine() {
+    if (!this.initialized || !this.prefs.sfxEnabled || this.shipVoiceLines.length === 0) return;
+    const voice = this.shipVoiceLines[this.shipVoiceIndex];
+    if (voice) voice.play();
+    this.shipVoiceIndex = (this.shipVoiceIndex + 1) % this.shipVoiceLines.length;
+  }
+
+  public playPlanetVoiceLine() {
+    if (!this.initialized || !this.prefs.sfxEnabled || this.planetVoiceLines.length === 0) return;
+    const voice = this.planetVoiceLines[this.planetVoiceIndex];
+    if (voice) voice.play();
+    this.planetVoiceIndex = (this.planetVoiceIndex + 1) % this.planetVoiceLines.length;
+  }
+
+  public playTaskVoiceLine() {
+    if (!this.initialized || !this.prefs.sfxEnabled || this.taskVoiceLines.length === 0) return;
+    const voice = this.taskVoiceLines[this.taskVoiceIndex];
+    if (voice) voice.play();
+    this.taskVoiceIndex = (this.taskVoiceIndex + 1) % this.taskVoiceLines.length;
   }
 
   // Teleport/claim sound
