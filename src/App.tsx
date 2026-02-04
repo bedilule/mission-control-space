@@ -554,6 +554,7 @@ function App() {
   const [userPlanets, setUserPlanets] = useState<Record<string, UserPlanet>>({}); // Loaded from Supabase
   const [showTerraform, setShowTerraform] = useState(false);
   const [terraformPrompt, setTerraformPrompt] = useState('');
+  const [showShipHistory, setShowShipHistory] = useState(false);
   const [viewingPlanetOwner, setViewingPlanetOwner] = useState<string | null>(null);
   const [viewingPlanetPreview, setViewingPlanetPreview] = useState<string | null>(null); // Preview image when browsing versions
 
@@ -1837,6 +1838,31 @@ function App() {
     soundManager.playSelect();
   };
 
+  // Select a ship image from history
+  const selectShipFromHistory = (imageUrl: string) => {
+    const userId = state.currentUser || 'default';
+    const currentShip = getCurrentUserShip();
+
+    // Update local state
+    setUserShips(prev => ({
+      ...prev,
+      [userId]: {
+        ...currentShip,
+        currentImage: imageUrl,
+      }
+    }));
+
+    // Update the ship in the game canvas
+    gameRef.current?.updateShipImage(imageUrl, currentShip.upgrades.length);
+
+    // Sync to Supabase
+    updatePlayerData({
+      ship_current_image: imageUrl,
+    });
+
+    soundManager.playSelect();
+  };
+
   // Buy planet size upgrade (max 5 levels)
   const buyPlanetSizeUpgrade = () => {
     const userId = state.currentUser || '';
@@ -3102,8 +3128,31 @@ function App() {
       </div>
 
       {/* Ship preview */}
-      <div style={styles.robotPreview}>
+      <div
+        style={styles.robotPreview}
+        onClick={() => setShowShipHistory(true)}
+        title="Click to view ship history"
+      >
         <img src={currentShip.currentImage} alt="Ship" style={styles.robotImage} />
+        {(() => {
+          const planet = getUserPlanet(state.currentUser || '');
+          const population = getPlanetPopulation(planet.terraformCount, planet.sizeLevel);
+          return population > 0 ? (
+            <div style={{
+              position: 'absolute',
+              bottom: 2,
+              left: 0,
+              right: 0,
+              background: 'rgba(0,0,0,0.7)',
+              padding: '2px 4px',
+              fontSize: '0.6rem',
+              color: '#4ade80',
+              textAlign: 'center',
+            }}>
+              🏘️ {formatPopulation(population)}
+            </div>
+          ) : null;
+        })()}
       </div>
 
       {/* Audio toggles - bottom right above ship */}
@@ -4185,6 +4234,91 @@ function App() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Ship History Modal */}
+      {showShipHistory && (
+        <div style={styles.modalOverlay} onClick={() => setShowShipHistory(false)}>
+          <div style={{ ...styles.modal, maxWidth: 450 }} onClick={e => e.stopPropagation()}>
+            <h2 style={styles.modalTitle}>🚀 Ship Versions</h2>
+
+            {/* Current ship preview */}
+            <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+              <img
+                src={getCurrentUserShip().currentImage}
+                alt="Current Ship"
+                style={{ width: 100, height: 100, borderRadius: 12, border: '3px solid #ffa500' }}
+              />
+              <p style={{ color: '#666', fontSize: '0.75rem', marginTop: '0.5rem' }}>
+                {getCurrentUserShip().upgrades.length} visual upgrades
+              </p>
+            </div>
+
+            {/* Ship versions history */}
+            {(getCurrentUserShip().baseImage || mascotHistory.length > 0) && (
+              <div style={{ marginBottom: '1rem' }}>
+                <h4 style={{ color: '#888', fontSize: '0.8rem', marginBottom: '0.5rem', textTransform: 'uppercase' }}>
+                  Select Version
+                </h4>
+                <div className="hidden-scrollbar" style={{ maxHeight: 250, overflowY: 'auto' }}>
+                  {/* Base ship option */}
+                  <div style={{
+                    ...styles.historyItem,
+                    cursor: 'pointer',
+                    border: getCurrentUserShip().currentImage === getCurrentUserShip().baseImage ? '2px solid #4ade80' : '2px solid transparent',
+                  }} onClick={() => selectShipFromHistory(getCurrentUserShip().baseImage || '/ship-base.png')}>
+                    <img src={getCurrentUserShip().baseImage || '/ship-base.png'} alt="" style={styles.historyThumb} />
+                    <div style={styles.historyInfo}>
+                      <span style={styles.historyDesc}>Base Ship</span>
+                      <span style={styles.historyDate}>Original</span>
+                    </div>
+                    {getCurrentUserShip().currentImage === (getCurrentUserShip().baseImage || '/ship-base.png') && (
+                      <span style={{ color: '#4ade80', fontSize: '0.75rem' }}>✓</span>
+                    )}
+                  </div>
+                  {/* Upgrade history */}
+                  {mascotHistory.map((entry, i) => (
+                    <div key={i} style={{
+                      ...styles.historyItem,
+                      cursor: 'pointer',
+                      border: getCurrentUserShip().currentImage === entry.imageUrl ? '2px solid #4ade80' : '2px solid transparent',
+                    }} onClick={() => selectShipFromHistory(entry.imageUrl)}>
+                      <img src={entry.imageUrl} alt="" style={styles.historyThumb} />
+                      <div style={styles.historyInfo}>
+                        <span style={styles.historyDesc}>{entry.planetName}</span>
+                        <span style={styles.historyDate}>
+                          {new Date(entry.timestamp).toLocaleDateString()}
+                        </span>
+                      </div>
+                      {getCurrentUserShip().currentImage === entry.imageUrl && (
+                        <span style={{ color: '#4ade80', fontSize: '0.75rem' }}>✓</span>
+                      )}
+                      <button
+                        style={styles.downloadButton}
+                        onClick={(e) => { e.stopPropagation(); downloadImage(entry.imageUrl, `ship-${state.currentUser}-${i + 1}`); }}
+                        title="Download"
+                      >
+                        ⬇
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {mascotHistory.length === 0 && (
+              <p style={{ color: '#666', fontSize: '0.85rem', textAlign: 'center', marginBottom: '1rem' }}>
+                No upgrade history yet. Visit the shop to customize your ship!
+              </p>
+            )}
+
+            <div style={styles.modalButtons}>
+              <button style={styles.cancelButton} onClick={() => setShowShipHistory(false)}>
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

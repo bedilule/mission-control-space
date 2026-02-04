@@ -4661,12 +4661,14 @@ export class SpaceGame {
       labelY += lineHeight;
     }
 
-    // Type indicator
-    const typeColors: Record<string, string> = { business: '#4ade80', product: '#5490ff', achievement: '#ffd700', notion: '#94a3b8', station: '#a855f7' };
-    ctx.fillStyle = (typeColors[planet.type] || '#94a3b8') + '80';
-    ctx.font = '9px Space Grotesk';
-    const typeLabel = planet.type === 'notion' ? 'NOTION' : planet.type.toUpperCase();
-    ctx.fillText(typeLabel, x, labelY + 4);
+    // Type indicator (skip for user home planets)
+    if (!planet.id.startsWith('user-planet-')) {
+      const typeColors: Record<string, string> = { business: '#4ade80', product: '#5490ff', achievement: '#ffd700', notion: '#94a3b8', station: '#a855f7' };
+      ctx.fillStyle = (typeColors[planet.type] || '#94a3b8') + '80';
+      ctx.font = '9px Space Grotesk';
+      const typeLabel = planet.type === 'notion' ? 'NOTION' : planet.type.toUpperCase();
+      ctx.fillText(typeLabel, x, labelY + 4);
+    }
   }
 
   private drawShip() {
