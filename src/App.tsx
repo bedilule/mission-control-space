@@ -11,6 +11,7 @@ import { useSupabaseData } from './hooks/useSupabaseData';
 import { usePromptHistory } from './hooks/usePromptHistory';
 import { getLocalPlayerId, supabase } from './lib/supabase';
 import { QuickTaskModal } from './components/QuickTaskModal';
+import { ReassignTaskModal } from './components/ReassignTaskModal';
 
 const FAL_API_KEY = 'c2df5aba-75d9-4626-95bb-aa366317d09e:8f90bb335a773f0ce3f261354107daa6';
 const STORAGE_KEY = 'mission-control-space-state';
@@ -544,6 +545,7 @@ function App() {
     onTerraform: (planet: Planet) => void;
     onDestroyPlanet: (planet: Planet) => void;
     onBlackHoleDeath: () => void;
+    onReassignRequest: (planet: Planet) => void;
   }>({
     onLand: () => {},
     onTakeoff: () => {},
@@ -553,6 +555,7 @@ function App() {
     onTerraform: () => {},
     onDestroyPlanet: () => {},
     onBlackHoleDeath: () => {},
+    onReassignRequest: () => {},
   });
   const [state, setState] = useState<SavedState>(loadState);
   const [customPlanets, setCustomPlanets] = useState<CustomPlanet[]>([]); // Loaded from Supabase
@@ -567,6 +570,8 @@ function App() {
   const [terraformPrompt, setTerraformPrompt] = useState('');
   const [showShipHistory, setShowShipHistory] = useState(false);
   const [showQuickTaskModal, setShowQuickTaskModal] = useState(false);
+  const [showReassignModal, setShowReassignModal] = useState(false);
+  const [reassignPlanet, setReassignPlanet] = useState<Planet | null>(null);
   const [viewingPlanetOwner, setViewingPlanetOwner] = useState<string | null>(null);
   const [viewingPlanetPreview, setViewingPlanetPreview] = useState<string | null>(null); // Preview image when browsing versions
 
@@ -587,6 +592,9 @@ function App() {
   const [pointsHistoryTab, setPointsHistoryTab] = useState<'personal' | 'team'>('personal');
   const [pointsHistory, setPointsHistory] = useState<PointTx[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [selectedLeaderboardPlayer, setSelectedLeaderboardPlayer] = useState<{ id: string; displayName: string; color: string; totalEarned: number } | null>(null);
+  const [playerBreakdownHistory, setPlayerBreakdownHistory] = useState<PointTx[]>([]);
+  const [isLoadingBreakdown, setIsLoadingBreakdown] = useState(false);
   const [editingGoal, setEditingGoal] = useState<any | null>(null);
   const [landedPlanet, setLandedPlanet] = useState<Planet | null>(null);
 
@@ -743,6 +751,7 @@ function App() {
     gamePlanets: notionGamePlanets,
     completePlanet: completeNotionPlanet,
     claimPlanet: claimNotionPlanet,
+    reassignPlanet: reassignNotionPlanet,
   } = useNotionPlanets({
     teamId: team?.id || null,
     onPlanetCreated: (planet) => {
@@ -844,6 +853,46 @@ function App() {
       setIsLoadingHistory(false);
     }
   }, [team?.id, currentDbPlayerId]);
+
+  // Fetch positive points breakdown for a specific player (for leaderboard click)
+  const fetchPlayerBreakdown = useCallback(async (playerId: string) => {
+    if (!team?.id) return;
+
+    setIsLoadingBreakdown(true);
+    try {
+      const { data, error } = await supabase
+        .from('point_transactions')
+        .select('*, players(display_name)')
+        .eq('team_id', team.id)
+        .eq('player_id', playerId)
+        .gt('points', 0) // Only positive points for leaderboard breakdown
+        .order('created_at', { ascending: false })
+        .limit(100);
+
+      if (error) {
+        console.error('Failed to fetch player breakdown:', error);
+        return;
+      }
+
+      if (data) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const mapped = data.map((t: any) => ({
+          id: t.id,
+          teamId: t.team_id,
+          playerId: t.player_id,
+          playerName: t.players?.display_name || undefined,
+          source: t.source,
+          notionTaskId: t.notion_task_id,
+          taskName: t.task_name,
+          points: t.points,
+          createdAt: t.created_at,
+        }));
+        setPlayerBreakdownHistory(mapped);
+      }
+    } finally {
+      setIsLoadingBreakdown(false);
+    }
+  }, [team?.id]);
 
   // Sync notion planets to game (store ref for immediate sync on game init)
   const notionPlanetsRef = useRef(notionGamePlanets);
@@ -2246,6 +2295,33 @@ function App() {
     window.open(url, '_blank');
   }, []);
 
+  // Handle reassign request - opens modal to select new owner
+  const handleReassignRequest = useCallback((planet: Planet) => {
+    if (!planet.id.startsWith('notion-')) return;
+    if (planet.completed) return;
+
+    setReassignPlanet(planet);
+    setShowReassignModal(true);
+    setLandedPlanet(null);
+    gameRef.current?.clearLandedState();
+  }, []);
+
+  // Handle actual reassignment after user selects new owner
+  const handleReassign = useCallback(async (newOwner: string) => {
+    if (!reassignPlanet) return;
+
+    const newPosition = await reassignNotionPlanet(reassignPlanet.id, newOwner);
+
+    if (newPosition) {
+      soundManager.playTeleport();
+      const ownerName = newOwner.charAt(0).toUpperCase() + newOwner.slice(1);
+      setEventNotification({ message: `Task sent to ${ownerName}`, type: 'mission' });
+      setTimeout(() => setEventNotification(null), 3000);
+    }
+
+    setReassignPlanet(null);
+  }, [reassignPlanet, reassignNotionPlanet]);
+
   // Handle terraforming a user planet
   const handleTerraform = useCallback((planet: Planet) => {
     if (!planet.id.startsWith('user-planet-')) return;
@@ -2330,8 +2406,9 @@ function App() {
       onTerraform: handleTerraform,
       onDestroyPlanet: handleDestroyPlanet,
       onBlackHoleDeath: handleBlackHoleDeath,
+      onReassignRequest: handleReassignRequest,
     };
-  }, [handleLand, handleTakeoff, handleColonize, handleClaimRequest, handleOpenNotion, handleTerraform, handleDestroyPlanet, handleBlackHoleDeath]);
+  }, [handleLand, handleTakeoff, handleColonize, handleClaimRequest, handleOpenNotion, handleTerraform, handleDestroyPlanet, handleBlackHoleDeath, handleReassignRequest]);
 
   // Keyboard shortcuts: Escape to close modals, T to open quick task
   useEffect(() => {
@@ -2340,7 +2417,7 @@ function App() {
       if (e.key === 'Escape' && !isUpgrading) {
         const isGameLanded = gameRef.current?.isPlayerLanded();
         const hasOpenModal = editingGoal || showSettings || showGameSettings || showTerraform ||
-          viewingPlanetOwner || showShop || showPlanetCreator || landedPlanet || isGameLanded || showQuickTaskModal;
+          viewingPlanetOwner || showShop || showPlanetCreator || landedPlanet || isGameLanded || showQuickTaskModal || showReassignModal;
 
         if (hasOpenModal) {
           e.preventDefault();
@@ -2354,6 +2431,8 @@ function App() {
           setShowPlanetCreator(false);
           setLandedPlanet(null);
           setShowQuickTaskModal(false);
+          setShowReassignModal(false);
+          setReassignPlanet(null);
           // Also clear SpaceGame's internal landed state
           gameRef.current?.clearLandedState();
         }
@@ -2366,7 +2445,7 @@ function App() {
         const isGameLanded = gameRef.current?.isPlayerLanded();
         const hasOpenModal = editingGoal || showSettings || showGameSettings || showTerraform ||
           viewingPlanetOwner || showShop || showPlanetCreator || landedPlanet || isGameLanded || showQuickTaskModal ||
-          showWelcome || showUserSelect || showLeaderboard || showPointsHistory;
+          showWelcome || showUserSelect || showLeaderboard || showPointsHistory || showReassignModal;
 
         if (!isTyping && !hasOpenModal && !isUpgrading) {
           e.preventDefault();
@@ -2377,7 +2456,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showTerraform, viewingPlanetOwner, showShop, showPlanetCreator, showSettings, showGameSettings, editingGoal, landedPlanet, isUpgrading, showQuickTaskModal, showWelcome, showUserSelect, showLeaderboard, showPointsHistory]);
+  }, [showTerraform, viewingPlanetOwner, showShop, showPlanetCreator, showSettings, showGameSettings, editingGoal, landedPlanet, isUpgrading, showQuickTaskModal, showWelcome, showUserSelect, showLeaderboard, showPointsHistory, showReassignModal]);
 
   // Buy visual upgrade from shop (AI-generated changes to ship appearance)
   const buyVisualUpgrade = async () => {
@@ -3081,6 +3160,7 @@ function App() {
       onTerraform: (planet) => landingCallbacksRef.current.onTerraform(planet),
       onDestroyPlanet: (planet) => landingCallbacksRef.current.onDestroyPlanet(planet),
       onBlackHoleDeath: () => landingCallbacksRef.current.onBlackHoleDeath(),
+      onReassignRequest: (planet) => landingCallbacksRef.current.onReassignRequest(planet),
     });
 
     // Sync notion planets immediately if already loaded
@@ -3399,6 +3479,20 @@ function App() {
         />
       )}
 
+      {/* Reassign Task Modal */}
+      {showReassignModal && reassignPlanet && (
+        <ReassignTaskModal
+          isOpen={showReassignModal}
+          onClose={() => {
+            setShowReassignModal(false);
+            setReassignPlanet(null);
+          }}
+          onReassign={handleReassign}
+          currentOwner={reassignPlanet.ownerId || null}
+          taskName={reassignPlanet.name}
+        />
+      )}
+
       {/* Game Settings Modal */}
       {showGameSettings && (
         <div style={styles.modalOverlay} onClick={() => setShowGameSettings(false)}>
@@ -3492,7 +3586,7 @@ function App() {
         <div style={styles.modalOverlay} onClick={() => setShowLeaderboard(false)}>
           <div style={{ ...styles.modal, maxWidth: 400 }} onClick={e => e.stopPropagation()}>
             <h2 style={styles.modalTitle}>🏆 Leaderboard</h2>
-            <p style={{ color: '#888', fontSize: '0.8rem', marginTop: '0.5rem', marginBottom: '0' }}>Total points earned</p>
+            <p style={{ color: '#888', fontSize: '0.8rem', marginTop: '0.5rem', marginBottom: '0' }}>Click a player to see breakdown</p>
             <div style={{ marginTop: '1rem' }}>
               {[...teamPlayers]
                 .filter(p => p.username !== 'anonymous')
@@ -3500,6 +3594,15 @@ function App() {
                 .map((player, index) => (
                   <div
                     key={player.id}
+                    onClick={() => {
+                      setSelectedLeaderboardPlayer({
+                        id: player.id,
+                        displayName: player.displayName,
+                        color: player.color,
+                        totalEarned: player.totalEarned,
+                      });
+                      fetchPlayerBreakdown(player.id);
+                    }}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -3513,6 +3616,18 @@ function App() {
                       border: player.username === state.currentUser
                         ? '1px solid rgba(255, 200, 0, 0.3)'
                         : '1px solid rgba(255,255,255,0.05)',
+                      cursor: 'pointer',
+                      transition: 'background 0.2s',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = player.username === state.currentUser
+                        ? 'rgba(255, 200, 0, 0.25)'
+                        : 'rgba(255,255,255,0.08)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = player.username === state.currentUser
+                        ? 'rgba(255, 200, 0, 0.15)'
+                        : 'rgba(255,255,255,0.03)';
                     }}
                   >
                     <span style={{
@@ -3552,6 +3667,123 @@ function App() {
             <button
               style={{ ...styles.closeButton, marginTop: '1.5rem' }}
               onClick={() => setShowLeaderboard(false)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Player Breakdown Modal */}
+      {selectedLeaderboardPlayer && (
+        <div style={styles.modalOverlay} onClick={() => setSelectedLeaderboardPlayer(null)}>
+          <div style={{ ...styles.modal, maxWidth: 500 }} onClick={e => e.stopPropagation()}>
+            <h2 style={styles.modalTitle}>
+              <span style={{
+                display: 'inline-block',
+                width: '12px',
+                height: '12px',
+                borderRadius: '50%',
+                background: selectedLeaderboardPlayer.color,
+                marginRight: '10px',
+              }} />
+              {selectedLeaderboardPlayer.displayName}
+            </h2>
+
+            {/* Total Earned */}
+            <div style={{
+              background: 'rgba(255,255,255,0.05)',
+              borderRadius: '10px',
+              padding: '1rem',
+              marginBottom: '1rem',
+              textAlign: 'center',
+            }}>
+              <div style={{ fontSize: '0.8rem', color: '#888', marginBottom: '0.25rem' }}>
+                Total Points Earned
+              </div>
+              <div style={{
+                fontSize: '1.8rem',
+                fontWeight: 700,
+                color: '#ffc800',
+              }}>
+                ⭐ {selectedLeaderboardPlayer.totalEarned}
+              </div>
+            </div>
+
+            {/* Transaction List */}
+            <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
+              {isLoadingBreakdown ? (
+                <div style={{ textAlign: 'center', padding: '2rem', color: '#888' }}>
+                  Loading breakdown...
+                </div>
+              ) : playerBreakdownHistory.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '2rem', color: '#888' }}>
+                  No points earned yet
+                </div>
+              ) : (
+                playerBreakdownHistory.map((tx) => (
+                  <div
+                    key={tx.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      padding: '12px 14px',
+                      background: 'rgba(255,255,255,0.03)',
+                      borderRadius: '8px',
+                      marginBottom: '8px',
+                      borderLeft: '3px solid #4ade80',
+                    }}
+                  >
+                    <div style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: '50%',
+                      background: tx.source === 'notion' ? 'rgba(100, 100, 255, 0.2)' : tx.source === 'planet' ? 'rgba(255, 165, 0, 0.2)' : 'rgba(128, 128, 128, 0.2)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '1rem',
+                      flexShrink: 0,
+                    }}>
+                      {tx.source === 'notion' ? '📋' : tx.source === 'planet' ? '🪐' : '⚙️'}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        color: '#fff',
+                        fontSize: '0.9rem',
+                        fontWeight: 500,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}>
+                        {tx.taskName || (tx.source === 'notion' ? 'Notion task' : tx.source === 'planet' ? 'Planet completed' : 'Points earned')}
+                      </div>
+                      <div style={{ color: '#666', fontSize: '0.75rem', marginTop: '2px' }}>
+                        {new Date(tx.createdAt).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </div>
+                    </div>
+                    <div style={{
+                      fontWeight: 700,
+                      fontSize: '1rem',
+                      color: '#4ade80',
+                      flexShrink: 0,
+                    }}>
+                      +{tx.points}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <button
+              style={{ ...styles.closeButton, marginTop: '1.5rem', width: '100%' }}
+              onClick={() => setSelectedLeaderboardPlayer(null)}
             >
               Close
             </button>
