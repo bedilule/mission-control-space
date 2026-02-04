@@ -4871,6 +4871,9 @@ export class SpaceGame {
   private drawPlanetInfo(planet: Planet, canDock: boolean) {
     const { ctx, canvas } = this;
 
+    // Check if this is a user planet
+    const isUserPlanet = planet.id.startsWith('user-planet-');
+
     // Check if this planet belongs to another player (locked)
     const isLocked = planet.ownerId !== null &&
                      planet.ownerId !== undefined &&
@@ -4881,7 +4884,7 @@ export class SpaceGame {
     const maxTextWidth = boxWidth - 30;
     const hasRealReward = planet.realWorldReward && !planet.completed;
     const hasNotionUrl = planet.notionUrl && !planet.completed;
-    let boxHeight = 110;
+    let boxHeight = isUserPlanet ? 90 : 110;
     if (hasRealReward) boxHeight += 30;
     if (hasNotionUrl) boxHeight += 20;
     const boxX = canvas.width / 2 - boxWidth / 2;
@@ -4912,63 +4915,91 @@ export class SpaceGame {
     }
     ctx.fillText(nameText, canvas.width / 2, boxY + 24);
 
-    // Type badge + owner info
-    const typeColors: Record<string, string> = { business: '#4ade80', product: '#5490ff', achievement: '#ffd700', notion: '#94a3b8', station: '#a855f7' };
-    ctx.fillStyle = typeColors[planet.type] || '#94a3b8';
-    ctx.font = '10px Space Grotesk';
-    const typeLabel = planet.type === 'notion' ? 'NOTION TASK' : planet.type.toUpperCase();
-    const ownerText = ownerName ? ` • ${ownerName}'s Task` : ' • Shared Task';
-    ctx.fillText(typeLabel + ownerText, canvas.width / 2, boxY + 40);
+    // User planet: show population and terraform count
+    if (isUserPlanet) {
+      const userId = planet.id.replace('user-planet-', '');
+      const terraformCount = userPlanetTerraformCounts.get(userId) || 0;
+      const sizeLevel = userPlanetSizeLevels.get(userId) || 0;
 
-    // Description - truncate if too long
-    if (planet.description) {
-      ctx.fillStyle = isLocked ? '#777' : '#aaa';
-      ctx.font = '12px Space Grotesk';
-      let descText = planet.description;
-      if (ctx.measureText(descText).width > maxTextWidth) {
-        while (ctx.measureText(descText + '...').width > maxTextWidth && descText.length > 0) {
-          descText = descText.slice(0, -1);
-        }
-        descText = descText + '...';
+      // Calculate population (same formula as App.tsx)
+      let population = 0;
+      if (terraformCount >= 3) {
+        const basePop = 100;
+        const terraformMultiplier = Math.pow(2.5, terraformCount - 3);
+        const sizeMultiplier = Math.pow(3, sizeLevel);
+        population = Math.floor(basePop * terraformMultiplier * sizeMultiplier);
       }
-      ctx.fillText(descText, canvas.width / 2, boxY + 60);
-    }
 
-    // Reward type
-    if (planet.reward && !planet.completed) {
-      const rewardLabels: Record<string, string> = {
-        'speed_boost': '🚀 Speed Boost',
-        'acceleration': '⚡ Better Acceleration',
-        'handling': '🎯 Improved Handling',
-        'shield': '🛡️ Shield Effect',
-        'trail': '✨ Trail Effect',
-        'glow': '💫 Ship Glow',
-        'size': '📈 Ship Size Up',
-        'special': '🌟 Special Upgrade',
-      };
-      ctx.fillStyle = isLocked ? '#886600' : '#ffa500';
-      ctx.font = 'bold 11px Space Grotesk';
-      ctx.fillText(`Ship Reward: ${rewardLabels[planet.reward] || planet.reward}`, canvas.width / 2, boxY + 80);
-    }
+      // Show population if > 0
+      if (population > 0) {
+        ctx.fillStyle = '#4ade80';
+        ctx.font = '12px Space Grotesk';
+        ctx.fillText(`🏘️ ${population.toLocaleString()} inhabitants`, canvas.width / 2, boxY + 44);
+      }
 
-    // Real world reward
-    if (hasRealReward) {
-      ctx.fillStyle = isLocked ? '#884466' : '#ff6b9d';
-      ctx.font = 'bold 11px Space Grotesk';
-      ctx.fillText(`🎁 Real Reward: ${planet.realWorldReward}`, canvas.width / 2, boxY + 100);
-    }
-
-    // Notion URL hint
-    if (hasNotionUrl) {
-      ctx.fillStyle = isLocked ? '#555' : '#64748b';
+      // Show terraform count
+      ctx.fillStyle = '#aaa';
+      ctx.font = '11px Space Grotesk';
+      ctx.fillText(`🌱 ${terraformCount} terraform${terraformCount !== 1 ? 's' : ''}`, canvas.width / 2, boxY + 62);
+    } else {
+      // Type badge + owner info (for non-user planets)
+      const typeColors: Record<string, string> = { business: '#4ade80', product: '#5490ff', achievement: '#ffd700', notion: '#94a3b8', station: '#a855f7' };
+      ctx.fillStyle = typeColors[planet.type] || '#94a3b8';
       ctx.font = '10px Space Grotesk';
-      const notionY = hasRealReward ? boxY + 118 : boxY + 98;
-      ctx.fillText('📋 Click to open in Notion', canvas.width / 2, notionY);
+      const typeLabel = planet.type === 'notion' ? 'NOTION TASK' : planet.type.toUpperCase();
+      const ownerText = ownerName ? ` • ${ownerName}'s Task` : ' • Shared Task';
+      ctx.fillText(typeLabel + ownerText, canvas.width / 2, boxY + 40);
+
+      // Description - truncate if too long
+      if (planet.description) {
+        ctx.fillStyle = isLocked ? '#777' : '#aaa';
+        ctx.font = '12px Space Grotesk';
+        let descText = planet.description;
+        if (ctx.measureText(descText).width > maxTextWidth) {
+          while (ctx.measureText(descText + '...').width > maxTextWidth && descText.length > 0) {
+            descText = descText.slice(0, -1);
+          }
+          descText = descText + '...';
+        }
+        ctx.fillText(descText, canvas.width / 2, boxY + 60);
+      }
+
+      // Reward type
+      if (planet.reward && !planet.completed) {
+        const rewardLabels: Record<string, string> = {
+          'speed_boost': '🚀 Speed Boost',
+          'acceleration': '⚡ Better Acceleration',
+          'handling': '🎯 Improved Handling',
+          'shield': '🛡️ Shield Effect',
+          'trail': '✨ Trail Effect',
+          'glow': '💫 Ship Glow',
+          'size': '📈 Ship Size Up',
+          'special': '🌟 Special Upgrade',
+        };
+        ctx.fillStyle = isLocked ? '#886600' : '#ffa500';
+        ctx.font = 'bold 11px Space Grotesk';
+        ctx.fillText(`Ship Reward: ${rewardLabels[planet.reward] || planet.reward}`, canvas.width / 2, boxY + 80);
+      }
+
+      // Real world reward
+      if (hasRealReward) {
+        ctx.fillStyle = isLocked ? '#884466' : '#ff6b9d';
+        ctx.font = 'bold 11px Space Grotesk';
+        ctx.fillText(`🎁 Real Reward: ${planet.realWorldReward}`, canvas.width / 2, boxY + 100);
+      }
+
+      // Notion URL hint
+      if (hasNotionUrl) {
+        ctx.fillStyle = isLocked ? '#555' : '#64748b';
+        ctx.font = '10px Space Grotesk';
+        const notionY = hasRealReward ? boxY + 118 : boxY + 98;
+        ctx.fillText('📋 Click to open in Notion', canvas.width / 2, notionY);
+      }
     }
 
     // Dock prompt / locked message / completed status
     const promptY = boxY + boxHeight - 18;
-    if (isLocked) {
+    if (isLocked && !isUserPlanet) {
       ctx.fillStyle = '#ff4444';
       ctx.font = '11px Space Grotesk';
       ctx.fillText(`This is ${ownerName}'s task`, canvas.width / 2, promptY);
@@ -4985,6 +5016,10 @@ export class SpaceGame {
       ctx.fillStyle = '#4ade80';
       ctx.font = '11px Space Grotesk';
       ctx.fillText('Completed!', canvas.width / 2, promptY);
+    } else if (isUserPlanet && canDock) {
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 12px Space Grotesk';
+      ctx.fillText('[ SPACE ] to dock', canvas.width / 2, promptY);
     }
   }
 
@@ -5278,7 +5313,7 @@ export class SpaceGame {
       } else {
         ctx.fillStyle = '#666';
         ctx.font = '12px Space Grotesk';
-        ctx.fillText('🔒 Space TNT needed (Shop)', boxX + boxWidth / 2 - (hasNotionUrl ? 80 : 0), currentY);
+        ctx.fillText('🔒 Buy weapons to destroy (Shop)', boxX + boxWidth / 2 - (hasNotionUrl ? 80 : 0), currentY);
       }
 
       // Notion hint
