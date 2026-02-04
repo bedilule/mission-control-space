@@ -84,39 +84,41 @@ const USERS = [
 const POINTS_PER_SIZE = { small: 50, medium: 100, big: 200 };
 
 // AI visual upgrade cost
-const VISUAL_UPGRADE_COST = 75;
+const VISUAL_UPGRADE_COST = 150;
 
 // Programmatic ship effects (no AI needed - instant purchase)
 // Size upgrades: 10 levels with increasing costs (ship)
-const SIZE_COSTS = [40, 60, 90, 130, 180, 240, 310, 390, 480, 580]; // Cost per level
+const SIZE_COSTS = [50, 100, 180, 300, 450, 650, 900, 1200, 1600, 2100]; // Cost per level (Total: 7,530)
 
 // Speed upgrades: 10 levels with increasing costs
-const SPEED_COSTS = [30, 50, 80, 120, 170, 230, 300, 380, 470, 570]; // Cost per level
+const SPEED_COSTS = [40, 80, 150, 250, 400, 600, 850, 1150, 1500, 2000]; // Cost per level (Total: 7,020)
 
 // Landing speed upgrades: 5 levels with increasing costs
-const LANDING_SPEED_COSTS = [35, 55, 85, 125, 175]; // Cost per level
+const LANDING_SPEED_COSTS = [50, 100, 175, 275, 400]; // Cost per level (Total: 1,000)
 
 // Planet size upgrades: 5 levels with increasing costs
-const PLANET_SIZE_COSTS = [50, 80, 120, 170, 230]; // Cost per level
+const PLANET_SIZE_COSTS = [75, 150, 250, 375, 525]; // Cost per level (Total: 1,375)
 
 const GLOW_EFFECTS = [
-  { id: 'glow_orange', name: 'Orange', icon: '🟠', cost: 30, value: '#ff8800' },
-  { id: 'glow_blue', name: 'Blue', icon: '🔵', cost: 30, value: '#00aaff' },
-  { id: 'glow_purple', name: 'Purple', icon: '🟣', cost: 30, value: '#aa00ff' },
-  { id: 'glow_green', name: 'Green', icon: '🟢', cost: 30, value: '#00ff88' },
+  { id: 'glow_orange', name: 'Orange', icon: '🟠', cost: 50, value: '#ff8800' },
+  { id: 'glow_blue', name: 'Blue', icon: '🔵', cost: 50, value: '#00aaff' },
+  { id: 'glow_purple', name: 'Purple', icon: '🟣', cost: 75, value: '#aa00ff' },
+  { id: 'glow_green', name: 'Green', icon: '🟢', cost: 100, value: '#00ff88' },
 ];
 
 const TRAIL_EFFECTS = [
-  { id: 'trail_fire', name: 'Fire', icon: '🔥', cost: 40, value: 'fire' },
-  { id: 'trail_ice', name: 'Ice', icon: '❄️', cost: 40, value: 'ice' },
-  { id: 'trail_rainbow', name: 'Rainbow', icon: '🌈', cost: 60, value: 'rainbow' },
+  { id: 'trail_fire', name: 'Fire', icon: '🔥', cost: 75, value: 'fire' },
+  { id: 'trail_ice', name: 'Ice', icon: '❄️', cost: 100, value: 'ice' },
+  { id: 'trail_rainbow', name: 'Rainbow', icon: '🌈', cost: 200, value: 'rainbow' },
 ];
 
 // Weapon costs (one-time purchases)
-const SPACE_RIFLE_COST = 300;
-const SPACE_TNT_COST = 500;
-const PLASMA_CANON_COST = 650;
-const ROCKET_LAUNCHER_COST = 1000;
+const SPACE_RIFLE_COST = 500;
+const WARP_DRIVE_COST = 750;
+const MISSION_CONTROL_PORTAL_COST = 600;
+const SPACE_TNT_COST = 1000;
+const PLASMA_CANON_COST = 1500;
+const ROCKET_LAUNCHER_COST = 2500;
 
 // Default goals/milestones
 const DEFAULT_GOALS = {
@@ -288,6 +290,8 @@ interface ShipEffects {
   plasmaCanonEquipped: boolean; // Plasma Canon is equipped
   hasRocketLauncher: boolean; // Owns Rocket Launcher weapon
   rocketLauncherEquipped: boolean; // Rocket Launcher is equipped
+  hasWarpDrive: boolean; // Owns Warp Drive (teleport home with H key)
+  hasMissionControlPortal: boolean; // Owns Mission Control Portal (teleport to MC from home)
 }
 
 interface UserShip {
@@ -1283,14 +1287,31 @@ function App() {
     }
   };
 
-  // Reset individual player's points to 0
+  // Reset individual player's points to 0 and clear their leaderboard history
   const resetPlayerPoints = async (playerId: string) => {
-    if (!confirm('Reset this player\'s points to 0?')) return;
+    if (!confirm('Reset this player\'s points to 0? This will also reset their leaderboard position.')) return;
 
     const player = teamPlayers.find(p => p.id === playerId);
     if (!player) return;
 
-    await setPlayerPoints(playerId, 0);
+    try {
+      // Delete all point transactions for this player (resets leaderboard)
+      await supabase
+        .from('point_transactions')
+        .delete()
+        .eq('player_id', playerId);
+
+      // Reset personal_points to 0
+      await supabase
+        .from('players')
+        .update({ personal_points: 0 })
+        .eq('id', playerId);
+
+      alert(`${player.displayName}'s points and leaderboard position have been reset!`);
+    } catch (err) {
+      console.error('Failed to reset player points:', err);
+      alert('Failed to reset player points. Check console for details.');
+    }
   };
 
   // Reset individual player's ship
@@ -1523,7 +1544,7 @@ function App() {
 
   // Generate base planet (for first-time setup)
   const generateBasePlanet = async () => {
-    if (personalPoints < 25) return;
+    if (personalPoints < 50) return;
 
     const userId = state.currentUser || 'default';
     const userColor = USERS.find(u => u.id === userId)?.color || '#ffa500';
@@ -1577,8 +1598,8 @@ function App() {
         newImageUrl = await saveImageToStorage(base64Image, 'planet', userId, 'base', bgRemovedUrl);
 
         // Deduct personal points and sync to backend
-        setPersonalPoints(prev => prev - 25);
-        updateRemotePersonalPoints(-25, 'Planet generation');
+        setPersonalPoints(prev => prev - 50);
+        updateRemotePersonalPoints(-50, 'Planet generation');
 
         const newPlanet = {
           imageUrl: newImageUrl,
@@ -1620,7 +1641,7 @@ function App() {
 
   // Terraform planet
   const terraformPlanet = async () => {
-    if (!terraformPrompt || personalPoints < 50) return;
+    if (!terraformPrompt || personalPoints < 100) return;
 
     const userId = state.currentUser || 'default';
     const currentPlanet = getUserPlanet(userId);
@@ -1683,8 +1704,8 @@ function App() {
         newImageUrl = await saveImageToStorage(base64Image, 'planet', userId, 'terraform', bgRemovedUrl);
 
         // Deduct personal points and sync to backend
-        setPersonalPoints(prev => prev - 50);
-        updateRemotePersonalPoints(-50, 'Planet terraforming');
+        setPersonalPoints(prev => prev - 100);
+        updateRemotePersonalPoints(-100, 'Planet terraforming');
 
         // Update user's planet
         const newTerraformCount = currentPlanet.terraformCount + 1;
@@ -1947,6 +1968,10 @@ function App() {
       fireConfetti(planet.size);
       soundManager.playDockingSound();
 
+      // Optimistic update: add points instantly for gratification
+      const pointsEarned = POINTS_PER_SIZE[planet.size];
+      setPersonalPoints(prev => prev + pointsEarned);
+
       // Mark as completed in database - backend awards points to assigned player
       completeNotionPlanet(planet.id);
 
@@ -2048,6 +2073,10 @@ function App() {
       // Already assigned - complete it
       fireConfetti(planet.size);
       soundManager.playDockingSound();
+
+      // Optimistic update: add points instantly for gratification
+      const pointsEarned = POINTS_PER_SIZE[planet.size];
+      setPersonalPoints(prev => prev + pointsEarned);
 
       // Mark as completed in database - backend awards points to assigned player
       completeNotionPlanet(planet.id);
@@ -2696,6 +2725,48 @@ function App() {
     soundManager.playSelect();
   };
 
+  // Buy Warp Drive (one-time purchase - teleport home with H key)
+  const buyWarpDrive = () => {
+    if (personalPoints < WARP_DRIVE_COST) return;
+
+    const userId = state.currentUser || 'default';
+    const currentShip = getCurrentUserShip();
+    const currentEffects = getEffectsWithDefaults(currentShip.effects);
+
+    if (currentEffects.hasWarpDrive) return; // Already owns it
+
+    const newEffects: ShipEffects = {
+      ...currentEffects,
+      hasWarpDrive: true,
+    };
+
+    setPersonalPoints(prev => prev - WARP_DRIVE_COST);
+    updateRemotePersonalPoints(-WARP_DRIVE_COST, 'Warp Drive');
+    updateUserShipEffects(userId, currentShip, newEffects);
+    soundManager.playShipUpgrade();
+  };
+
+  // Buy Mission Control Portal (one-time purchase - teleport to MC from home planet with G key)
+  const buyMissionControlPortal = () => {
+    if (personalPoints < MISSION_CONTROL_PORTAL_COST) return;
+
+    const userId = state.currentUser || 'default';
+    const currentShip = getCurrentUserShip();
+    const currentEffects = getEffectsWithDefaults(currentShip.effects);
+
+    if (currentEffects.hasMissionControlPortal) return; // Already owns it
+
+    const newEffects: ShipEffects = {
+      ...currentEffects,
+      hasMissionControlPortal: true,
+    };
+
+    setPersonalPoints(prev => prev - MISSION_CONTROL_PORTAL_COST);
+    updateRemotePersonalPoints(-MISSION_CONTROL_PORTAL_COST, 'Mission Control Portal');
+    updateUserShipEffects(userId, currentShip, newEffects);
+    soundManager.playShipUpgrade();
+  };
+
   // Helper to get effects with defaults
   const getEffectsWithDefaults = (effects: ShipEffects | undefined): ShipEffects => ({
     glowColor: effects?.glowColor ?? null,
@@ -2713,6 +2784,8 @@ function App() {
     plasmaCanonEquipped: effects?.plasmaCanonEquipped ?? false,
     hasRocketLauncher: effects?.hasRocketLauncher ?? false,
     rocketLauncherEquipped: effects?.rocketLauncherEquipped ?? false,
+    hasWarpDrive: effects?.hasWarpDrive ?? false,
+    hasMissionControlPortal: effects?.hasMissionControlPortal ?? false,
   });
 
   // Helper to update ship effects
@@ -3255,6 +3328,7 @@ function App() {
             <p style={{ color: '#888', fontSize: '0.8rem', marginTop: '0.5rem', marginBottom: '0' }}>Total points earned</p>
             <div style={{ marginTop: '1rem' }}>
               {[...teamPlayers]
+                .filter(p => p.username !== 'anonymous')
                 .sort((a, b) => b.totalEarned - a.totalEarned)
                 .map((player, index) => (
                   <div
@@ -3744,7 +3818,7 @@ function App() {
             {/* Weapons Tab */}
             {shopTab === 'weapons' && (
               <div style={styles.shopSection}>
-                {/* Space Rifle - 300 pts */}
+                {/* Space Rifle - 500 pts */}
                 {(() => {
                   const effects = getEffectsWithDefaults(getCurrentUserShip().effects);
                   const owned = effects.hasSpaceRifle;
@@ -3790,7 +3864,7 @@ function App() {
                     </div>
                   );
                 })()}
-                {/* Space TNT - 500 pts */}
+                {/* Space TNT - 1000 pts */}
                 {(() => {
                   const effects = getEffectsWithDefaults(getCurrentUserShip().effects);
                   const owned = effects.hasDestroyCanon;
@@ -3836,7 +3910,7 @@ function App() {
                     </div>
                   );
                 })()}
-                {/* Plasma Canon - 650 pts */}
+                {/* Plasma Canon - 1500 pts */}
                 {(() => {
                   const effects = getEffectsWithDefaults(getCurrentUserShip().effects);
                   const owned = effects.hasPlasmaCanon;
@@ -3882,7 +3956,7 @@ function App() {
                     </div>
                   );
                 })()}
-                {/* Rocket Launcher - 1000 pts */}
+                {/* Rocket Launcher - 2500 pts */}
                 {(() => {
                   const effects = getEffectsWithDefaults(getCurrentUserShip().effects);
                   const owned = effects.hasRocketLauncher;
@@ -3922,6 +3996,88 @@ function App() {
                             disabled={!canBuy}
                           >
                             {ROCKET_LAUNCHER_COST} ⭐
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+                {/* Warp Drive - 750 pts */}
+                {(() => {
+                  const effects = getEffectsWithDefaults(getCurrentUserShip().effects);
+                  const owned = effects.hasWarpDrive;
+                  const canBuy = !owned && personalPoints >= WARP_DRIVE_COST;
+                  return (
+                    <div style={styles.effectLane}>
+                      <div style={styles.effectLaneLabel}>
+                        <span style={styles.effectLaneIcon}>🌀</span>
+                        <span>Warp Drive</span>
+                      </div>
+                      <div style={styles.effectLaneContent}>
+                        <span style={{ fontSize: '0.75rem', color: '#888', flex: 1 }}>
+                          Teleport home (H key)
+                        </span>
+                        {owned ? (
+                          <span style={{
+                            color: '#00ff88',
+                            fontSize: '0.75rem',
+                            fontWeight: 'bold',
+                            padding: '6px 12px',
+                          }}>
+                            OWNED
+                          </span>
+                        ) : (
+                          <button
+                            style={{
+                              ...styles.effectBuyButton,
+                              opacity: canBuy ? 1 : 0.5,
+                              minWidth: 100,
+                            }}
+                            onClick={buyWarpDrive}
+                            disabled={!canBuy}
+                          >
+                            {WARP_DRIVE_COST} ⭐
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+                {/* Mission Control Portal - 600 pts */}
+                {(() => {
+                  const effects = getEffectsWithDefaults(getCurrentUserShip().effects);
+                  const owned = effects.hasMissionControlPortal;
+                  const canBuy = !owned && personalPoints >= MISSION_CONTROL_PORTAL_COST;
+                  return (
+                    <div style={styles.effectLane}>
+                      <div style={styles.effectLaneLabel}>
+                        <span style={styles.effectLaneIcon}>🌌</span>
+                        <span>MC Portal</span>
+                      </div>
+                      <div style={styles.effectLaneContent}>
+                        <span style={{ fontSize: '0.75rem', color: '#888', flex: 1 }}>
+                          Portal at home (G key)
+                        </span>
+                        {owned ? (
+                          <span style={{
+                            color: '#00ff88',
+                            fontSize: '0.75rem',
+                            fontWeight: 'bold',
+                            padding: '6px 12px',
+                          }}>
+                            OWNED
+                          </span>
+                        ) : (
+                          <button
+                            style={{
+                              ...styles.effectBuyButton,
+                              opacity: canBuy ? 1 : 0.5,
+                              minWidth: 100,
+                            }}
+                            onClick={buyMissionControlPortal}
+                            disabled={!canBuy}
+                          >
+                            {MISSION_CONTROL_PORTAL_COST} ⭐
                           </button>
                         )}
                       </div>
@@ -4165,9 +4321,9 @@ function App() {
                 <button
                   style={{ ...styles.saveButton, width: '100%' }}
                   onClick={generateBasePlanet}
-                  disabled={personalPoints < 25 || isUpgrading}
+                  disabled={personalPoints < 50 || isUpgrading}
                 >
-                  {isUpgrading ? 'Generating...' : 'Generate Base Planet (25 ⭐)'}
+                  {isUpgrading ? 'Generating...' : 'Generate Base Planet (50 ⭐)'}
                 </button>
                 <button style={{ ...styles.cancelButton, marginTop: '1rem' }} onClick={() => { setShowTerraform(false); gameRef.current?.clearLandedState(); }}>
                   Cancel
@@ -4293,9 +4449,9 @@ function App() {
                   <button
                     style={styles.saveButton}
                     onClick={terraformPlanet}
-                    disabled={!terraformPrompt || personalPoints < 50 || isUpgrading}
+                    disabled={!terraformPrompt || personalPoints < 100 || isUpgrading}
                   >
-                    {isUpgrading ? 'Terraforming...' : 'Terraform (50 ⭐)'}
+                    {isUpgrading ? 'Terraforming...' : 'Terraform (100 ⭐)'}
                   </button>
                 </div>
               </>
@@ -4635,7 +4791,9 @@ function App() {
                         }}
                       >
                         <option value="">Choose a player...</option>
-                        {teamPlayers.map(player => (
+                        {teamPlayers
+                          .filter(p => p.username !== 'anonymous')
+                          .map(player => (
                           <option key={player.id} value={player.id}>
                             {player.displayName} ({player.username}) - ⭐ {player.personalPoints}
                           </option>
