@@ -2310,21 +2310,20 @@ function App() {
   const handleReassign = useCallback(async (newOwner: string) => {
     if (!reassignPlanet) return;
 
-    // Start the rocket animation immediately (revving up phase)
+    // Start the rocket animation and play voice line immediately
     gameRef.current?.startSendAnimation(reassignPlanet);
-    soundManager.playDockingSound(); // Rocket rev sound
+    soundManager.playSendVoiceLine(); // "Special delivery!", "Coming through!", etc.
 
     // Show notification
     const ownerName = newOwner.charAt(0).toUpperCase() + newOwner.slice(1);
     setEventNotification({ message: `Sending task to ${ownerName}...`, type: 'mission' });
 
-    // Call API in parallel (animation waits in revving phase)
+    // Call API in parallel (rocket flies in random direction until target is set)
     const newPosition = await reassignNotionPlanet(reassignPlanet.id, newOwner);
 
     if (newPosition) {
-      // Set target - this triggers the rocket to fly!
+      // Set target - rocket will steer toward it
       gameRef.current?.setSendTarget(newPosition.x, newPosition.y);
-      soundManager.playSendVoiceLine(); // "Special delivery!", "Coming through!", etc.
       setEventNotification({ message: `🚀 Task sent to ${ownerName}!`, type: 'mission' });
       setTimeout(() => setEventNotification(null), 3000);
     } else {
