@@ -79,6 +79,14 @@ const SOUND_CONFIGS: Record<string, SoundConfig> = {
     volume: 0.5,
     rate: 1.3,
   },
+  warpHome: {
+    src: [`${SOUNDS_PATH}teleport_02.ogg`],
+    volume: 0.6,
+  },
+  powerUp: {
+    src: [`${SOUNDS_PATH}powerUp7.mp3`],
+    volume: 0.5,
+  },
   upgradeLoading: {
     src: [`${SOUNDS_PATH}upgrade-loading.ogg`],
     volume: 0.35,
@@ -340,15 +348,17 @@ export class SoundManager {
     this.play('laserShoot');
   }
 
-  // Upgrade sounds
+  // Upgrade sounds - for regular shop purchases (stats, weapons, etc.)
   public playShipUpgrade() {
-    this.play('shipUpgrade');
-    this.play('upgrade1');
-    this.play('upgrade2');
+    this.play('powerUp');
   }
 
   public playPlanetUpgrade() {
-    this.play('planetUpgrade');
+    this.play('powerUp');
+  }
+
+  // Visual upgrade sounds - for skin/terraform upgrades with drone animation
+  public playVisualUpgrade() {
     this.play('upgrade1');
     this.play('upgrade2');
   }
@@ -356,6 +366,16 @@ export class SoundManager {
   // Teleport/claim sound
   public playTeleport() {
     this.play('teleport');
+  }
+
+  // Warp home sound (teleport to home planet)
+  public playWarpHome() {
+    this.play('warpHome');
+  }
+
+  // Power-up sound for regular shop purchases
+  public playPowerUp() {
+    this.play('powerUp');
   }
 
   // Loading/processing sound (for upgrade animations)
