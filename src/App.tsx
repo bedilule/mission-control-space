@@ -10,6 +10,7 @@ import { useNotionPlanets } from './hooks/useNotionPlanets';
 import { useSupabaseData } from './hooks/useSupabaseData';
 import { usePromptHistory } from './hooks/usePromptHistory';
 import { getLocalPlayerId, supabase } from './lib/supabase';
+import { QuickTaskModal } from './components/QuickTaskModal';
 
 const FAL_API_KEY = 'c2df5aba-75d9-4626-95bb-aa366317d09e:8f90bb335a773f0ce3f261354107daa6';
 const STORAGE_KEY = 'mission-control-space-state';
@@ -256,7 +257,7 @@ const saveGoals = (goals: Goals) => {
 interface CustomPlanet {
   id: string;
   name: string;
-  description: string;
+  description?: string;
   type: 'business' | 'product' | 'achievement' | 'notion';
   size: 'small' | 'medium' | 'big';
   realWorldReward?: string;
@@ -555,6 +556,7 @@ function App() {
   const [showTerraform, setShowTerraform] = useState(false);
   const [terraformPrompt, setTerraformPrompt] = useState('');
   const [showShipHistory, setShowShipHistory] = useState(false);
+  const [showQuickTaskModal, setShowQuickTaskModal] = useState(false);
   const [viewingPlanetOwner, setViewingPlanetOwner] = useState<string | null>(null);
   const [viewingPlanetPreview, setViewingPlanetPreview] = useState<string | null>(null); // Preview image when browsing versions
 
@@ -2093,6 +2095,7 @@ function App() {
 
     // Start animation immediately for instant feedback
     gameRef.current?.startClaimAnimation(planet);
+    soundManager.playTeleport();
     setLandedPlanet(null);
 
     // Call API in parallel - animation will wait during charging phase if needed
@@ -2198,13 +2201,14 @@ function App() {
     };
   }, [handleLand, handleTakeoff, handleColonize, handleClaimRequest, handleOpenNotion, handleTerraform, handleDestroyPlanet, handleBlackHoleDeath]);
 
-  // Close all modals with Escape key
+  // Keyboard shortcuts: Escape to close modals, T to open quick task
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape to close modals
       if (e.key === 'Escape' && !isUpgrading) {
         const isGameLanded = gameRef.current?.isPlayerLanded();
         const hasOpenModal = editingGoal || showSettings || showTerraform ||
-          viewingPlanetOwner || showShop || showPlanetCreator || landedPlanet || isGameLanded;
+          viewingPlanetOwner || showShop || showPlanetCreator || landedPlanet || isGameLanded || showQuickTaskModal;
 
         if (hasOpenModal) {
           e.preventDefault();
@@ -2216,15 +2220,31 @@ function App() {
           setShowShop(false);
           setShowPlanetCreator(false);
           setLandedPlanet(null);
+          setShowQuickTaskModal(false);
           // Also clear SpaceGame's internal landed state
           gameRef.current?.clearLandedState();
+        }
+      }
+
+      // T key to open quick task modal (only when no modal is open and not typing)
+      if (e.key === 't' || e.key === 'T') {
+        const target = e.target as HTMLElement;
+        const isTyping = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+        const isGameLanded = gameRef.current?.isPlayerLanded();
+        const hasOpenModal = editingGoal || showSettings || showTerraform ||
+          viewingPlanetOwner || showShop || showPlanetCreator || landedPlanet || isGameLanded || showQuickTaskModal ||
+          showWelcome || showUserSelect || showLeaderboard || showPointsHistory;
+
+        if (!isTyping && !hasOpenModal && !isUpgrading) {
+          e.preventDefault();
+          setShowQuickTaskModal(true);
         }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showTerraform, viewingPlanetOwner, showShop, showPlanetCreator, showSettings, editingGoal, landedPlanet, isUpgrading]);
+  }, [showTerraform, viewingPlanetOwner, showShop, showPlanetCreator, showSettings, editingGoal, landedPlanet, isUpgrading, showQuickTaskModal, showWelcome, showUserSelect, showLeaderboard, showPointsHistory]);
 
   // Buy visual upgrade from shop (AI-generated changes to ship appearance)
   const buyVisualUpgrade = async () => {
@@ -2797,7 +2817,7 @@ function App() {
 
   // Save new planet (Notion tasks sync automatically, others are local)
   const savePlanet = async () => {
-    if (!newPlanet.name || !newPlanet.description) return;
+    if (!newPlanet.name) return;
 
     const isNotionTask = newPlanet.type === 'notion';
 
@@ -2808,7 +2828,7 @@ function App() {
         const { data: result, error } = await supabase.functions.invoke('notion-create', {
           body: {
             name: newPlanet.name,
-            description: newPlanet.description,
+            description: newPlanet.description || null,
             type: notionTaskType,
             priority: notionPriority,
             assigned_to: notionAssignedTo || null,
@@ -3180,6 +3200,52 @@ function App() {
       >
         🔊
       </button>
+
+      {/* Quick Task FAB - hidden when modals are open */}
+      {!editingGoal && !showSettings && !showTerraform && !viewingPlanetOwner && !showShop && !showPlanetCreator && !landedPlanet && !showQuickTaskModal && !showLeaderboard && !showPointsHistory && !showShipHistory && !gameRef.current?.isPlayerLanded() && (
+        <button
+          style={{
+            position: 'fixed',
+            bottom: 24,
+            left: 24,
+            width: 56,
+            height: 56,
+            borderRadius: '50%',
+            background: 'linear-gradient(135deg, #00c8ff 0%, #0088cc 100%)',
+            border: 'none',
+            boxShadow: '0 4px 20px rgba(0, 200, 255, 0.4)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '1.75rem',
+            color: '#fff',
+            transition: 'transform 0.2s, box-shadow 0.2s',
+            zIndex: 900,
+          }}
+          onClick={() => setShowQuickTaskModal(true)}
+          title="Quick Add Task (T)"
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = 'scale(1.1)';
+            e.currentTarget.style.boxShadow = '0 6px 25px rgba(0, 200, 255, 0.6)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'scale(1)';
+            e.currentTarget.style.boxShadow = '0 4px 20px rgba(0, 200, 255, 0.4)';
+          }}
+        >
+          +
+        </button>
+      )}
+
+      {/* Quick Task Modal */}
+      {showQuickTaskModal && (
+        <QuickTaskModal
+          isOpen={showQuickTaskModal}
+          onClose={() => setShowQuickTaskModal(false)}
+          currentUser={state.currentUser || 'unknown'}
+        />
+      )}
 
       {/* Leaderboard Modal */}
       {showLeaderboard && (
@@ -4029,7 +4095,7 @@ function App() {
                         : styles.saveButton.background,
                     }}
                     onClick={savePlanet}
-                    disabled={!newPlanet.name || !newPlanet.description || isCreatingPlanet}
+                    disabled={!newPlanet.name || isCreatingPlanet}
                   >
                     {isCreatingPlanet ? 'Creating...' : newPlanet.type === 'notion' ? 'Create Notion Task' : 'Create Planet'}
                   </button>

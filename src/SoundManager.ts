@@ -66,6 +66,18 @@ const SOUND_CONFIGS: Record<string, SoundConfig> = {
     src: [`${SOUNDS_PATH}planet-upgrade.ogg`],
     volume: 0.5,
   },
+  upgrade1: {
+    src: [`${SOUNDS_PATH}upgrade1.mp3`],
+    volume: 0.5,
+  },
+  upgrade2: {
+    src: [`${SOUNDS_PATH}upgrade2.mp3`],
+    volume: 0.5,
+  },
+  teleport: {
+    src: [`${SOUNDS_PATH}teleport.mp3`],
+    volume: 0.5,
+  },
   upgradeLoading: {
     src: [`${SOUNDS_PATH}upgrade-loading.ogg`],
     volume: 0.35,
@@ -330,10 +342,19 @@ export class SoundManager {
   // Upgrade sounds
   public playShipUpgrade() {
     this.play('shipUpgrade');
+    this.play('upgrade1');
+    this.play('upgrade2');
   }
 
   public playPlanetUpgrade() {
     this.play('planetUpgrade');
+    this.play('upgrade1');
+    this.play('upgrade2');
+  }
+
+  // Teleport/claim sound
+  public playTeleport() {
+    this.play('teleport');
   }
 
   // Loading/processing sound (for upgrade animations)
