@@ -93,13 +93,6 @@ const SOUND_CONFIGS: Record<string, SoundConfig> = {
     loop: true,
   },
 
-  // Proximity ambient
-  shopAmbient: {
-    src: [`${SOUNDS_PATH}shop-ambient.ogg`],
-    volume: 0,
-    loop: true,
-  },
-
   // UI
   click: {
     src: [`${SOUNDS_PATH}click.ogg`],
@@ -190,7 +183,6 @@ export class SoundManager {
   // Track playing instances for looping sounds
   private thrustId: number | null = null;
   private blackHoleId: number | null = null;
-  private shopAmbientId: number | null = null;
   private loadingId: number | null = null;
   private ambientMusicId: number | null = null;
   private introMusicId: number | null = null;
@@ -278,12 +270,6 @@ export class SoundManager {
     const blackHoleAmbient = this.sounds.get('blackHoleAmbient');
     if (blackHoleAmbient) {
       this.blackHoleId = blackHoleAmbient.play();
-    }
-
-    // Start shop ambient (at 0 volume initially)
-    const shopAmbient = this.sounds.get('shopAmbient');
-    if (shopAmbient) {
-      this.shopAmbientId = shopAmbient.play();
     }
 
     // Load voice lines
@@ -488,15 +474,9 @@ export class SoundManager {
     sound.volume(volume, this.loadingId);
   }
 
-  // Shop/station proximity effect
-  public updateShopProximity(proximity: number) {
-    // proximity: 0 = far away, 1 = at station
-    const sound = this.sounds.get('shopAmbient');
-    if (!sound || this.shopAmbientId === null) return;
-
-    // Smooth volume curve
-    const volume = Math.pow(proximity, 1.5) * 0.4;
-    sound.volume(volume, this.shopAmbientId);
+  // Shop/station proximity effect (disabled)
+  public updateShopProximity(_proximity: number) {
+    // No-op - shop ambient sound removed
   }
 
   // Generic play method
