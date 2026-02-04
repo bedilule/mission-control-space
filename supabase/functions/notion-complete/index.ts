@@ -57,10 +57,21 @@ Deno.serve(async (req) => {
     console.log('Points:', planet.points);
     console.log('Already completed:', planet.completed);
 
-    if (planet.completed) {
-      console.log('Planet already completed, skipping Notion update');
+    // Find ALL planets for this Notion task (multi-assignee support)
+    const { data: relatedPlanets } = await supabase
+      .from('notion_planets')
+      .select('id, assigned_to, points, team_id, completed')
+      .eq('notion_task_id', planet.notion_task_id);
+
+    const allPlanets = relatedPlanets || [planet];
+    const incompletePlanets = allPlanets.filter(p => !p.completed);
+
+    console.log(`Found ${allPlanets.length} planet(s) for this task, ${incompletePlanets.length} incomplete`);
+
+    if (incompletePlanets.length === 0) {
+      console.log('All planets already completed, skipping Notion update');
       return new Response(
-        JSON.stringify({ message: 'Planet already completed', notion_task_id: planet.notion_task_id }),
+        JSON.stringify({ message: 'All planets already completed', notion_task_id: planet.notion_task_id }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -128,100 +139,111 @@ Deno.serve(async (req) => {
       const errorText = await notionResponse.text();
       console.error('Notion API error:', errorText);
 
-      // Still mark as completed in our database even if Notion fails
+      // Still mark ALL planets as completed in our database even if Notion fails
+      const planetIds = incompletePlanets.map(p => p.id);
       await supabase
         .from('notion_planets')
         .update({ completed: true })
-        .eq('id', notion_planet_id);
+        .in('id', planetIds);
 
       return new Response(
         JSON.stringify({
-          warning: 'Planet marked complete locally but Notion update failed',
+          warning: 'Planets marked complete locally but Notion update failed',
           notion_error: errorText,
           notion_task_id: planet.notion_task_id,
+          planets_completed: planetIds.length,
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Mark as completed in our database
+    // Mark ALL planets as completed in our database
+    const planetIds = incompletePlanets.map(p => p.id);
     const { error: updateError } = await supabase
       .from('notion_planets')
       .update({ completed: true })
-      .eq('id', notion_planet_id);
+      .in('id', planetIds);
 
     if (updateError) {
       console.error('Failed to update local database:', updateError);
     }
 
-    // Award points to the assigned player
-    const points = planet.points || 30; // Default to 30 if not set
-    if (planet.assigned_to && planet.team_id) {
-      // Find player by username (case-insensitive)
-      const { data: player } = await supabase
-        .from('players')
-        .select('id, username, personal_points')
-        .eq('team_id', planet.team_id)
-        .ilike('username', planet.assigned_to)
-        .single();
+    console.log(`Marked ${planetIds.length} planet(s) as completed`);
 
-      if (player) {
-        console.log('Found player:', { id: player.id, username: player.username, personal_points: player.personal_points });
+    // Award points to EACH assigned player
+    const pointsAwarded: Array<{ player: string; points: number }> = [];
 
-        // Check if points were already awarded for this task (avoid duplicates)
-        const { data: existingTransaction, error: checkError } = await supabase
-          .from('point_transactions')
-          .select('id')
-          .eq('notion_task_id', planet.notion_task_id)
-          .eq('player_id', player.id)
-          .ilike('task_name', `Completed:%`)
+    for (const incompletePlanet of incompletePlanets) {
+      const points = incompletePlanet.points || 30;
+
+      if (incompletePlanet.assigned_to && incompletePlanet.team_id) {
+        // Find player by username (case-insensitive)
+        const { data: player } = await supabase
+          .from('players')
+          .select('id, username, personal_points')
+          .eq('team_id', incompletePlanet.team_id)
+          .ilike('username', incompletePlanet.assigned_to)
           .single();
 
-        console.log('Duplicate check result:', { existingTransaction, checkError });
+        if (player) {
+          console.log('Found player:', { id: player.id, username: player.username, personal_points: player.personal_points });
 
-        if (!existingTransaction) {
-          // Create point transaction
-          const txData = {
-            team_id: planet.team_id,
-            player_id: player.id,
-            source: 'notion',
-            notion_task_id: planet.notion_task_id,
-            task_name: `Completed: ${planet.name}`,
-            points: points,
-            point_type: 'personal',
-          };
-          console.log('Inserting transaction:', txData);
+          // Check if points were already awarded for this task to this player (avoid duplicates)
+          const { data: existingTransaction, error: checkError } = await supabase
+            .from('point_transactions')
+            .select('id')
+            .eq('notion_task_id', planet.notion_task_id)
+            .eq('player_id', player.id)
+            .ilike('task_name', `Completed:%`)
+            .single();
 
-          const { error: txError } = await supabase.from('point_transactions').insert(txData);
+          console.log('Duplicate check result:', { existingTransaction, checkError });
 
-          if (txError) {
-            console.error('Failed to insert point transaction:', JSON.stringify(txError));
+          if (!existingTransaction) {
+            // Create point transaction
+            const txData = {
+              team_id: incompletePlanet.team_id,
+              player_id: player.id,
+              source: 'notion',
+              notion_task_id: planet.notion_task_id,
+              task_name: `Completed: ${planet.name}`,
+              points: points,
+              point_type: 'personal',
+            };
+            console.log('Inserting transaction:', txData);
+
+            const { error: txError } = await supabase.from('point_transactions').insert(txData);
+
+            if (txError) {
+              console.error('Failed to insert point transaction:', JSON.stringify(txError));
+            } else {
+              console.log(`Transaction created for ${player.username}: +${points} pts for "${planet.name}"`);
+            }
+
+            // Update player's personal points
+            const { error: playerUpdateError } = await supabase
+              .from('players')
+              .update({ personal_points: (player.personal_points || 0) + points })
+              .eq('id', player.id);
+
+            if (playerUpdateError) {
+              console.error('Failed to update player points:', playerUpdateError);
+            } else {
+              console.log(`Awarded ${points} personal points to ${player.username} for completing "${planet.name}"`);
+              pointsAwarded.push({ player: player.username, points });
+            }
           } else {
-            console.log(`Transaction created for ${player.username}: +${points} pts for "${planet.name}"`);
-          }
-
-          // Update player's personal points
-          const { error: updateError } = await supabase
-            .from('players')
-            .update({ personal_points: (player.personal_points || 0) + points })
-            .eq('id', player.id);
-
-          if (updateError) {
-            console.error('Failed to update player points:', updateError);
-          } else {
-            console.log(`Awarded ${points} personal points to ${player.username} for completing "${planet.name}"`);
+            console.log(`Points already awarded to ${player.username} for "${planet.name}" - skipping duplicate`);
           }
         } else {
-          console.log(`Points already awarded to ${player.username} for "${planet.name}" - skipping duplicate`);
+          console.log(`Could not find player "${incompletePlanet.assigned_to}" in team ${incompletePlanet.team_id} - skipping point award`);
         }
       } else {
-        console.log(`Could not find player "${planet.assigned_to}" in team ${planet.team_id} - skipping point award`);
+        console.log(`No assigned player or team_id for planet (${incompletePlanet.id}) - skipping point award`);
       }
-    } else {
-      console.log(`No assigned player or team_id for planet "${planet.name}" - skipping point award`);
     }
 
-    console.log(`Completed planet "${planet.name}" and updated Notion status to Archived`);
+    console.log(`Completed ${incompletePlanets.length} planet(s) for "${planet.name}" and updated Notion status to Archived`);
 
     return new Response(
       JSON.stringify({
@@ -229,8 +251,8 @@ Deno.serve(async (req) => {
         notion_task_id: planet.notion_task_id,
         planet_name: planet.name,
         notion_status: 'Archived',
-        points_awarded: points,
-        awarded_to: planet.assigned_to || null,
+        planets_completed: incompletePlanets.length,
+        points_awarded: pointsAwarded,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

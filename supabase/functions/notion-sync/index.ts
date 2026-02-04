@@ -12,7 +12,7 @@ const corsHeaders = {
 const NOTION_DATABASE_ID = '2467d5a8-0344-8198-a604-c6bd91473887';
 
 interface ExistingPlanet {
-  id: string;  // Planet ID for filtering
+  id: string;
   x: number;
   y: number;
 }
@@ -230,21 +230,27 @@ function calculatePoints(priority: string | undefined): number {
   return PRIORITY_POINTS[key] || PRIORITY_POINTS.default;
 }
 
-// Parse a Notion page into our format
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function parseNotionPage(page: any): {
+interface Assignee {
+  name: string;
+  notionId: string;
+}
+
+interface ParsedNotionPage {
   id: string;
   name: string;
   description?: string;
   type?: string;
   priority?: string;
-  assigned_to?: string;
-  assigned_to_notion_id?: string;
+  assignees: Assignee[];
   created_by?: string;
   created_by_notion_id?: string;
   status?: string;
   url?: string;
-} | null {
+}
+
+// Parse a Notion page into our format
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parseNotionPage(page: any): ParsedNotionPage | null {
   const props = page.properties;
   if (!props) return null;
 
@@ -264,13 +270,15 @@ function parseNotionPage(page: any): {
 
   if (!name) return null;
 
-  // Extract "Attributed to" (people) - for planet placement
-  let assignedTo = '';
-  let assignedToNotionId = '';
-  if (props['Attributed to']?.people?.[0]) {
-    const person = props['Attributed to'].people[0];
-    assignedTo = person.name?.toLowerCase() || '';
-    assignedToNotionId = person.id || '';
+  // Extract ALL people from "Attributed to" - for planet placement (one planet per assignee)
+  const assignees: Assignee[] = [];
+  if (props['Attributed to']?.people?.length > 0) {
+    for (const person of props['Attributed to'].people) {
+      assignees.push({
+        name: person.name?.toLowerCase() || '',
+        notionId: person.id || '',
+      });
+    }
   }
 
   // Extract "Created by" - for points attribution
@@ -326,8 +334,7 @@ function parseNotionPage(page: any): {
     description: description || undefined,
     type: type || undefined,
     priority: priority || undefined,
-    assigned_to: assignedTo || undefined,
-    assigned_to_notion_id: assignedToNotionId || undefined,
+    assignees: assignees,
     created_by: createdBy || undefined,
     created_by_notion_id: createdByNotionId || undefined,
     status: status || undefined,
@@ -407,17 +414,15 @@ Deno.serve(async (req) => {
 
     const team = teams[0];
 
-    // Fetch all pages from Notion database
+    // Fetch ALL pages from Notion database with pagination
     // Only get "Ticket Open" tasks (live planets)
     // Using "select" filter since the Status property is a Select field
-    const notionResponse = await fetch(`https://api.notion.com/v1/databases/${NOTION_DATABASE_ID}/query`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${notionToken}`,
-        'Content-Type': 'application/json',
-        'Notion-Version': '2022-06-28',
-      },
-      body: JSON.stringify({
+    let pages: any[] = [];
+    let hasMore = true;
+    let nextCursor: string | undefined = undefined;
+
+    while (hasMore) {
+      const requestBody: any = {
         filter: {
           property: 'Status',
           select: {
@@ -425,22 +430,40 @@ Deno.serve(async (req) => {
           },
         },
         page_size: 100,
-      }),
-    });
+      };
 
-    if (!notionResponse.ok) {
-      const errorText = await notionResponse.text();
-      console.error('Notion API error:', errorText);
-      return new Response(
-        JSON.stringify({ error: 'Failed to fetch from Notion', details: errorText }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      if (nextCursor) {
+        requestBody.start_cursor = nextCursor;
+      }
+
+      const notionResponse = await fetch(`https://api.notion.com/v1/databases/${NOTION_DATABASE_ID}/query`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${notionToken}`,
+          'Content-Type': 'application/json',
+          'Notion-Version': '2022-06-28',
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!notionResponse.ok) {
+        const errorText = await notionResponse.text();
+        console.error('Notion API error:', errorText);
+        return new Response(
+          JSON.stringify({ error: 'Failed to fetch from Notion', details: errorText }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const notionData = await notionResponse.json();
+      pages = pages.concat(notionData.results || []);
+      hasMore = notionData.has_more || false;
+      nextCursor = notionData.next_cursor;
+
+      console.log(`Fetched ${notionData.results?.length || 0} pages (total: ${pages.length}, has_more: ${hasMore})`);
     }
 
-    const notionData = await notionResponse.json();
-    let pages = notionData.results || [];
-
-    console.log(`Notion API returned ${pages.length} pages`);
+    console.log(`Notion API returned ${pages.length} total pages across all pagination`);
 
     // Double-check: filter to only "Ticket Open" status (safeguard against API quirks)
     // This ensures we never recreate Archived or Destroyed tasks
@@ -475,27 +498,26 @@ Deno.serve(async (req) => {
       .select('id, notion_task_id, name, assigned_to, x, y, completed')
       .eq('team_id', team.id);
 
-    // Build lookup map for existing planets by normalized notion_task_id
+    // Build lookup map for existing planets by normalized notion_task_id + assigned_to
     type ExistingPlanetData = { id: string; notion_task_id: string; name: string; assigned_to: string | null; x: number; y: number; completed: boolean };
-    const existingByTaskId = new Map<string, ExistingPlanetData>();
+    // Map: taskId -> Map<assignedTo, planet>
+    const existingByTaskAndAssignee = new Map<string, Map<string, ExistingPlanetData>>();
     const existingPositions: ExistingPlanet[] = [];
+
     for (const planet of allPlanets || []) {
-      existingByTaskId.set(normalizeId(planet.notion_task_id), { ...planet });
+      const normalizedTaskId = normalizeId(planet.notion_task_id);
+      if (!existingByTaskAndAssignee.has(normalizedTaskId)) {
+        existingByTaskAndAssignee.set(normalizedTaskId, new Map());
+      }
+      existingByTaskAndAssignee.get(normalizedTaskId)!.set(planet.assigned_to || '', planet);
       existingPositions.push({ id: planet.id, x: planet.x, y: planet.y });
     }
 
     // Find planets whose Notion tasks are no longer "Ticket Open"
-    // Only delete non-completed planets (completed ones should stay with flag)
+    // Delete all such planets, even if completed
     for (const planet of allPlanets || []) {
       if (!notionTaskIds.has(normalizeId(planet.notion_task_id))) {
-        // Task is no longer "Ticket Open" in Notion
-        if (planet.completed) {
-          // Keep completed planets - they have a flag, were archived/destroyed in Notion
-          skipped.push(`${planet.name} (keeping completed)`);
-          continue;
-        }
-
-        // Non-completed planet whose task is no longer open - remove it
+        // Task is no longer "Ticket Open" in Notion - remove it
         const { error: deleteError } = await supabase
           .from('notion_planets')
           .delete()
@@ -504,8 +526,8 @@ Deno.serve(async (req) => {
         if (deleteError) {
           errors.push(`Failed to delete ${planet.name}: ${deleteError.message}`);
         } else {
-          deleted.push(planet.name);
-          console.log(`Deleted planet "${planet.name}" - Notion task no longer "Ticket Open"`);
+          deleted.push(`${planet.name} (${planet.assigned_to || 'unassigned'})`);
+          console.log(`Deleted planet "${planet.name}" (${planet.assigned_to || 'unassigned'}) - Notion task no longer "Ticket Open"`);
         }
       }
     }
@@ -517,155 +539,191 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      // Resolve assigned player's game username using mapping
-      let resolvedAssignedTo = parsed.assigned_to || null;
-      if (parsed.assigned_to || parsed.assigned_to_notion_id) {
-        const assignedPlayer = await findPlayerByNotionUser(
+      const normalizedTaskId = normalizeId(parsed.id);
+
+      // Resolve ALL assignees to game usernames
+      const resolvedAssignees: Array<{ username: string | null; notionId: string; notionName: string }> = [];
+      for (const assignee of parsed.assignees) {
+        const player = await findPlayerByNotionUser(
           supabase,
           team.id,
-          parsed.assigned_to_notion_id,
-          parsed.assigned_to
+          assignee.notionId,
+          assignee.name
         );
-        if (assignedPlayer) {
-          resolvedAssignedTo = assignedPlayer.username.toLowerCase();
-        }
+        resolvedAssignees.push({
+          username: player ? player.username.toLowerCase() : null,
+          notionId: assignee.notionId,
+          notionName: assignee.name,
+        });
+      }
+      // If no assignees, create a single "unassigned" entry
+      if (resolvedAssignees.length === 0) {
+        resolvedAssignees.push({ username: null, notionId: '', notionName: '' });
       }
 
-      // Check if already exists (using normalized ID for comparison)
-      const existing = existingByTaskId.get(normalizeId(parsed.id));
-      if (existing) {
-        // Update existing planet with latest data
-        const points = calculatePoints(parsed.priority);
-
-        // Check if planet needs repositioning:
-        // 1. Assignment changed (moved to different player)
-        // 2. In wrong zone (too far from expected zone OR too close to home planet)
-        // 3. Overlaps with another planet
-        const assignmentChanged = existing.assigned_to !== resolvedAssignedTo;
-        const inWrongZone = !isInCorrectZone({ x: existing.x, y: existing.y }, resolvedAssignedTo);
-        // Filter by ID, not position (important for detecting overlaps with planets at same position)
-        const otherPositions = existingPositions.filter(p => p.id !== existing.id);
-        const overlapsOther = hasOverlap({ x: existing.x, y: existing.y }, otherPositions);
-        const needsReposition = assignmentChanged || inWrongZone || overlapsOther;
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const updateData: any = {
-          name: parsed.name,
-          description: parsed.description || null,
-          assigned_to: resolvedAssignedTo,
-          task_type: parsed.type || null,
-          priority: parsed.priority || null,
-          points: points,
-          notion_url: parsed.url || null,
-        };
-
-        // Recalculate position if needed (assignment changed, wrong zone, or overlapping)
-        if (needsReposition) {
-          // otherPositions already calculated above for overlap check
-          const newPosition = findNonOverlappingPosition(resolvedAssignedTo, otherPositions);
-          updateData.x = Math.round(newPosition.x);
-          updateData.y = Math.round(newPosition.y);
-
-          // Update our tracking of positions (find by ID, not position)
-          const idx = existingPositions.findIndex(p => p.id === existing.id);
-          if (idx >= 0) {
-            existingPositions[idx] = { id: existing.id, x: newPosition.x, y: newPosition.y };
-          }
-        }
-
-        const { error: updateError } = await supabase
-          .from('notion_planets')
-          .update(updateData)
-          .eq('id', existing.id);
-
-        if (updateError) {
-          errors.push(`Failed to update ${parsed.name}: ${updateError.message}`);
-        } else {
-          updated.push(parsed.name);
-        }
-        continue;
-      }
+      // Get existing planets for this task
+      const existingPlanetsForTask = existingByTaskAndAssignee.get(normalizedTaskId) || new Map<string, ExistingPlanetData>();
 
       // Calculate points based on priority
       const points = calculatePoints(parsed.priority);
 
-      // Find position for new planet using resolved player username
-      const position = findNonOverlappingPosition(resolvedAssignedTo, existingPositions);
+      // Determine which planets to create, update, or delete
+      const newAssignees = new Set(resolvedAssignees.map(a => a.username || ''));
+      const existingAssignees = new Set(existingPlanetsForTask.keys());
 
-      // Add to existing positions for next iteration (use notion task id as temp identifier)
-      existingPositions.push({ id: parsed.id, x: position.x, y: position.y });
+      // Assignees to remove (in existing but not in new)
+      const toRemove = [...existingAssignees].filter(a => !newAssignees.has(a));
 
-      // Create or update planet (upsert on notion_task_id conflict)
-      const { data: upsertResult, error: upsertError } = await supabase
-        .from('notion_planets')
-        .upsert({
-          team_id: team.id,
-          notion_task_id: parsed.id,
-          name: parsed.name,
-          description: parsed.description || null,
-          notion_url: parsed.url || null,
-          assigned_to: resolvedAssignedTo,
-          created_by: parsed.created_by || null,
-          task_type: parsed.type || null,
-          priority: parsed.priority || null,
-          points: points,
-          x: Math.round(position.x),
-          y: Math.round(position.y),
-          completed: false,
-        }, {
-          onConflict: 'notion_task_id',
-          ignoreDuplicates: false,
-        })
-        .select('id')
-        .single();
+      // Delete planets for removed assignees
+      for (const assignee of toRemove) {
+        const planet = existingPlanetsForTask.get(assignee);
+        if (planet) {
+          const { error: deleteError } = await supabase
+            .from('notion_planets')
+            .delete()
+            .eq('id', planet.id);
 
-      if (upsertError) {
-        errors.push(`Failed to create ${parsed.name}: ${upsertError.message}`);
-        continue;
+          if (deleteError) {
+            errors.push(`Failed to delete ${parsed.name} (${assignee || 'unassigned'}): ${deleteError.message}`);
+          } else {
+            deleted.push(`${parsed.name} (${assignee || 'unassigned'})`);
+            console.log(`Deleted planet "${parsed.name}" (${assignee || 'unassigned'}) - assignee removed`);
+            // Remove from position tracking
+            const idx = existingPositions.findIndex(p => p.id === planet.id);
+            if (idx >= 0) existingPositions.splice(idx, 1);
+          }
+        }
       }
 
-      // Check if this was a new insert or an update (we track as created for simplicity)
-      created.push(parsed.name);
+      // Process each assignee (create new or update existing)
+      let creatorPointsAwarded = false;
+      for (const assignee of resolvedAssignees) {
+        const assigneeKey = assignee.username || '';
+        const existingPlanet = existingPlanetsForTask.get(assigneeKey);
 
-      // Award 10 personal points to creator - find by Notion ID or name
-      if (parsed.created_by || parsed.created_by_notion_id) {
-        const creator = await findPlayerByNotionUser(
-          supabase,
-          team.id,
-          parsed.created_by_notion_id,
-          parsed.created_by
-        );
+        if (existingPlanet) {
+          // Update existing planet
+          const otherPositions = existingPositions.filter(p => p.id !== existingPlanet.id);
+          const inWrongZone = !isInCorrectZone({ x: existingPlanet.x, y: existingPlanet.y }, assignee.username);
+          const overlapsOther = hasOverlap({ x: existingPlanet.x, y: existingPlanet.y }, otherPositions);
+          const needsReposition = inWrongZone || overlapsOther;
 
-        if (creator) {
-          await supabase.from('point_transactions').insert({
-            team_id: team.id,
-            player_id: creator.id,
-            source: 'notion',
-            notion_task_id: parsed.id,
-            task_name: `Created: ${parsed.name}`,
-            points: 10,
-            point_type: 'personal',
-          });
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const updateData: any = {
+            name: parsed.name,
+            description: parsed.description || null,
+            task_type: parsed.type || null,
+            priority: parsed.priority || null,
+            points: points,
+            notion_url: parsed.url || null,
+          };
 
-          // Update creator's personal points
-          const { data: creatorData } = await supabase
-            .from('players')
-            .select('personal_points')
-            .eq('id', creator.id)
+          if (needsReposition) {
+            const newPosition = findNonOverlappingPosition(assignee.username, otherPositions);
+            updateData.x = Math.round(newPosition.x);
+            updateData.y = Math.round(newPosition.y);
+
+            const idx = existingPositions.findIndex(p => p.id === existingPlanet.id);
+            if (idx >= 0) {
+              existingPositions[idx] = { id: existingPlanet.id, x: newPosition.x, y: newPosition.y };
+            }
+          }
+
+          const { error: updateError } = await supabase
+            .from('notion_planets')
+            .update(updateData)
+            .eq('id', existingPlanet.id);
+
+          if (updateError) {
+            errors.push(`Failed to update ${parsed.name} (${assigneeKey || 'unassigned'}): ${updateError.message}`);
+          } else {
+            updated.push(`${parsed.name} (${assigneeKey || 'unassigned'})`);
+          }
+        } else {
+          // Create new planet for this assignee
+          const position = findNonOverlappingPosition(assignee.username, existingPositions);
+
+          const { data: newPlanet, error: createError } = await supabase
+            .from('notion_planets')
+            .insert({
+              team_id: team.id,
+              notion_task_id: parsed.id,
+              name: parsed.name,
+              description: parsed.description || null,
+              notion_url: parsed.url || null,
+              assigned_to: assignee.username,
+              created_by: parsed.created_by || null,
+              task_type: parsed.type || null,
+              priority: parsed.priority || null,
+              points: points,
+              x: Math.round(position.x),
+              y: Math.round(position.y),
+              completed: false,
+            })
+            .select('id')
             .single();
 
-          await supabase
-            .from('players')
-            .update({ personal_points: (creatorData?.personal_points || 0) + 10 })
-            .eq('id', creator.id);
+          if (createError) {
+            errors.push(`Failed to create ${parsed.name} (${assigneeKey || 'unassigned'}): ${createError.message}`);
+            continue;
+          }
 
-          totalCreatorPoints += 10;
+          created.push(`${parsed.name} (${assigneeKey || 'unassigned'})`);
+
+          // Add to position tracking
+          if (newPlanet) {
+            existingPositions.push({ id: newPlanet.id, x: position.x, y: position.y });
+          }
+
+          // Award creator points only once per task
+          if (!creatorPointsAwarded && (parsed.created_by || parsed.created_by_notion_id)) {
+            const creator = await findPlayerByNotionUser(
+              supabase,
+              team.id,
+              parsed.created_by_notion_id,
+              parsed.created_by
+            );
+
+            if (creator) {
+              // Check for existing transaction
+              const { data: existingTx } = await supabase
+                .from('point_transactions')
+                .select('id')
+                .eq('notion_task_id', parsed.id)
+                .eq('player_id', creator.id)
+                .ilike('task_name', 'Created:%')
+                .single();
+
+              if (!existingTx) {
+                await supabase.from('point_transactions').insert({
+                  team_id: team.id,
+                  player_id: creator.id,
+                  source: 'notion',
+                  notion_task_id: parsed.id,
+                  task_name: `Created: ${parsed.name}`,
+                  points: 10,
+                  point_type: 'personal',
+                });
+
+                const { data: creatorData } = await supabase
+                  .from('players')
+                  .select('personal_points')
+                  .eq('id', creator.id)
+                  .single();
+
+                await supabase
+                  .from('players')
+                  .update({ personal_points: (creatorData?.personal_points || 0) + 10 })
+                  .eq('id', creator.id);
+
+                totalCreatorPoints += 10;
+                creatorPointsAwarded = true;
+              }
+            }
+          }
         }
       }
     }
-
-    // Note: totalCreatorPoints is now tracked for logging purposes only
-    // Personal points are updated per-player, not team-wide
 
     console.log(`Sync complete: ${created.length} created, ${updated.length} updated, ${deleted.length} deleted, ${skipped.length} skipped, ${errors.length} errors`);
 
