@@ -12,6 +12,8 @@ import { usePromptHistory } from './hooks/usePromptHistory';
 import { getLocalPlayerId, supabase } from './lib/supabase';
 import { QuickTaskModal } from './components/QuickTaskModal';
 import { ReassignTaskModal } from './components/ReassignTaskModal';
+import { EditTaskModal } from './components/EditTaskModal';
+import type { EditTaskUpdates } from './components/EditTaskModal';
 import { ControlHubDashboard } from './components/ControlHubDashboard';
 
 const FAL_API_KEY = 'c2df5aba-75d9-4626-95bb-aa366317d09e:8f90bb335a773f0ce3f261354107daa6';
@@ -546,6 +548,7 @@ function App() {
     onDestroyPlanet: (planet: Planet) => void;
     onBlackHoleDeath: () => void;
     onReassignRequest: (planet: Planet) => void;
+    onEditRequest: (planet: Planet) => void;
   }>({
     onLand: () => {},
     onTakeoff: () => {},
@@ -556,6 +559,7 @@ function App() {
     onDestroyPlanet: () => {},
     onBlackHoleDeath: () => {},
     onReassignRequest: () => {},
+    onEditRequest: () => {},
   });
   const [state, setState] = useState<SavedState>(loadState);
   const [customPlanets, setCustomPlanets] = useState<CustomPlanet[]>([]); // Loaded from Supabase
@@ -572,6 +576,8 @@ function App() {
   const [showQuickTaskModal, setShowQuickTaskModal] = useState(false);
   const [showReassignModal, setShowReassignModal] = useState(false);
   const [reassignPlanet, setReassignPlanet] = useState<Planet | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editPlanet, setEditPlanet] = useState<Planet | null>(null);
   const [viewingPlanetOwner, setViewingPlanetOwner] = useState<string | null>(null);
   const [viewingPlanetPreview, setViewingPlanetPreview] = useState<string | null>(null); // Preview image when browsing versions
 
@@ -755,6 +761,7 @@ function App() {
     completePlanet: completeNotionPlanet,
     claimPlanet: claimNotionPlanet,
     reassignPlanet: reassignNotionPlanet,
+    updatePlanet: updateNotionPlanet,
   } = useNotionPlanets({
     teamId: team?.id || null,
     onPlanetCreated: (planet) => {
@@ -796,11 +803,6 @@ function App() {
     if (missionFilters.has('notion')) {
       const currentUser = state.currentUser?.toLowerCase();
       const notionWithDates = notionGamePlanets.filter(np => np.targetDate && !np.completed && np.ownerId?.toLowerCase() === currentUser);
-      const notionWithoutDates = notionGamePlanets.filter(np => !np.targetDate && !np.completed && np.ownerId?.toLowerCase() === currentUser);
-      console.log(`[nextMissions] Notion planets: ${notionGamePlanets.length} total, ${notionWithDates.length} with dates, ${notionWithoutDates.length} without dates`);
-      if (notionWithDates.length > 0) {
-        console.log('[nextMissions] Notion planets with dates:', notionWithDates.map(np => `${np.name}: ${np.targetDate}`));
-      }
       for (const np of notionWithDates) {
         entries.push({ name: np.name, targetDate: np.targetDate!, type: 'notion' });
       }
@@ -819,7 +821,6 @@ function App() {
       else urgencyColor = '#4ade80';
       return { name, daysLeft, urgencyColor, type };
     });
-    console.log('[nextMissions] Final result:', result.map(m => `${m.name}: ${m.daysLeft}d (${m.type})`));
     return result;
   }, [goals, state.completedPlanets, missionFilters, notionGamePlanets]);
 
@@ -2370,25 +2371,90 @@ function App() {
     gameRef.current?.startSendAnimation(reassignPlanet);
     soundManager.playSendVoiceLine(); // "Special delivery!", "Coming through!", etc.
 
-    // Show notification
-    const ownerName = newOwner.charAt(0).toUpperCase() + newOwner.slice(1);
-    setEventNotification({ message: `Sending task to ${ownerName}...`, type: 'mission' });
+    if (!newOwner) {
+      // Unassigning - use notion-update edge function
+      setEventNotification({ message: `Unassigning task...`, type: 'mission' });
 
-    // Call API in parallel (rocket flies in random direction until target is set)
-    const newPosition = await reassignNotionPlanet(reassignPlanet.id, newOwner);
+      const result = await updateNotionPlanet(reassignPlanet.id, { assigned_to: null });
 
-    if (newPosition) {
-      // Set target - rocket will steer toward it
-      gameRef.current?.setSendTarget(newPosition.x, newPosition.y);
-      setEventNotification({ message: `🚀 Task sent to ${ownerName}!`, type: 'mission' });
+      if (result?.success && result.new_position) {
+        gameRef.current?.setSendTarget(result.new_position.x, result.new_position.y);
+        setEventNotification({ message: `Task unassigned`, type: 'mission' });
+      } else {
+        setEventNotification({ message: `Failed to unassign task`, type: 'blackhole' });
+      }
       setTimeout(() => setEventNotification(null), 3000);
     } else {
-      setEventNotification({ message: `Failed to send task`, type: 'blackhole' });
-      setTimeout(() => setEventNotification(null), 3000);
+      // Show notification
+      const ownerName = newOwner.charAt(0).toUpperCase() + newOwner.slice(1);
+      setEventNotification({ message: `Sending task to ${ownerName}...`, type: 'mission' });
+
+      // Call API in parallel (rocket flies in random direction until target is set)
+      const newPosition = await reassignNotionPlanet(reassignPlanet.id, newOwner);
+
+      if (newPosition) {
+        // Set target - rocket will steer toward it
+        gameRef.current?.setSendTarget(newPosition.x, newPosition.y);
+        setEventNotification({ message: `Task sent to ${ownerName}!`, type: 'mission' });
+        setTimeout(() => setEventNotification(null), 3000);
+      } else {
+        setEventNotification({ message: `Failed to send task`, type: 'blackhole' });
+        setTimeout(() => setEventNotification(null), 3000);
+      }
     }
 
     setReassignPlanet(null);
-  }, [reassignPlanet, reassignNotionPlanet]);
+  }, [reassignPlanet, reassignNotionPlanet, updateNotionPlanet]);
+
+  // Handle edit request - opens modal to edit task properties
+  const handleEditRequest = useCallback((planet: Planet) => {
+    if (!planet.id.startsWith('notion-')) return;
+    if (planet.completed) return;
+
+    setEditPlanet(planet);
+    setShowEditModal(true);
+    setLandedPlanet(null);
+    gameRef.current?.clearLandedState();
+  }, []);
+
+  // Handle actual edit save after user modifies fields
+  const handleEditSave = useCallback(async (updates: EditTaskUpdates) => {
+    if (!editPlanet) return;
+
+    // Check if assignee changed - if so, trigger send animation
+    const assigneeChanged = updates.assigned_to !== undefined &&
+      (updates.assigned_to || '') !== (editPlanet.ownerId || '');
+
+    if (assigneeChanged && updates.assigned_to) {
+      // Start rocket animation for reassignment
+      gameRef.current?.startSendAnimation(editPlanet);
+      soundManager.playSendVoiceLine();
+      const ownerName = updates.assigned_to.charAt(0).toUpperCase() + updates.assigned_to.slice(1);
+      setEventNotification({ message: `Sending task to ${ownerName}...`, type: 'mission' });
+    }
+
+    const result = await updateNotionPlanet(editPlanet.id, updates);
+
+    if (result?.success) {
+      if (assigneeChanged && result.new_position) {
+        gameRef.current?.setSendTarget(result.new_position.x, result.new_position.y);
+        if (updates.assigned_to) {
+          const ownerName = updates.assigned_to.charAt(0).toUpperCase() + updates.assigned_to.slice(1);
+          setEventNotification({ message: `Task updated and sent to ${ownerName}!`, type: 'mission' });
+        } else {
+          setEventNotification({ message: `Task unassigned and moved`, type: 'mission' });
+        }
+      } else {
+        setEventNotification({ message: `Task updated`, type: 'mission' });
+      }
+      setTimeout(() => setEventNotification(null), 3000);
+    } else {
+      setEventNotification({ message: `Failed to update task`, type: 'blackhole' });
+      setTimeout(() => setEventNotification(null), 3000);
+    }
+
+    setEditPlanet(null);
+  }, [editPlanet, updateNotionPlanet]);
 
   // Handle terraforming a user planet
   const handleTerraform = useCallback((planet: Planet) => {
@@ -2475,8 +2541,9 @@ function App() {
       onDestroyPlanet: handleDestroyPlanet,
       onBlackHoleDeath: handleBlackHoleDeath,
       onReassignRequest: handleReassignRequest,
+      onEditRequest: handleEditRequest,
     };
-  }, [handleLand, handleTakeoff, handleColonize, handleClaimRequest, handleOpenNotion, handleTerraform, handleDestroyPlanet, handleBlackHoleDeath, handleReassignRequest]);
+  }, [handleLand, handleTakeoff, handleColonize, handleClaimRequest, handleOpenNotion, handleTerraform, handleDestroyPlanet, handleBlackHoleDeath, handleReassignRequest, handleEditRequest]);
 
   // Keyboard shortcuts: Escape to close modals, T to open quick task
   useEffect(() => {
@@ -2485,7 +2552,7 @@ function App() {
       if (e.key === 'Escape' && !isUpgrading) {
         const isGameLanded = gameRef.current?.isPlayerLanded();
         const hasOpenModal = editingGoal || showSettings || showGameSettings || showTerraform ||
-          viewingPlanetOwner || showShop || showControlHub || showPlanetCreator || landedPlanet || isGameLanded || showQuickTaskModal || showReassignModal;
+          viewingPlanetOwner || showShop || showControlHub || showPlanetCreator || landedPlanet || isGameLanded || showQuickTaskModal || showReassignModal || showEditModal;
 
         if (hasOpenModal) {
           e.preventDefault();
@@ -2502,6 +2569,8 @@ function App() {
           setShowQuickTaskModal(false);
           setShowReassignModal(false);
           setReassignPlanet(null);
+          setShowEditModal(false);
+          setEditPlanet(null);
           // Also clear SpaceGame's internal landed state
           gameRef.current?.clearLandedState();
         }
@@ -2514,7 +2583,7 @@ function App() {
         const isGameLanded = gameRef.current?.isPlayerLanded();
         const hasOpenModal = editingGoal || showSettings || showGameSettings || showTerraform ||
           viewingPlanetOwner || showShop || showControlHub || showPlanetCreator || landedPlanet || isGameLanded || showQuickTaskModal ||
-          showWelcome || showUserSelect || showLeaderboard || showPointsHistory || showReassignModal;
+          showWelcome || showUserSelect || showLeaderboard || showPointsHistory || showReassignModal || showEditModal;
 
         if (!isTyping && !hasOpenModal && !isUpgrading) {
           e.preventDefault();
@@ -2525,7 +2594,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showTerraform, viewingPlanetOwner, showShop, showControlHub, showPlanetCreator, showSettings, showGameSettings, editingGoal, landedPlanet, isUpgrading, showQuickTaskModal, showWelcome, showUserSelect, showLeaderboard, showPointsHistory, showReassignModal]);
+  }, [showTerraform, viewingPlanetOwner, showShop, showControlHub, showPlanetCreator, showSettings, showGameSettings, editingGoal, landedPlanet, isUpgrading, showQuickTaskModal, showWelcome, showUserSelect, showLeaderboard, showPointsHistory, showReassignModal, showEditModal]);
 
   // Buy visual upgrade from shop (AI-generated changes to ship appearance)
   const buyVisualUpgrade = async () => {
@@ -3230,6 +3299,7 @@ function App() {
       onDestroyPlanet: (planet) => landingCallbacksRef.current.onDestroyPlanet(planet),
       onBlackHoleDeath: () => landingCallbacksRef.current.onBlackHoleDeath(),
       onReassignRequest: (planet) => landingCallbacksRef.current.onReassignRequest(planet),
+      onEditRequest: (planet) => landingCallbacksRef.current.onEditRequest(planet),
     });
 
     // Sync notion planets immediately if already loaded
@@ -3660,6 +3730,18 @@ function App() {
           onReassign={handleReassign}
           currentOwner={reassignPlanet.ownerId || null}
           taskName={reassignPlanet.name}
+        />
+      )}
+
+      {showEditModal && editPlanet && (
+        <EditTaskModal
+          isOpen={showEditModal}
+          onClose={() => {
+            setShowEditModal(false);
+            setEditPlanet(null);
+          }}
+          onSave={handleEditSave}
+          planet={editPlanet}
         />
       )}
 

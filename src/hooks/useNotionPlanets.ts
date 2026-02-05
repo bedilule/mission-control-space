@@ -87,6 +87,20 @@ interface UseNotionPlanetsOptions {
   onPlanetCompleted?: (planet: NotionPlanet) => void;
 }
 
+interface UpdatePlanetFields {
+  name?: string;
+  description?: string;
+  task_type?: 'bug' | 'feature' | 'task';
+  priority?: 'low' | 'medium' | 'high' | 'critical';
+  due_date?: string | null;
+  assigned_to?: string | null;
+}
+
+interface UpdatePlanetResult {
+  success: boolean;
+  new_position?: { x: number; y: number };
+}
+
 interface UseNotionPlanetsReturn {
   notionPlanets: NotionPlanet[];
   gamePlanets: Planet[];
@@ -94,6 +108,7 @@ interface UseNotionPlanetsReturn {
   completePlanet: (notionPlanetId: string) => Promise<void>;
   claimPlanet: (notionPlanetId: string, playerUsername: string) => Promise<{ x: number; y: number } | null>;
   reassignPlanet: (notionPlanetId: string, newOwnerUsername: string) => Promise<{ x: number; y: number } | null>;
+  updatePlanet: (notionPlanetId: string, updates: UpdatePlanetFields) => Promise<UpdatePlanetResult | null>;
 }
 
 export function useNotionPlanets(options: UseNotionPlanetsOptions): UseNotionPlanetsReturn {
@@ -199,6 +214,37 @@ export function useNotionPlanets(options: UseNotionPlanetsOptions): UseNotionPla
     }
   }, [teamId]);
 
+  // Update a notion planet's properties (title, description, type, priority, due date, assignee)
+  const updatePlanet = useCallback(async (notionPlanetId: string, updates: UpdatePlanetFields): Promise<UpdatePlanetResult | null> => {
+    if (!teamId) return null;
+
+    const actualId = notionPlanetId.startsWith('notion-')
+      ? notionPlanetId.slice(7)
+      : notionPlanetId;
+
+    try {
+      const { data, error } = await supabase.functions.invoke('notion-update', {
+        body: {
+          notion_planet_id: actualId,
+          ...updates,
+        },
+      });
+
+      if (error) {
+        console.error('Error updating notion planet:', error);
+        return null;
+      }
+
+      return {
+        success: data?.success || false,
+        new_position: data?.new_position || undefined,
+      };
+    } catch (error) {
+      console.error('Error updating notion planet:', error);
+      return null;
+    }
+  }, [teamId]);
+
   // Set up realtime subscriptions
   useEffect(() => {
     if (!teamId) {
@@ -239,12 +285,12 @@ export function useNotionPlanets(options: UseNotionPlanetsOptions): UseNotionPla
 
         if (payload.eventType === 'INSERT') {
           const planet = rowToNotionPlanet(payload.new);
-          console.log('[useNotionPlanets] INSERT - Adding planet:', planet.name, '| due_date:', planet.due_date);
+          console.log('[useNotionPlanets] INSERT - Adding planet:', planet.name);
           setNotionPlanets((prev) => [planet, ...prev]);
           onPlanetCreatedRef.current?.(planet);
         } else if (payload.eventType === 'UPDATE') {
           const planet = rowToNotionPlanet(payload.new);
-          console.log('[useNotionPlanets] UPDATE - Updating planet:', planet.name, '| due_date:', planet.due_date, '| raw due_date from DB:', payload.new.due_date);
+          console.log('[useNotionPlanets] UPDATE - Updating planet:', planet.name);
           setNotionPlanets((prev) =>
             prev.map((p) => (p.id === planet.id ? planet : p))
           );
@@ -292,5 +338,6 @@ export function useNotionPlanets(options: UseNotionPlanetsOptions): UseNotionPla
     completePlanet,
     claimPlanet,
     reassignPlanet,
+    updatePlanet,
   };
 }

@@ -323,9 +323,6 @@ function parseNativeNotionPayload(raw: any): NotionWebhookPayload | null {
   const hasDueDate = 'Due Date' in props;
   const dueDate = hasDueDate ? (props['Due Date']?.date?.start || null) : undefined;
 
-  console.log('PAYLOAD PROPERTY KEYS:', Object.keys(props));
-  console.log('DUE DATE — in payload:', hasDueDate, '| parsed:', dueDate);
-
   return {
     id: data.id,
     name: name || 'Untitled',
