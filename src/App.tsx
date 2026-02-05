@@ -3512,7 +3512,7 @@ function App() {
       <div style={styles.welcome}>
         <img src="/logo.png" alt="Custom One" style={styles.logo} />
         <h1 style={styles.title}>Mission Control</h1>
-        <p style={styles.subtitle}>Custom 1 Edition</p>
+        <p style={styles.subtitle}>Custom One Edition</p>
 
         <p style={{ color: currentUser?.color, marginBottom: '1rem' }}>
           Welcome, {currentUser?.name}!
@@ -3521,7 +3521,6 @@ function App() {
         {/* Ship Preview */}
         <div style={styles.shipPreviewLarge}>
           <img src={currentShip.currentImage} alt="Your Ship" style={styles.shipPreviewImage} />
-          <p style={styles.shipUpgradeCount}>{currentShip.upgrades.length} upgrades</p>
         </div>
 
         <button style={styles.startButton} onClick={() => {
@@ -3534,7 +3533,7 @@ function App() {
         </button>
 
         <p style={{ ...styles.progress, marginTop: '1.5rem' }}>
-          {state.completedPlanets.length} planets completed | {customPlanets.length} custom planets
+          {Math.max(0, (teamPlayers.find(p => p.username === state.currentUser)?.shipLevel || 1) - 1)} ship upgrades | {userPlanets[state.currentUser || '']?.terraformCount || 0} terraforms
         </p>
 
         <button style={styles.switchUserButton} onClick={() => setShowUserSelect(true)}>
@@ -3868,6 +3867,7 @@ function App() {
           isOpen={showQuickTaskModal}
           onClose={() => setShowQuickTaskModal(false)}
           currentUser={state.currentUser || 'unknown'}
+          onCreatedForSelf={() => soundManager.playClaimVoiceLine()}
         />
       )}
 
@@ -4568,7 +4568,7 @@ function App() {
                     style={{ width: 70, height: 70, borderRadius: 10, border: '2px solid #ffa500' }}
                   />
                   <p style={{ color: '#666', fontSize: '0.7rem', marginTop: '0.4rem' }}>
-                    {getCurrentUserShip().upgrades.length} visual upgrades
+                    {Math.max(0, (teamPlayers.find(p => p.username === state.currentUser)?.shipLevel || 1) - 1)} visual upgrades
                   </p>
                 </div>
 
@@ -5349,7 +5349,7 @@ function App() {
                 style={{ width: 100, height: 100, borderRadius: 12, border: '3px solid #ffa500' }}
               />
               <p style={{ color: '#666', fontSize: '0.75rem', marginTop: '0.5rem' }}>
-                {getCurrentUserShip().upgrades.length} visual upgrades
+                {Math.max(0, (teamPlayers.find(p => p.username === state.currentUser)?.shipLevel || 1) - 1)} visual upgrades
               </p>
             </div>
 
