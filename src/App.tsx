@@ -2296,7 +2296,21 @@ function App() {
     // Special station planets open modals instead of showing landed panel
     if (planet.id === 'shop-station') {
       setShowShop(true);
-      voiceService.speak('Welcome to the shop, commander.');
+      // Build shop context for greedy merchant voice
+      const currentShip = getCurrentUserShip();
+      const effects = currentShip.effects || {};
+      const unowned: string[] = [];
+      if (!effects.hasSpaceRifle) unowned.push('Space Rifle (500 credits)');
+      if (!effects.hasPlasmaCanon) unowned.push('Plasma Canon (1,500 credits)');
+      if (!effects.hasRocketLauncher) unowned.push('Rocket Launcher (2,500 credits)');
+      if ((effects.sizeBonus || 0) < 10) unowned.push('Size upgrade');
+      if ((effects.speedBonus || 0) < 10) unowned.push('Speed upgrade');
+      unowned.push('Visual upgrade (150 credits)');
+      voiceService.shopGreeting({
+        playerName: USERS.find(u => u.id === state.currentUser)?.name || state.currentUser || 'friend',
+        credits: personalPoints,
+        unownedItems: unowned,
+      });
       return;
     }
     if (planet.id === 'planet-builder') {

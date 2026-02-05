@@ -1,10 +1,17 @@
 const ELEVENLABS_KEY = 'sk_3d39d8b1fae43e41bc56d8f67e1890fac778d2dcb464a69c';
-const ELEVENLABS_VOICE = 'CwhRBWXzGAHq8TQ4Fs17'; // Roger
+const ELEVENLABS_VOICE = 'CwhRBWXzGAHq8TQ4Fs17'; // Roger - default ship AI
+const ELEVENLABS_SHOP_VOICE = 'Z7RrOqZFTyLpIlzCgfsp'; // Toby - Little Mythical Monster (shop merchant goblin)
 const SUPABASE_URL = 'https://qdizfhhsqolvuddoxugj.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFkaXpmaGhzcW9sdnVkZG94dWdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk4NzY1MjMsImV4cCI6MjA4NTQ1MjUyM30.W00V-_gmfGT19HcSfpwmFNEDlXg6Wt6rZCE_gVPj4fw';
 
 export type UpgradeType = 'ship' | 'planet';
 export type UpgradePhase = 'start' | 'done';
+
+export interface ShopContext {
+  playerName: string;
+  credits: number;
+  unownedItems: string[];
+}
 
 export interface GreetingContext {
   playerName: string;
@@ -63,6 +70,47 @@ class VoiceService {
       console.log(`[Voice] Total: ${Math.round(t2 - t0)}ms`);
     } catch (e) {
       console.error('[Voice] Greeting failed:', e);
+    }
+  }
+
+  async shopGreeting(ctx: ShopContext): Promise<void> {
+    if (!this.enabled || this.speaking) return;
+
+    const t0 = performance.now();
+    try {
+      const parts = [`Player: ${ctx.playerName}. Credits: ${ctx.credits}.`];
+      if (ctx.unownedItems.length > 0) {
+        parts.push(`Available to buy: ${ctx.unownedItems.join(', ')}.`);
+      } else {
+        parts.push('Owns everything in the shop.');
+      }
+      const userMessage = parts.join(' ');
+      console.log('[Voice] Shop greeting:', ctx);
+      console.log('[Voice] Shop prompt:', userMessage);
+
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/voice-greeting`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userMessage, mode: 'shop' }),
+      });
+
+      if (!res.ok) {
+        console.error('[Voice] Shop greeting error:', res.status);
+        return;
+      }
+
+      const data = await res.json();
+      const text = data.text;
+      if (!text) return;
+
+      console.log(`[Voice] OpenAI: ${Math.round(performance.now() - t0)}ms → "${text}"`);
+      await this.tts(text, ELEVENLABS_SHOP_VOICE);
+      console.log(`[Voice] Total: ${Math.round(performance.now() - t0)}ms`);
+    } catch (e) {
+      console.error('[Voice] Shop greeting failed:', e);
     }
   }
 
@@ -141,11 +189,11 @@ class VoiceService {
     return data.text || `Welcome back, ${ctx.playerName}.`;
   }
 
-  private async tts(text: string): Promise<void> {
+  private async tts(text: string, voice: string = ELEVENLABS_VOICE): Promise<void> {
     this.speaking = true;
     try {
       const res = await fetch(
-        `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE}?output_format=mp3_22050_32`,
+        `https://api.elevenlabs.io/v1/text-to-speech/${voice}?output_format=mp3_22050_32`,
         {
           method: 'POST',
           headers: {
