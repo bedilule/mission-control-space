@@ -781,6 +781,7 @@ function App() {
   });
 
   // Next missions - up to 5 closest upcoming dated, uncompleted goals (filtered by type)
+  // Includes overdue missions (past dates) — they sort first and show as "Xd late"
   const nextMissions = useMemo(() => {
     const entries: { name: string; targetDate: string; type: string }[] = [];
     for (const type of ['business', 'product'] as const) {
@@ -793,17 +794,21 @@ function App() {
     }
     // Include notion planets if filter is on
     if (missionFilters.has('notion')) {
-      for (const np of notionGamePlanets) {
-        if (np.targetDate && !np.completed) {
-          entries.push({ name: np.name, targetDate: np.targetDate, type: 'notion' });
-        }
+      const notionWithDates = notionGamePlanets.filter(np => np.targetDate && !np.completed);
+      const notionWithoutDates = notionGamePlanets.filter(np => !np.targetDate && !np.completed);
+      console.log(`[nextMissions] Notion planets: ${notionGamePlanets.length} total, ${notionWithDates.length} with dates, ${notionWithoutDates.length} without dates`);
+      if (notionWithDates.length > 0) {
+        console.log('[nextMissions] Notion planets with dates:', notionWithDates.map(np => `${np.name}: ${np.targetDate}`));
+      }
+      for (const np of notionWithDates) {
+        entries.push({ name: np.name, targetDate: np.targetDate!, type: 'notion' });
       }
     }
     if (entries.length === 0) return null;
     entries.sort((a, b) =>
       new Date(a.targetDate).getTime() - new Date(b.targetDate).getTime()
     );
-    return entries.slice(0, 5).map(({ name, targetDate, type }) => {
+    const result = entries.slice(0, 5).map(({ name, targetDate, type }) => {
       const daysLeft = Math.ceil((new Date(targetDate + 'T00:00:00').getTime() - Date.now()) / 86400000);
       let urgencyColor: string;
       if (daysLeft <= 0) urgencyColor = '#ff4444';
@@ -813,6 +818,8 @@ function App() {
       else urgencyColor = '#4ade80';
       return { name, daysLeft, urgencyColor, type };
     });
+    console.log('[nextMissions] Final result:', result.map(m => `${m.name}: ${m.daysLeft}d (${m.type})`));
+    return result;
   }, [goals, state.completedPlanets, missionFilters, notionGamePlanets]);
 
   // Prompt history hook - tracks all AI generation prompts

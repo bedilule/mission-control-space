@@ -322,8 +322,19 @@ function parseNativeNotionPayload(raw: any): NotionWebhookPayload | null {
   // Log the raw status property for debugging
   console.log('RAW STATUS PROPERTY:', JSON.stringify(statusProp));
 
-  // Extract Due Date
-  const dueDate = props['Due Date']?.date?.start || null;
+  // Extract Due Date - distinguish between:
+  //   string = date is set (e.g. "2026-02-15")
+  //   null   = date property exists but is empty/cleared
+  //   undefined = Due Date property missing from payload entirely
+  console.log('RAW DUE DATE PROPERTY:', JSON.stringify(props['Due Date']));
+  let dueDate: string | null | undefined = undefined; // default: not in payload
+  if ('Due Date' in props) {
+    // Property exists in payload — read the value (could be null if cleared)
+    dueDate = props['Due Date']?.date?.start ?? null;
+    console.log('PARSED DUE DATE:', dueDate, '(property was present in payload)');
+  } else {
+    console.log('PARSED DUE DATE: undefined (property NOT in payload — will preserve existing value)');
+  }
 
   return {
     id: data.id,
@@ -336,7 +347,7 @@ function parseNativeNotionPayload(raw: any): NotionWebhookPayload | null {
     created_by_notion_id: createdByNotionId || undefined,
     status: status || undefined,
     url: data.url || undefined,
-    due_date: dueDate || undefined,
+    due_date: dueDate, // string | null | undefined — preserve distinction
   };
 }
 
@@ -768,8 +779,18 @@ Deno.serve(async (req) => {
         priority: payload.priority || null,
         points: points,
         notion_url: payload.url || null,
-        due_date: payload.due_date || null,
       };
+
+      // Only update due_date if it was explicitly present in the Notion payload.
+      // undefined = property missing from payload → preserve existing DB value
+      // null = property exists but date was cleared → set to null
+      // string = new date value → update
+      if (payload.due_date !== undefined) {
+        updates.due_date = payload.due_date;
+        console.log(`DUE DATE UPDATE for "${payload.name}": setting to ${JSON.stringify(payload.due_date)}`);
+      } else {
+        console.log(`DUE DATE UPDATE for "${payload.name}": property missing from payload, preserving existing value`);
+      }
 
       if (positionNeedsFix) {
         const newPosition = findNonOverlappingPosition(assignee.username, otherPlanets);
@@ -815,7 +836,7 @@ Deno.serve(async (req) => {
           x: Math.round(position.x),
           y: Math.round(position.y),
           completed: false,
-          due_date: payload.due_date || null,
+          due_date: payload.due_date ?? null,
         })
         .select()
         .single();

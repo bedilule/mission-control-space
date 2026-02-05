@@ -239,12 +239,12 @@ export function useNotionPlanets(options: UseNotionPlanetsOptions): UseNotionPla
 
         if (payload.eventType === 'INSERT') {
           const planet = rowToNotionPlanet(payload.new);
-          console.log('[useNotionPlanets] INSERT - Adding planet:', planet.name);
+          console.log('[useNotionPlanets] INSERT - Adding planet:', planet.name, '| due_date:', planet.due_date);
           setNotionPlanets((prev) => [planet, ...prev]);
           onPlanetCreatedRef.current?.(planet);
         } else if (payload.eventType === 'UPDATE') {
           const planet = rowToNotionPlanet(payload.new);
-          console.log('[useNotionPlanets] UPDATE - Updating planet:', planet.name);
+          console.log('[useNotionPlanets] UPDATE - Updating planet:', planet.name, '| due_date:', planet.due_date, '| raw due_date from DB:', payload.new.due_date);
           setNotionPlanets((prev) =>
             prev.map((p) => (p.id === planet.id ? planet : p))
           );

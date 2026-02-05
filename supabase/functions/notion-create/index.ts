@@ -244,6 +244,9 @@ Deno.serve(async (req) => {
       'Ticket': {
         title: [{ text: { content: body.name } }],
       },
+      'Status': {
+        status: { name: 'Ticket Open' },
+      },
     };
 
     // Add description if provided
