@@ -2285,12 +2285,14 @@ function App() {
     if (planet.id.startsWith('notion-')) {
       // Check if unassigned - then CLAIM instead of complete
       if ((!planet.ownerId || planet.ownerId === '') && state.currentUser) {
-        // Claim the mission (moves it to player's zone)
-        const success = await claimNotionPlanet(planet.id, state.currentUser);
-        if (success) {
-          soundManager.playDockingSound();
-          // Planet will be updated via realtime subscription
-          setLandedPlanet(null);
+        // Claim the mission via push animation (mini ship pushes planet to home zone)
+        gameRef.current?.startSendAnimation(planet);
+        soundManager.playClaimVoiceLine();
+        setLandedPlanet(null);
+
+        const newPosition = await claimNotionPlanet(planet.id, state.currentUser);
+        if (newPosition) {
+          gameRef.current?.setSendTarget(newPosition.x, newPosition.y);
         }
         return;
       }
@@ -2344,7 +2346,7 @@ function App() {
   }, [state.completedPlanets, state.currentUser, team, completeRemotePlanet, completeNotionPlanet, claimNotionPlanet, updateRemotePersonalPoints]);
 
   // Handle claim request - called when user wants to claim an unassigned planet
-  // Starts animation IMMEDIATELY, then calls API in parallel
+  // Uses send/push animation (mini ship pushes planet to home zone)
   const handleClaimRequest = useCallback(async (planet: Planet) => {
     if (!state.currentUser) return;
 
@@ -2353,24 +2355,20 @@ function App() {
     // Clear suppress flag in case called from React modal
     gameRef.current?.setSuppressLandedPanel(false);
 
-    // Start animation immediately for instant feedback
-    gameRef.current?.startClaimAnimation(planet);
-    soundManager.playTeleport();
+    // Start push animation immediately for instant feedback
+    gameRef.current?.startSendAnimation(planet);
     soundManager.playClaimVoiceLine();
     setLandedPlanet(null);
 
-    // Call API in parallel - animation will wait during charging phase if needed
+    // Call API in parallel - animation flies in random direction until target is set
     const newPosition = await claimNotionPlanet(planet.id, state.currentUser);
 
     console.log('[ClaimRequest] API returned:', newPosition);
 
     if (newPosition) {
-      // Set the actual target position - animation will proceed to movement phase
-      gameRef.current?.setClaimTarget(newPosition.x, newPosition.y);
+      gameRef.current?.setSendTarget(newPosition.x, newPosition.y);
     } else {
-      // API failed - cancel the animation
       console.error('Failed to claim planet');
-      gameRef.current?.cancelClaimAnimation();
     }
   }, [state.currentUser, claimNotionPlanet]);
 
