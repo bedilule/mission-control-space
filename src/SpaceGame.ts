@@ -212,6 +212,8 @@ export class SpaceGame {
   private onBlackHoleDeath: (() => void) | null = null;
   private onReassignRequest: ((planet: Planet) => void) | null = null; // Called when user wants to reassign task to another user
   private onEditRequest: ((planet: Planet) => void) | null = null; // Called when user wants to edit task properties
+  private onFeatureToggle: ((planet: Planet) => void) | null = null; // Called when user wants to pin/unpin a planet to HUD
+  private featuredPlanetIds: Set<string> = new Set();
   private suppressLandedPanel: boolean = false; // When true, React modal handles landed UI instead of canvas
 
   // Destroy animation state (explosion effect)
@@ -1030,6 +1032,7 @@ export class SpaceGame {
     onBlackHoleDeath?: () => void;
     onReassignRequest?: (planet: Planet) => void;
     onEditRequest?: (planet: Planet) => void;
+    onFeatureToggle?: (planet: Planet) => void;
   }) {
     this.onLand = callbacks.onLand || null;
     this.onTakeoff = callbacks.onTakeoff || null;
@@ -1041,6 +1044,11 @@ export class SpaceGame {
     this.onBlackHoleDeath = callbacks.onBlackHoleDeath || null;
     this.onReassignRequest = callbacks.onReassignRequest || null;
     this.onEditRequest = callbacks.onEditRequest || null;
+    this.onFeatureToggle = callbacks.onFeatureToggle || null;
+  }
+
+  public setFeaturedPlanetIds(ids: Set<string>) {
+    this.featuredPlanetIds = ids;
   }
 
   public setWeaponFireCallback(callback: ((weaponType: 'rifle' | 'plasma' | 'rocket', x: number, y: number, vx: number, vy: number, rotation: number, targetPlanetId: string | null) => void) | null) {
@@ -1088,7 +1096,7 @@ export class SpaceGame {
       }
 
       this.keys.add(e.key.toLowerCase());
-      if (['w', 'a', 's', 'd', 'z', 'q', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'c', 'n', 't'].includes(e.key.toLowerCase())) {
+      if (['w', 'a', 's', 'd', 'z', 'q', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'c', 'n', 't', 'f'].includes(e.key.toLowerCase())) {
         e.preventDefault();
       }
     });
@@ -1587,6 +1595,13 @@ export class SpaceGame {
 
     if (closestPlanet) {
       this.state.nearbyPlanet = closestPlanet;
+
+      // F key to pin/unpin Notion planets assigned to current user (works at full info range)
+      if (this.keys.has('f') && closestPlanet.id.startsWith('notion-') && closestPlanet.ownerId === this.currentUser && this.onFeatureToggle) {
+        this.keys.delete('f');
+        this.onFeatureToggle(closestPlanet);
+      }
+
       // Check if close enough to dock (and not completed)
       // Also check ownership: can interact with shared planets (ownerId null) or own planets
       // User planets can always be landed on (for viewing other players' planets)
@@ -1959,6 +1974,15 @@ export class SpaceGame {
       // Completed Notion planets require the Destroy Canon equipped
       if (planet.completed && !isSpecial && isNotionPlanet && this.onDestroyPlanet && this.shipEffects.destroyCanonEquipped) {
         this.startDestroyAnimation(planet);
+      }
+      return;
+    }
+
+    // Handle F key - pin/unpin planet to HUD (own planets only)
+    if (this.keys.has('f')) {
+      this.keys.delete('f');
+      if (planet.id.startsWith('notion-') && planet.ownerId === this.currentUser && this.onFeatureToggle) {
+        this.onFeatureToggle(planet);
       }
       return;
     }
@@ -6566,6 +6590,21 @@ export class SpaceGame {
       ctx.drawImage(this.logoImage, flagX + 2, flagY - 13, 21, 14);
     }
 
+    // Featured star indicator for pinned planets
+    if (this.featuredPlanetIds.has(planet.id)) {
+      const starX = x - planet.radius * 0.7;
+      const starY = y - planet.radius - 12;
+      ctx.save();
+      ctx.font = 'bold 14px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#ffd700';
+      ctx.shadowColor = '#ffd700';
+      ctx.shadowBlur = 8;
+      ctx.fillText('★', starX, starY);
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    }
+
     // Label (wrapped to 2 lines max)
     ctx.fillStyle = planet.completed ? '#4ade80' : '#fff';
     ctx.font = `${planet.completed ? 'bold ' : ''}12px Space Grotesk`;
@@ -6864,6 +6903,7 @@ export class SpaceGame {
     if (hasRealReward) boxHeight += 30;
     if (hasNotionUrl) boxHeight += 20;
     if (isViewOnly) boxHeight += 15; // Extra space for owner info
+    if (isNotionPlanet && !isLocked && planet.ownerId === this.currentUser) boxHeight += 16; // Extra space for pin prompt
     const boxX = canvas.width / 2 - boxWidth / 2;
     const boxY = canvas.height - boxHeight - 20;
 
@@ -6989,6 +7029,17 @@ export class SpaceGame {
         const baseNotionY = hasRealReward ? boxY + 118 + dateOffset : boxY + 98 + dateOffset;
         ctx.fillText('📋 Click to open in Notion', canvas.width / 2, baseNotionY);
       }
+    }
+
+    // Feature pin prompt for own Notion planets (above dock prompt)
+    const isOwnNotionPlanet = isNotionPlanet && !isLocked && planet.ownerId === this.currentUser;
+    if (isOwnNotionPlanet) {
+      const pinPromptY = boxY + boxHeight - 34;
+      const isPinned = this.featuredPlanetIds.has(planet.id);
+      ctx.fillStyle = '#ffd700';
+      ctx.font = '10px Space Grotesk';
+      ctx.textAlign = 'center';
+      ctx.fillText(isPinned ? '[ F ] Unpin' : '[ F ] Pin to HUD', canvas.width / 2, pinPromptY);
     }
 
     // Dock prompt / locked message / completed status

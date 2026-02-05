@@ -472,6 +472,7 @@ function App() {
     onBlackHoleDeath: () => void;
     onReassignRequest: (planet: Planet) => void;
     onEditRequest: (planet: Planet) => void;
+    onFeatureToggle: (planet: Planet) => void;
   }>({
     onLand: () => {},
     onTakeoff: () => {},
@@ -483,6 +484,7 @@ function App() {
     onBlackHoleDeath: () => {},
     onReassignRequest: () => {},
     onEditRequest: () => {},
+    onFeatureToggle: () => {},
   });
   const [state, setState] = useState<SavedState>(loadState);
   const [customPlanets, setCustomPlanets] = useState<CustomPlanet[]>([]); // Loaded from Supabase
@@ -503,6 +505,13 @@ function App() {
   const [editPlanet, setEditPlanet] = useState<Planet | null>(null);
   const [viewingPlanetOwner, setViewingPlanetOwner] = useState<string | null>(null);
   const [viewingPlanetPreview, setViewingPlanetPreview] = useState<string | null>(null); // Preview image when browsing versions
+  const [featuredPlanetIds, setFeaturedPlanetIds] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem('mission-control-featured-tasks');
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch { return new Set(); }
+  });
+  const [featuredViewPlanet, setFeaturedViewPlanet] = useState<Planet | null>(null);
 
   const [isUpgrading, setIsUpgrading] = useState(false);
   const [upgradeMessage, setUpgradeMessage] = useState('');
@@ -876,6 +885,37 @@ function App() {
       gameRef.current.syncNotionPlanets(notionGamePlanets);
     }
   }, [notionGamePlanets]);
+
+  // Sync featured planet IDs to game engine for visual star indicator
+  useEffect(() => {
+    gameRef.current?.setFeaturedPlanetIds(featuredPlanetIds);
+  }, [featuredPlanetIds]);
+
+  // Cleanup stale featured IDs when planets change (deleted planets)
+  useEffect(() => {
+    if (featuredPlanetIds.size === 0) return;
+    const notionIds = new Set(notionGamePlanets.map(p => p.id));
+    const staleIds = [...featuredPlanetIds].filter(id => !notionIds.has(id));
+    if (staleIds.length > 0) {
+      setFeaturedPlanetIds(prev => {
+        const next = new Set(prev);
+        staleIds.forEach(id => next.delete(id));
+        localStorage.setItem('mission-control-featured-tasks', JSON.stringify([...next]));
+        return next;
+      });
+    }
+  }, [notionGamePlanets, featuredPlanetIds]);
+
+  // Update featuredViewPlanet reference when planet data changes (realtime updates)
+  useEffect(() => {
+    if (!featuredViewPlanet) return;
+    const updated = notionGamePlanets.find(p => p.id === featuredViewPlanet.id);
+    if (!updated) {
+      setFeaturedViewPlanet(null); // Planet was deleted
+    } else if (updated !== featuredViewPlanet) {
+      setFeaturedViewPlanet(updated);
+    }
+  }, [notionGamePlanets, featuredViewPlanet]);
 
   // Set up direct position update callback (bypasses React state for smoother movement)
   // Uses refs to always call the latest game instance, avoiding stale closure issues
@@ -2579,6 +2619,20 @@ function App() {
     setTimeout(() => setEventNotification(null), 3000);
   }, [landedPlanet, updateNotionPlanet, handleLandedSend]);
 
+  // Handle feature toggle (pin/unpin planet to HUD)
+  const handleFeatureToggle = useCallback((planet: Planet) => {
+    setFeaturedPlanetIds(prev => {
+      const next = new Set(prev);
+      if (next.has(planet.id)) {
+        next.delete(planet.id);
+      } else {
+        next.add(planet.id);
+      }
+      localStorage.setItem('mission-control-featured-tasks', JSON.stringify([...next]));
+      return next;
+    });
+  }, []);
+
   // Handle terraforming a user planet
   const handleTerraform = useCallback((planet: Planet) => {
     if (!planet.id.startsWith('user-planet-')) return;
@@ -2665,8 +2719,9 @@ function App() {
       onBlackHoleDeath: handleBlackHoleDeath,
       onReassignRequest: handleReassignRequest,
       onEditRequest: handleEditRequest,
+      onFeatureToggle: handleFeatureToggle,
     };
-  }, [handleLand, handleTakeoff, handleColonize, handleClaimRequest, handleOpenNotion, handleTerraform, handleDestroyPlanet, handleBlackHoleDeath, handleReassignRequest, handleEditRequest]);
+  }, [handleLand, handleTakeoff, handleColonize, handleClaimRequest, handleOpenNotion, handleTerraform, handleDestroyPlanet, handleBlackHoleDeath, handleReassignRequest, handleEditRequest, handleFeatureToggle]);
 
   // Keyboard shortcuts: Escape to close modals, T to open quick task
   useEffect(() => {
@@ -2675,7 +2730,7 @@ function App() {
       if (e.key === 'Escape' && !isUpgrading) {
         const isGameLanded = gameRef.current?.isPlayerLanded();
         const hasOpenModal = editingGoal || showSettings || showGameSettings || showTerraform ||
-          viewingPlanetOwner || showShop || showControlHub || showPlanetCreator || landedPlanet || isGameLanded || showQuickTaskModal || showReassignModal || showEditModal;
+          viewingPlanetOwner || showShop || showControlHub || showPlanetCreator || landedPlanet || isGameLanded || showQuickTaskModal || showReassignModal || showEditModal || featuredViewPlanet;
 
         if (hasOpenModal) {
           e.preventDefault();
@@ -2694,6 +2749,7 @@ function App() {
           setReassignPlanet(null);
           setShowEditModal(false);
           setEditPlanet(null);
+          setFeaturedViewPlanet(null);
           // Also clear SpaceGame's internal landed state
           gameRef.current?.setSuppressLandedPanel(false);
           gameRef.current?.clearLandedState();
@@ -2707,7 +2763,7 @@ function App() {
         const isGameLanded = gameRef.current?.isPlayerLanded();
         const hasOpenModal = editingGoal || showSettings || showGameSettings || showTerraform ||
           viewingPlanetOwner || showShop || showControlHub || showPlanetCreator || landedPlanet || isGameLanded || showQuickTaskModal ||
-          showWelcome || showUserSelect || showLeaderboard || showPointsHistory || showReassignModal || showEditModal;
+          showWelcome || showUserSelect || showLeaderboard || showPointsHistory || showReassignModal || showEditModal || featuredViewPlanet;
 
         if (!isTyping && !hasOpenModal && !isUpgrading) {
           e.preventDefault();
@@ -2718,7 +2774,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showTerraform, viewingPlanetOwner, showShop, showControlHub, showPlanetCreator, showSettings, showGameSettings, editingGoal, landedPlanet, isUpgrading, showQuickTaskModal, showWelcome, showUserSelect, showLeaderboard, showPointsHistory, showReassignModal, showEditModal]);
+  }, [showTerraform, viewingPlanetOwner, showShop, showControlHub, showPlanetCreator, showSettings, showGameSettings, editingGoal, landedPlanet, isUpgrading, showQuickTaskModal, showWelcome, showUserSelect, showLeaderboard, showPointsHistory, showReassignModal, showEditModal, featuredViewPlanet]);
 
   // Buy visual upgrade from shop (AI-generated changes to ship appearance)
   const buyVisualUpgrade = async () => {
@@ -3424,6 +3480,7 @@ function App() {
       onBlackHoleDeath: () => landingCallbacksRef.current.onBlackHoleDeath(),
       onReassignRequest: (planet) => landingCallbacksRef.current.onReassignRequest(planet),
       onEditRequest: (planet) => landingCallbacksRef.current.onEditRequest(planet),
+      onFeatureToggle: (planet) => landingCallbacksRef.current.onFeatureToggle(planet),
     });
 
     // Set up weapon fire broadcast callback (game → WS)
@@ -3762,6 +3819,52 @@ function App() {
         </div>
       </div>
 
+      {/* Featured Tasks HUD Bar */}
+      {(() => {
+        const featuredPlanets = notionGamePlanets.filter(p => featuredPlanetIds.has(p.id));
+        if (featuredPlanets.length === 0) return null;
+        const priorityColors: Record<string, string> = {
+          critical: '#ff4444', high: '#ffa500', medium: '#5490ff', low: '#4ade80',
+        };
+        return (
+          <div style={{
+            position: 'absolute', top: 75, left: '50%', transform: 'translateX(-50%)',
+            display: 'flex', gap: 8, flexWrap: 'wrap' as const, justifyContent: 'center',
+            maxWidth: '80vw',
+          }}>
+            {featuredPlanets.map(planet => {
+              const prio = (planet.priority || 'medium').toLowerCase();
+              const borderColor = priorityColors[prio] || '#5490ff';
+              return (
+                <div
+                  key={planet.id}
+                  onClick={() => setFeaturedViewPlanet(planet)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    padding: '4px 10px', borderRadius: 20,
+                    background: 'rgba(10,10,18,0.85)',
+                    border: `1px solid ${borderColor}44`,
+                    cursor: 'pointer', transition: 'border-color 0.2s',
+                    maxWidth: 200,
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.borderColor = borderColor)}
+                  onMouseLeave={e => (e.currentTarget.style.borderColor = borderColor + '44')}
+                >
+                  <span style={{ color: '#ffd700', fontSize: '0.7rem' }}>★</span>
+                  <span style={{
+                    fontFamily: 'Space Grotesk, sans-serif', fontSize: '0.7rem', color: '#ccc',
+                    whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis',
+                  }}>
+                    {planet.name}
+                  </span>
+                  {planet.completed && <span style={{ color: '#4ade80', fontSize: '0.65rem' }}>✓</span>}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
       {/* Ship preview */}
       <div
         style={styles.robotPreview}
@@ -3903,6 +4006,34 @@ function App() {
           onDelete={handleLandedDelete}
           onTakeOff={handleModalTakeOff}
           onUpdate={handleLandedUpdate}
+          onFeatureToggle={handleFeatureToggle}
+        />
+      )}
+
+      {/* Featured Planet View Modal */}
+      {featuredViewPlanet && (
+        <LandedPlanetModal
+          planet={featuredViewPlanet}
+          currentUser={state.currentUser || ''}
+          destroyCanonEquipped={getCurrentUserShip().effects.destroyCanonEquipped}
+          playerInfo={playerInfoForModal}
+          mode="featured"
+          onComplete={() => {}}
+          onClaim={() => {}}
+          onSend={() => {}}
+          onOpenNotion={handleOpenNotion}
+          onDelete={() => {}}
+          onTakeOff={() => setFeaturedViewPlanet(null)}
+          onUpdate={async (updates) => {
+            const result = await updateNotionPlanet(featuredViewPlanet.id, updates);
+            if (result?.success) {
+              setEventNotification({ message: 'Task updated', type: 'mission' });
+            } else {
+              setEventNotification({ message: 'Failed to update task', type: 'blackhole' });
+            }
+            setTimeout(() => setEventNotification(null), 3000);
+          }}
+          onFeatureToggle={handleFeatureToggle}
         />
       )}
 

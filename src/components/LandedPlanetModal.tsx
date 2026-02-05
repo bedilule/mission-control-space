@@ -12,6 +12,7 @@ interface LandedPlanetModalProps {
   currentUser: string;
   destroyCanonEquipped: boolean;
   playerInfo: Record<string, PlayerInfo>;
+  mode?: 'landed' | 'featured';
   onComplete: (planet: Planet) => void;
   onClaim: (planet: Planet) => void;
   onSend: (planet: Planet, newOwner: string) => void;
@@ -19,6 +20,7 @@ interface LandedPlanetModalProps {
   onDelete: (planet: Planet) => void;
   onTakeOff: () => void;
   onUpdate: (updates: EditTaskUpdates) => void;
+  onFeatureToggle?: (planet: Planet) => void;
 }
 
 const TEAM_MEMBERS = [
@@ -85,12 +87,14 @@ export function LandedPlanetModal({
   currentUser,
   destroyCanonEquipped,
   playerInfo,
+  mode = 'landed',
   onComplete,
   onClaim,
   onOpenNotion,
   onDelete,
   onTakeOff,
   onUpdate,
+  onFeatureToggle,
 }: LandedPlanetModalProps) {
   const [editingField, setEditingField] = useState<EditingField>(null);
   const [editName, setEditName] = useState(planet.name || '');
@@ -106,6 +110,7 @@ export function LandedPlanetModal({
   const isOwn = planet.ownerId === currentUser;
   const isUnassigned = !planet.ownerId || planet.ownerId === '';
   const isCompleted = planet.completed;
+  const isFeaturedView = mode === 'featured';
   const isEditable = !isCompleted;
 
   const priority = parsePriority(planet.priority);
@@ -171,7 +176,13 @@ export function LandedPlanetModal({
         return;
       }
 
-      if (key === 'c' && !isCompleted) {
+      if (key === 'f' && onFeatureToggle && isOwn) {
+        e.preventDefault();
+        onFeatureToggle(planet);
+        return;
+      }
+
+      if (key === 'c' && !isCompleted && !isFeaturedView) {
         e.preventDefault();
         if (isUnassigned) {
           onClaim(planet);
@@ -187,7 +198,7 @@ export function LandedPlanetModal({
         return;
       }
 
-      if (key === 'x') {
+      if (key === 'x' && !isFeaturedView) {
         e.preventDefault();
         if (!isCompleted || (isCompleted && destroyCanonEquipped)) onDelete(planet);
         return;
@@ -196,13 +207,13 @@ export function LandedPlanetModal({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [editingField, assignDropdownOpen, typeDropdownOpen, planet, currentUser, isOwn, isUnassigned, isCompleted, destroyCanonEquipped, onTakeOff, onComplete, onClaim, onOpenNotion, onDelete]);
+  }, [editingField, assignDropdownOpen, typeDropdownOpen, planet, currentUser, isOwn, isUnassigned, isCompleted, isFeaturedView, destroyCanonEquipped, onTakeOff, onComplete, onClaim, onOpenNotion, onDelete, onFeatureToggle]);
 
   // Actions
-  const showComplete = isOwn && !isCompleted;
-  const showClaim = isUnassigned && !isCompleted;
+  const showComplete = isOwn && !isCompleted && !isFeaturedView;
+  const showClaim = isUnassigned && !isCompleted && !isFeaturedView;
   const showNotion = !!planet.notionUrl;
-  const showDelete = !isCompleted || (isCompleted && destroyCanonEquipped);
+  const showDelete = (!isCompleted || (isCompleted && destroyCanonEquipped)) && !isFeaturedView;
 
   // Current assigned player info
   const currentAssigned = TEAM_MEMBERS.find(m => m.id === (planet.ownerId || ''));
@@ -246,11 +257,11 @@ export function LandedPlanetModal({
               <div style={styles.statusBadge}>
                 <span style={{
                   ...styles.statusDot,
-                  background: isCompleted ? '#4ade80' : planet.color,
-                  boxShadow: `0 0 8px ${isCompleted ? '#4ade80' : planet.color}66`,
+                  background: isCompleted ? '#4ade80' : (isFeaturedView ? '#ffd700' : planet.color),
+                  boxShadow: `0 0 8px ${isCompleted ? '#4ade80' : (isFeaturedView ? '#ffd700' : planet.color)}66`,
                 }} />
-                <span style={{ ...styles.statusLabel, color: isCompleted ? '#4ade80' : planet.color }}>
-                  {isCompleted ? 'COMPLETED' : 'LANDED'}
+                <span style={{ ...styles.statusLabel, color: isCompleted ? '#4ade80' : (isFeaturedView ? '#ffd700' : planet.color) }}>
+                  {isCompleted ? 'COMPLETED' : (isFeaturedView ? 'FEATURED' : 'LANDED')}
                 </span>
               </div>
             </div>
