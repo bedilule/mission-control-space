@@ -5433,13 +5433,20 @@ export class SpaceGame {
       }
     });
 
-    // Sort by ID number to maintain spiral order (b1 -> b2 -> ... -> b10, p1 -> p2 -> ... -> p6)
+    // Sort by targetDate for dated planets (business/product), fallback to ID order
     const extractNumber = (id: string): number => {
       const match = id.match(/\d+/);
       return match ? parseInt(match[0], 10) : 0;
     };
     Object.values(planetsByType).forEach(group => {
-      group.sort((a, b) => extractNumber(a.id) - extractNumber(b.id));
+      group.sort((a, b) => {
+        const aDate = (a as any).targetDate;
+        const bDate = (b as any).targetDate;
+        if (aDate && bDate) return aDate.localeCompare(bDate);
+        if (aDate) return -1;
+        if (bDate) return 1;
+        return extractNumber(a.id) - extractNumber(b.id);
+      });
     });
 
     ctx.lineWidth = 2;

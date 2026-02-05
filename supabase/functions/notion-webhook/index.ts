@@ -319,22 +319,12 @@ function parseNativeNotionPayload(raw: any): NotionWebhookPayload | null {
     status = statusProp.rollup.array[0].title[0].plain_text.toLowerCase();
   }
 
-  // Log the raw status property for debugging
-  console.log('RAW STATUS PROPERTY:', JSON.stringify(statusProp));
+  // Extract Due Date — undefined if property missing from payload, null if cleared, string if set
+  const hasDueDate = 'Due Date' in props;
+  const dueDate = hasDueDate ? (props['Due Date']?.date?.start || null) : undefined;
 
-  // Extract Due Date - distinguish between:
-  //   string = date is set (e.g. "2026-02-15")
-  //   null   = date property exists but is empty/cleared
-  //   undefined = Due Date property missing from payload entirely
-  console.log('RAW DUE DATE PROPERTY:', JSON.stringify(props['Due Date']));
-  let dueDate: string | null | undefined = undefined; // default: not in payload
-  if ('Due Date' in props) {
-    // Property exists in payload — read the value (could be null if cleared)
-    dueDate = props['Due Date']?.date?.start ?? null;
-    console.log('PARSED DUE DATE:', dueDate, '(property was present in payload)');
-  } else {
-    console.log('PARSED DUE DATE: undefined (property NOT in payload — will preserve existing value)');
-  }
+  console.log('PAYLOAD PROPERTY KEYS:', Object.keys(props));
+  console.log('DUE DATE — in payload:', hasDueDate, '| parsed:', dueDate);
 
   return {
     id: data.id,
@@ -347,7 +337,7 @@ function parseNativeNotionPayload(raw: any): NotionWebhookPayload | null {
     created_by_notion_id: createdByNotionId || undefined,
     status: status || undefined,
     url: data.url || undefined,
-    due_date: dueDate, // string | null | undefined — preserve distinction
+    due_date: dueDate,
   };
 }
 
@@ -780,16 +770,9 @@ Deno.serve(async (req) => {
         points: points,
         notion_url: payload.url || null,
       };
-
-      // Only update due_date if it was explicitly present in the Notion payload.
-      // undefined = property missing from payload → preserve existing DB value
-      // null = property exists but date was cleared → set to null
-      // string = new date value → update
+      // Only touch due_date if it was actually in the Notion payload
       if (payload.due_date !== undefined) {
         updates.due_date = payload.due_date;
-        console.log(`DUE DATE UPDATE for "${payload.name}": setting to ${JSON.stringify(payload.due_date)}`);
-      } else {
-        console.log(`DUE DATE UPDATE for "${payload.name}": property missing from payload, preserving existing value`);
       }
 
       if (positionNeedsFix) {
