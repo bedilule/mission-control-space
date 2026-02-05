@@ -40,6 +40,7 @@ export interface Planet {
   createdBy?: string | null; // Who created it (gets creation bonus)
   priority?: string | null; // For notion planets
   points?: number; // Completion points (for notion planets, based on priority)
+  targetDate?: string; // ISO date string for dated goals (e.g. "2026-03-15")
   // Notion-specific fields
   notionTaskId?: string;
   notionUrl?: string;
@@ -226,4 +227,50 @@ export interface InterpolationState {
   renderThrusting: boolean;
   renderBoosting: boolean;
   lastUpdateTime: number;
+}
+
+export interface DashboardData {
+  // Business
+  mrr: number;
+  mrrChange: number;
+  customers: number;
+  arpu: number;
+  netNewMrr: number;
+  newThisPeriod: number;
+  churn: { count: number; percentage: number };
+  trialToPaidConversion: number;
+  monthlyExpenses: number;
+  profit: number;
+  teamSalaryTier: number;
+  revenueByTier: { tier: string; revenue: number; color: string }[];
+
+  // Product
+  videosProcessed: number;
+  totalLeadsGenerated: number;
+  activeFunnels: number;
+  avgFunnelConversion: number;
+  uptime: number;
+
+  // Milestones
+  pointsEarned: number;
+  pointsTotal: number;
+  nextBusinessGoal: {
+    name: string;
+    target: number;
+    current: number;
+    deadline: string;
+  };
+  nextProductGoal: {
+    name: string;
+    target: string;
+    current: string;
+    deadline: string;
+  };
+
+  // Sparklines (last 30 data points)
+  sparklines: {
+    mrr: number[];
+    customers: number[];
+    videosProcessed: number[];
+  };
 }

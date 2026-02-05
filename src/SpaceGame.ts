@@ -19,6 +19,7 @@ interface GoalData {
   description?: string;
   realWorldReward?: string;
   points?: number;
+  targetDate?: string;
 }
 
 interface GoalsData {
@@ -380,6 +381,7 @@ export class SpaceGame {
     // Load station skins
     this.loadCustomPlanetImage('shop-station', '/shop-station.png');
     this.loadCustomPlanetImage('planet-builder', '/planet-factory.png');
+    this.loadCustomPlanetImage('control-hub', '/control-hub.png');
 
     // Load Notion task type skins
     this.loadNotionTypeImage('bug', '/notion-bug.png');
@@ -701,6 +703,25 @@ export class SpaceGame {
       hasRing: false,
       hasMoon: false,
       description: 'Create new milestone planets',
+      ownerId: null, // Shared station
+    });
+
+    // Control Hub station - above Mission Control
+    planets.push({
+      id: 'control-hub',
+      name: 'Control Hub',
+      x: MISSION_CONTROL_X,
+      y: MISSION_CONTROL_Y - 220,
+      radius: 105,
+      color: '#00c8ff',
+      glowColor: 'rgba(0, 200, 255, 0.5)',
+      completed: false,
+      type: 'station',
+      size: 'big',
+      style: { baseColor: '#00c8ff', accent: '#0090cc', type: 'station' },
+      hasRing: false,
+      hasMoon: false,
+      description: 'Business data dashboard',
       ownerId: null, // Shared station
     });
 
@@ -1465,7 +1486,7 @@ export class SpaceGame {
       }
 
       // Shop/station proximity sound
-      const isStation = closestPlanet.id === 'shop-station' || closestPlanet.id === 'planet-builder' || closestPlanet.id.startsWith('user-planet-');
+      const isStation = closestPlanet.id === 'shop-station' || closestPlanet.id === 'planet-builder' || closestPlanet.id === 'control-hub' || closestPlanet.id.startsWith('user-planet-');
       if (isStation) {
         const maxDist = closestPlanet.radius + PLANET_INFO_DISTANCE;
         const proximity = Math.max(0, 1 - (closestDist - closestPlanet.radius) / (maxDist - closestPlanet.radius));
@@ -1734,7 +1755,7 @@ export class SpaceGame {
     if (this.keys.has('c')) {
       this.keys.delete('c');
       // Special planets cannot be completed
-      const specialPlanets = ['shop-station', 'planet-builder'];
+      const specialPlanets = ['shop-station', 'planet-builder', 'control-hub'];
       const isSpecial = specialPlanets.includes(planet.id) || planet.id.startsWith('user-planet-');
       // Check if player can modify this planet (owns it or it's unassigned)
       const isOwnedByOther = planet.ownerId !== null &&
@@ -1787,7 +1808,7 @@ export class SpaceGame {
     // Handle X key - destroy Notion planet
     if (this.keys.has('x')) {
       this.keys.delete('x');
-      const specialPlanets = ['shop-station', 'planet-builder'];
+      const specialPlanets = ['shop-station', 'planet-builder', 'control-hub'];
       const isSpecial = specialPlanets.includes(planet.id) || planet.id.startsWith('user-planet-');
       const isNotionPlanet = planet.id.startsWith('notion-');
       const isUnassigned = isNotionPlanet && (!planet.ownerId || planet.ownerId === '');
@@ -3496,7 +3517,7 @@ export class SpaceGame {
     if (!planet.completed) return false;
 
     // Special planets cannot be destroyed
-    const specialPlanets = ['shop-station', 'planet-builder'];
+    const specialPlanets = ['shop-station', 'planet-builder', 'control-hub'];
     if (specialPlanets.includes(planet.id)) return false;
     if (planet.id.startsWith('user-planet-')) return false;
 
@@ -5272,7 +5293,7 @@ export class SpaceGame {
     // Draw planet info panel when nearby OR landed panel when on planet
     // Station planets (shop-station, planet-builder, user-planet-*) don't show the landed panel - they only have shop functionality
     if (this.isLanded && this.landedPlanet) {
-      const isStation = this.landedPlanet.id === 'shop-station' || this.landedPlanet.id === 'planet-builder' || this.landedPlanet.id.startsWith('user-planet-');
+      const isStation = this.landedPlanet.id === 'shop-station' || this.landedPlanet.id === 'planet-builder' || this.landedPlanet.id === 'control-hub' || this.landedPlanet.id.startsWith('user-planet-');
       if (!isStation) {
         this.drawLandedPanel(this.landedPlanet);
       }
@@ -5781,6 +5802,48 @@ export class SpaceGame {
       }
     }
 
+    // Dated goal effects - rotating dashed ring + breathing glow
+    const hasTargetDate = (planet as any).targetDate && !planet.completed &&
+      (planet.type === 'business' || planet.type === 'product' || planet.type === 'achievement');
+    if (hasTargetDate) {
+      const targetDate = new Date((planet as any).targetDate + 'T00:00:00');
+      const daysLeft = Math.ceil((targetDate.getTime() - Date.now()) / 86400000);
+      const time = Date.now() * 0.001;
+
+      // Breathing glow (white/cyan, slower than critical pulse)
+      const breathAlpha = 0.12 + Math.sin(time * 1.5) * 0.06;
+      const glowRadius = planet.radius * 2.2;
+      const breathGlow = ctx.createRadialGradient(x, y, planet.radius * 0.8, x, y, glowRadius);
+      const cyanTint = daysLeft <= 0 ? '#ff4444' : daysLeft <= 3 ? '#ffa500' : '#88eeff';
+      breathGlow.addColorStop(0, cyanTint + Math.floor(breathAlpha * 255).toString(16).padStart(2, '0'));
+      breathGlow.addColorStop(0.6, cyanTint + '08');
+      breathGlow.addColorStop(1, 'transparent');
+      ctx.beginPath();
+      ctx.arc(x, y, glowRadius, 0, Math.PI * 2);
+      ctx.fillStyle = breathGlow;
+      ctx.fill();
+
+      // Rotating dashed ring
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(time * 0.3); // Slow rotation
+      const ringRadius = planet.radius * 1.5;
+      const dashCount = 16;
+      const dashArc = (Math.PI * 2) / dashCount;
+      const gapRatio = 0.4;
+      ctx.strokeStyle = daysLeft <= 0 ? '#ff444488' : daysLeft <= 3 ? '#ffa50088' : '#ffffff44';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([]);
+      for (let i = 0; i < dashCount; i++) {
+        const startAngle = i * dashArc;
+        const endAngle = startAngle + dashArc * (1 - gapRatio);
+        ctx.beginPath();
+        ctx.arc(0, 0, ringRadius, startAngle, endAngle);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
     // Draw cracks on damaged planets (from space rifle)
     if (damageEffects && damageEffects.cracks > 0) {
       this.drawPlanetCracks(ctx, x, y, planet.radius, damageEffects.cracks);
@@ -5829,6 +5892,58 @@ export class SpaceGame {
       ctx.font = '9px Space Grotesk';
       const typeLabel = planet.type === 'notion' ? 'NOTION' : planet.type.toUpperCase();
       ctx.fillText(typeLabel, x, labelY + 4);
+      labelY += 14;
+    }
+
+    // Days-remaining badge for dated goals
+    if (hasTargetDate) {
+      const targetDate = new Date((planet as any).targetDate + 'T00:00:00');
+      const daysLeft = Math.ceil((targetDate.getTime() - Date.now()) / 86400000);
+
+      let badgeColor: string;
+      let badgeText: string;
+      if (daysLeft < 0) {
+        badgeColor = '#ff4444';
+        badgeText = `${Math.abs(daysLeft)}d OVERDUE`;
+      } else if (daysLeft === 0) {
+        badgeColor = '#ff4444';
+        badgeText = 'DUE TODAY';
+      } else if (daysLeft <= 3) {
+        badgeColor = '#ffa500';
+        badgeText = `${daysLeft}d left`;
+      } else if (daysLeft <= 7) {
+        badgeColor = '#dddd00';
+        badgeText = `${daysLeft}d left`;
+      } else if (daysLeft <= 14) {
+        badgeColor = '#aadd00';
+        badgeText = `${daysLeft}d left`;
+      } else {
+        badgeColor = '#4ade80';
+        badgeText = `${daysLeft}d left`;
+      }
+
+      ctx.font = 'bold 9px Space Grotesk';
+      const textWidth = ctx.measureText(badgeText).width;
+      const badgePadX = 6;
+      const badgePadY = 3;
+      const badgeH = 14;
+      const badgeW = textWidth + badgePadX * 2;
+      const badgeX = x - badgeW / 2;
+      const badgeY = labelY + 2;
+
+      // Badge background
+      ctx.fillStyle = badgeColor + '30';
+      ctx.beginPath();
+      ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 3);
+      ctx.fill();
+      ctx.strokeStyle = badgeColor + '60';
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+
+      // Badge text
+      ctx.fillStyle = badgeColor;
+      ctx.textAlign = 'center';
+      ctx.fillText(badgeText, x, badgeY + badgeH - badgePadY);
     }
   }
 
@@ -6456,7 +6571,7 @@ export class SpaceGame {
     currentY = boxY + boxHeight - 35;
 
     const isPlanetFactory = planet.id === 'planet-builder';
-    const specialPlanets = ['shop-station', 'planet-builder'];
+    const specialPlanets = ['shop-station', 'planet-builder', 'control-hub'];
     const isSpecialPlanet = specialPlanets.includes(planet.id) || planet.id.startsWith('user-planet-');
     // Check if this is another player's planet (view-only mode)
     const isViewOnlyPlanet = planet.ownerId !== null &&

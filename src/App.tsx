@@ -12,6 +12,7 @@ import { usePromptHistory } from './hooks/usePromptHistory';
 import { getLocalPlayerId, supabase } from './lib/supabase';
 import { QuickTaskModal } from './components/QuickTaskModal';
 import { ReassignTaskModal } from './components/ReassignTaskModal';
+import { ControlHubDashboard } from './components/ControlHubDashboard';
 
 const FAL_API_KEY = 'c2df5aba-75d9-4626-95bb-aa366317d09e:8f90bb335a773f0ce3f261354107daa6';
 const STORAGE_KEY = 'mission-control-space-state';
@@ -598,6 +599,7 @@ function App() {
   const [editingGoal, setEditingGoal] = useState<any | null>(null);
   const [landedPlanet, setLandedPlanet] = useState<Planet | null>(null);
   const [missionFilters, setMissionFilters] = useState<Set<string>>(new Set(['business', 'product', 'achievement', 'notion']));
+  const [showMissionFilter, setShowMissionFilter] = useState(false);
 
   // Planet creator form state
   const [newPlanet, setNewPlanet] = useState<Partial<CustomPlanet>>({
@@ -3429,7 +3431,10 @@ function App() {
           background: 'rgba(0,0,0,0.75)', borderRadius: 8, padding: '8px 12px',
           border: '1px solid rgba(255,255,255,0.08)', minWidth: 140, maxWidth: 200,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+          <div
+            onClick={() => setShowMissionFilter(prev => !prev)}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, cursor: 'pointer' }}
+          >
             <div style={{ color: '#666', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
               Next Missions
             </div>
@@ -3442,14 +3447,8 @@ function App() {
               ] as const).map(f => (
                 <div
                   key={f.key}
-                  onClick={() => setMissionFilters(prev => {
-                    const next = new Set(prev);
-                    if (next.has(f.key)) next.delete(f.key); else next.add(f.key);
-                    return next;
-                  })}
-                  title={f.key}
                   style={{
-                    width: 7, height: 7, borderRadius: '50%', cursor: 'pointer',
+                    width: 7, height: 7, borderRadius: '50%',
                     background: missionFilters.has(f.key) ? f.color : 'transparent',
                     border: `1.5px solid ${missionFilters.has(f.key) ? f.color : f.color + '40'}`,
                     transition: 'all 0.15s ease',
@@ -3458,6 +3457,50 @@ function App() {
               ))}
             </div>
           </div>
+
+          {/* Filter popover */}
+          {showMissionFilter && (
+            <div style={{
+              background: 'rgba(20,20,30,0.95)', borderRadius: 6, padding: '6px 0',
+              border: '1px solid rgba(255,255,255,0.12)', marginBottom: 6,
+            }}>
+              {([
+                { key: 'business', label: 'Business', color: '#4ade80' },
+                { key: 'product', label: 'Product', color: '#5490ff' },
+                { key: 'achievement', label: 'Achievement', color: '#ffd700' },
+                { key: 'notion', label: 'Notion', color: '#94a3b8' },
+              ] as const).map(f => (
+                <div
+                  key={f.key}
+                  onClick={() => setMissionFilters(prev => {
+                    const next = new Set(prev);
+                    if (next.has(f.key)) next.delete(f.key); else next.add(f.key);
+                    return next;
+                  })}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '4px 10px',
+                    cursor: 'pointer', transition: 'background 0.1s',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <div style={{
+                    width: 12, height: 12, borderRadius: 3, flexShrink: 0,
+                    background: missionFilters.has(f.key) ? f.color : 'transparent',
+                    border: `1.5px solid ${missionFilters.has(f.key) ? f.color : 'rgba(255,255,255,0.2)'}`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'all 0.15s ease',
+                  }}>
+                    {missionFilters.has(f.key) && (
+                      <span style={{ color: '#000', fontSize: '0.55rem', fontWeight: 'bold', lineHeight: 1 }}>✓</span>
+                    )}
+                  </div>
+                  <span style={{ color: f.color, fontSize: '0.7rem' }}>{f.label}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
           {nextMissions ? nextMissions.map((m, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: i < nextMissions.length - 1 ? 5 : 0 }}>
               <div style={{ color: '#fff', fontSize: '0.75rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -4578,46 +4621,7 @@ function App() {
 
       {/* Control Hub Modal */}
       {showControlHub && (
-        <div style={styles.modalOverlay}>
-          <div style={{ ...styles.modal, maxWidth: 520 }}>
-            <h2 style={{ ...styles.modalTitle, color: '#00c8ff' }}>Control Hub</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem' }}>
-              {[
-                { label: 'CURRENT CUSTOMERS', value: '847', color: '#00c8ff' },
-                { label: 'MRR', value: '$42,350', color: '#00e676' },
-                { label: 'TOTAL LEADS', value: '15,420', color: '#ffa500' },
-                { label: 'NEW THIS WEEK', value: '23', color: '#00c8ff' },
-                { label: 'NEW LAST WEEK', value: '18', color: '#666' },
-                { label: 'CHURN', value: '12', color: '#ff4444' },
-              ].map((card) => (
-                <div key={card.label} style={{
-                  background: 'rgba(255,255,255,0.05)',
-                  borderRadius: 12,
-                  padding: '1rem',
-                  border: `1px solid ${card.color}33`,
-                }}>
-                  <div style={{
-                    fontFamily: 'Space Grotesk',
-                    fontSize: '0.7rem',
-                    color: '#888',
-                    letterSpacing: '0.05em',
-                    marginBottom: '0.4rem',
-                    textTransform: 'uppercase' as const,
-                  }}>{card.label}</div>
-                  <div style={{
-                    fontFamily: 'Orbitron',
-                    fontSize: '1.6rem',
-                    color: card.color,
-                    fontWeight: 700,
-                  }}>{card.value}</div>
-                </div>
-              ))}
-            </div>
-            <button style={{ ...styles.cancelButton, width: '100%', marginTop: '1rem' }} onClick={() => { setShowControlHub(false); gameRef.current?.clearLandedState(); }}>
-              Close
-            </button>
-          </div>
-        </div>
+        <ControlHubDashboard onClose={() => { setShowControlHub(false); gameRef.current?.clearLandedState(); }} />
       )}
 
       {/* Planet Creator Modal */}
