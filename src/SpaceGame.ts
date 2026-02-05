@@ -20,6 +20,7 @@ interface GoalData {
   realWorldReward?: string;
   points?: number;
   targetDate?: string;
+  imageUrl?: string;
 }
 
 interface GoalsData {
@@ -423,6 +424,16 @@ export class SpaceGame {
     this.loadCustomPlanetImage('shop-station', '/shop-station.png');
     this.loadCustomPlanetImage('planet-builder', '/planet-factory.png');
     this.loadCustomPlanetImage('control-hub', '/control-hub.png');
+
+    // Load goal skins (achievements, business, product) from Supabase imageUrl
+    if (goals) {
+      const allGoals = [...(goals.achievement || []), ...(goals.business || []), ...(goals.product || [])];
+      allGoals.forEach(g => {
+        if (g.imageUrl) {
+          this.loadCustomPlanetImage(g.id, g.imageUrl);
+        }
+      });
+    }
 
     // Load Notion task type skins
     this.loadNotionTypeImage('bug', '/notion-bug.png');
@@ -6218,9 +6229,6 @@ export class SpaceGame {
 
     const style = (planet as any).style || { baseColor: planet.color, accent: planet.color };
 
-    // Check if this is the Hormozi planet and we have the image
-    const isHormoziPlanet = planet.id === 'a1' && this.hormoziPlanetImage;
-
     // Check if this is a custom planet with an image
     const customPlanetImage = this.customPlanetImages.get(planet.id);
     const hasCustomImage = !!customPlanetImage;
@@ -6258,7 +6266,7 @@ export class SpaceGame {
     ctx.fill();
 
     // Ring (if has ring and not custom image planet)
-    if ((planet as any).hasRing && !isHormoziPlanet && !hasCustomImage) {
+    if ((planet as any).hasRing && !hasCustomImage) {
       ctx.save();
       ctx.translate(x, y);
       ctx.scale(1, 0.3);
@@ -6329,16 +6337,6 @@ export class SpaceGame {
       const imgSize = planet.radius * 2.5;
       ctx.drawImage(
         customPlanetImage!,
-        x - imgSize / 2,
-        y - imgSize / 2,
-        imgSize,
-        imgSize
-      );
-    } else if (isHormoziPlanet && !planet.completed) {
-      // Draw Hormozi planet image
-      const imgSize = planet.radius * 2.5;
-      ctx.drawImage(
-        this.hormoziPlanetImage!,
         x - imgSize / 2,
         y - imgSize / 2,
         imgSize,
@@ -7030,13 +7028,21 @@ export class SpaceGame {
   private drawLandedPanel(planet: Planet) {
     const { ctx, canvas } = this;
 
+    // Check if achievement planet has a custom image
+    const isAchievement = planet.type === 'achievement';
+    const achievementImage = isAchievement ? this.customPlanetImages.get(planet.id) : null;
+    const achievementImageSize = 240;
+
     // Larger panel for landed state with more details
-    const boxWidth = 400;
-    let boxHeight = 180;
+    const boxWidth = isAchievement ? 480 : 400;
+    let boxHeight = isAchievement ? 220 : 180;
+
+    // Add space for achievement image
+    if (achievementImage) boxHeight += achievementImageSize + 20;
 
     // Pre-calculate name wrapping to determine box height
     ctx.font = 'bold 22px Space Grotesk';
-    const panelNameLines = this.wrapText(planet.name, 360, 2);
+    const panelNameLines = this.wrapText(planet.name, boxWidth - 40, 2);
     const panelLineHeight = 26;
     const nameOffset = (panelNameLines.length - 1) * panelLineHeight;
     boxHeight += nameOffset;
@@ -7100,12 +7106,25 @@ export class SpaceGame {
 
     // Planet name (wrapped to 2 lines max, pre-calculated above)
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold 22px Space Grotesk';
+    ctx.font = isAchievement ? 'bold 26px Space Grotesk' : 'bold 22px Space Grotesk';
     ctx.textAlign = 'center';
     let nameY = boxY + 45;
     for (const line of panelNameLines) {
       ctx.fillText(line, boxX + boxWidth / 2, nameY);
       nameY += panelLineHeight;
+    }
+
+    // Achievement planet image (between title and owner text)
+    let achievementImageOffset = 0;
+    if (achievementImage) {
+      const imgX = boxX + boxWidth / 2 - achievementImageSize / 2;
+      const imgY = nameY + 8;
+      // Subtle glow behind the image
+      ctx.shadowColor = planet.color;
+      ctx.shadowBlur = 20;
+      ctx.drawImage(achievementImage, imgX, imgY, achievementImageSize, achievementImageSize);
+      ctx.shadowBlur = 0;
+      achievementImageOffset = achievementImageSize + 24;
     }
 
     // Type and owner info
@@ -7115,9 +7134,9 @@ export class SpaceGame {
     const ownerName = planet.ownerId ? planet.ownerId.charAt(0).toUpperCase() + planet.ownerId.slice(1) : null;
     const isUnassigned = planet.type === 'notion' && (!planet.ownerId || planet.ownerId === '');
     const ownerText = ownerName ? `${ownerName}'s Task` : (isUnassigned ? 'Unassigned' : 'Shared Task');
-    ctx.fillText(ownerText, boxX + boxWidth / 2, boxY + 65 + nameOffset);
+    ctx.fillText(ownerText, boxX + boxWidth / 2, boxY + 65 + nameOffset + achievementImageOffset);
 
-    let currentY = boxY + 85 + nameOffset;
+    let currentY = boxY + 85 + nameOffset + achievementImageOffset;
 
     // Task type and priority badges (for notion tasks)
     const taskType = (planet as any).taskType?.toLowerCase() || '';

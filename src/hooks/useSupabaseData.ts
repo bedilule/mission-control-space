@@ -10,6 +10,7 @@ interface Goal {
   realWorldReward?: string;
   points?: number;
   targetDate?: string;
+  imageUrl?: string;
 }
 
 interface Goals {
