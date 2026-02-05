@@ -166,6 +166,8 @@ const TASK_VOICE_LINES = [
 const CLAIM_VOICE_LINES: string[] = [
   `${SOUNDS_PATH}delivery/home/siQYcJsrJE84Vc6sSMNZm_music_generated.mp3`,
   `${SOUNDS_PATH}delivery/home/w0ym-zYNjTxo8ljg87ZHb_music_generated.mp3`,
+  `${SOUNDS_PATH}delivery/home/8Fk0McAR4hh-MEoZc3lTb_music_generated.mp3`,
+  `${SOUNDS_PATH}delivery/home/_UIStZKzzdLuYMqSE1OCw_music_generated.mp3`,
 ];
 
 // Voice lines for sending/reassigning tasks ("Special delivery!", "Coming through!", etc.)
