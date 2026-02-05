@@ -955,6 +955,9 @@ export class SpaceGame {
         // Real planet arrived for our temp new-task animation — redirect to its position
         this.setSendTarget(planet.x, planet.y);
         this.sendPendingPlanet = planet;
+      } else if (isSendingTempTask && this.sendPendingPlanet && planet.id === this.sendPendingPlanet.id) {
+        // Subsequent sync for the same real planet — keep suppressed until animation finishes
+        this.sendPendingPlanet = planet;
       } else {
         this.state.planets.push(planet);
 
