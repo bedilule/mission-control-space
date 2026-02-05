@@ -54,6 +54,7 @@ The integration provides bidirectional sync between Notion and the game:
 | `created_by` | TEXT | Creator username (lowercase) |
 | `task_type` | TEXT | bug, enhancement, etc. |
 | `priority` | TEXT | critical, high, medium, low |
+| `due_date` | DATE | Due date from Notion (nullable) |
 | `points` | INTEGER | Points awarded on completion |
 | `x` | INTEGER | Planet X position |
 | `y` | INTEGER | Planet Y position |
@@ -153,6 +154,7 @@ VALUES (
 - Extracts creator from `Créé par` or `Created by`
 - Extracts type from `What is it ?` (select)
 - Extracts priority from `Priority` (select)
+- Extracts due date from `Due Date` (date) → `due_date`
 - Extracts status from `Status` (status)
 
 **Debug Mode**: Add `?debug=true` to see raw and parsed payload.
@@ -355,6 +357,7 @@ Players can "destroy" completed planets with X key:
 | `Priority` | Select | Critical, High, Medium, Low |
 | `What is it ?` | Select | Bug, Enhancement, etc. |
 | `Attributed to` | People | Assigned player |
+| `Due Date` | Date | Task due date (shown in Next Missions widget) |
 | `Créé par` | Created by | Auto-filled creator |
 
 ### Status Values

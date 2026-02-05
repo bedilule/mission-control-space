@@ -63,6 +63,7 @@ export interface NotionPlanet {
   y: number;
   completed: boolean;
   created_at: string;
+  due_date: string | null;
 }
 
 export interface Star {

@@ -598,7 +598,7 @@ function App() {
   const [isLoadingBreakdown, setIsLoadingBreakdown] = useState(false);
   const [editingGoal, setEditingGoal] = useState<any | null>(null);
   const [landedPlanet, setLandedPlanet] = useState<Planet | null>(null);
-  const [missionFilters, setMissionFilters] = useState<Set<string>>(new Set(['business', 'product', 'achievement', 'notion']));
+  const [missionFilters, setMissionFilters] = useState<Set<string>>(new Set(['business', 'product', 'notion']));
   const [showMissionFilter, setShowMissionFilter] = useState(false);
 
   // Planet creator form state
@@ -783,7 +783,7 @@ function App() {
   // Next missions - up to 5 closest upcoming dated, uncompleted goals (filtered by type)
   const nextMissions = useMemo(() => {
     const entries: { name: string; targetDate: string; type: string }[] = [];
-    for (const type of ['business', 'product', 'achievement'] as const) {
+    for (const type of ['business', 'product'] as const) {
       if (!missionFilters.has(type)) continue;
       for (const goal of goals[type]) {
         if (goal.targetDate && !state.completedPlanets.includes(goal.id)) {
@@ -794,8 +794,8 @@ function App() {
     // Include notion planets if filter is on
     if (missionFilters.has('notion')) {
       for (const np of notionGamePlanets) {
-        if ((np as any).targetDate && !np.completed) {
-          entries.push({ name: np.name, targetDate: (np as any).targetDate, type: 'notion' });
+        if (np.targetDate && !np.completed) {
+          entries.push({ name: np.name, targetDate: np.targetDate, type: 'notion' });
         }
       }
     }
@@ -3442,7 +3442,6 @@ function App() {
               {([
                 { key: 'business', color: '#4ade80' },
                 { key: 'product', color: '#5490ff' },
-                { key: 'achievement', color: '#ffd700' },
                 { key: 'notion', color: '#94a3b8' },
               ] as const).map(f => (
                 <div
@@ -3467,7 +3466,6 @@ function App() {
               {([
                 { key: 'business', label: 'Business', color: '#4ade80' },
                 { key: 'product', label: 'Product', color: '#5490ff' },
-                { key: 'achievement', label: 'Achievement', color: '#ffd700' },
                 { key: 'notion', label: 'Notion', color: '#94a3b8' },
               ] as const).map(f => (
                 <div
