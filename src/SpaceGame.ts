@@ -408,6 +408,7 @@ export class SpaceGame {
     // Load Notion task type skins
     this.loadNotionTypeImage('bug', '/notion-bug.png');
     this.loadNotionTypeImage('enhancement', '/notion-enhancement.png');
+    this.loadNotionTypeImage('feature', '/notion-enhancement.png');
     this.loadNotionTypeImage('task', '/notion-task.png');
 
     // Load critical priority flame overlay

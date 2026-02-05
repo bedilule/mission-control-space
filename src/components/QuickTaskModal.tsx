@@ -23,6 +23,13 @@ const TASK_TYPES = [
   { value: 'feature', label: 'Feature', image: '/notion-enhancement.png' },
 ] as const;
 
+const PRIORITY_OPTIONS = [
+  { value: 'low', label: 'Low', icon: '📋', color: '#888' },
+  { value: 'medium', label: 'Medium', icon: '⚡', color: '#fbbf24' },
+  { value: 'high', label: 'High', icon: '🔥', color: '#f97316' },
+  { value: 'critical', label: 'Critical', icon: '🧨', color: '#ef4444' },
+] as const;
+
 export function QuickTaskModal({ isOpen, onClose, currentUser, teamMembers, onCreatedForSelf, onCreatedForOther }: QuickTaskModalProps) {
   const [taskName, setTaskName] = useState('');
   const [description, setDescription] = useState('');
@@ -135,16 +142,26 @@ export function QuickTaskModal({ isOpen, onClose, currentUser, teamMembers, onCr
 
         <div style={styles.formGroup}>
           <label style={styles.label}>Priority</label>
-          <select
-            style={styles.select}
-            value={priority}
-            onChange={(e) => setPriority(e.target.value as 'low' | 'medium' | 'high' | 'critical')}
-          >
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-            <option value="critical">Critical</option>
-          </select>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {PRIORITY_OPTIONS.map(p => {
+              const isSelected = priority === p.value;
+              return (
+                <button
+                  key={p.value}
+                  type="button"
+                  onClick={() => setPriority(p.value as 'low' | 'medium' | 'high' | 'critical')}
+                  style={{
+                    ...styles.typePill,
+                    borderColor: isSelected ? p.color : 'transparent',
+                    background: isSelected ? `rgba(${hexToRgb(p.color)}, 0.15)` : 'rgba(255,255,255,0.05)',
+                  }}
+                >
+                  <span style={{ fontSize: '0.85rem' }}>{p.icon}</span>
+                  <span style={{ color: isSelected ? p.color : '#aaa', fontSize: '0.85rem' }}>{p.label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div style={styles.formGroup}>
