@@ -19,7 +19,7 @@ export interface AudioPreferences {
 }
 
 const DEFAULT_PREFS: AudioPreferences = {
-  musicEnabled: true,
+  musicEnabled: false,
   sfxEnabled: true,
   musicVolume: 0.3,
   sfxVolume: 0.5,
@@ -100,6 +100,14 @@ const SOUND_CONFIGS: Record<string, SoundConfig> = {
   },
   select: {
     src: [`${SOUNDS_PATH}select.ogg`],
+    volume: 0.4,
+  },
+  pin: {
+    src: [`${SOUNDS_PATH}pepSound2.mp3`],
+    volume: 0.4,
+  },
+  unpin: {
+    src: [`${SOUNDS_PATH}pepSound1.mp3`],
     volume: 0.4,
   },
 
@@ -434,6 +442,14 @@ export class SoundManager {
 
   public playSelect() {
     this.play('select');
+  }
+
+  public playPin() {
+    this.play('pin');
+  }
+
+  public playUnpin() {
+    this.play('unpin');
   }
 
   // Weapon sounds

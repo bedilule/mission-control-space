@@ -2625,8 +2625,10 @@ function App() {
       const next = new Set(prev);
       if (next.has(planet.id)) {
         next.delete(planet.id);
+        soundManager.playUnpin();
       } else {
         next.add(planet.id);
+        soundManager.playPin();
       }
       localStorage.setItem('mission-control-featured-tasks', JSON.stringify([...next]));
       return next;
