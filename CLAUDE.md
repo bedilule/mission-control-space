@@ -78,6 +78,14 @@ If a feature needs a new table, column, Edge Function, or RLS policy — just do
 ### AWS Deployment (Automatic via GitHub Actions)
 Pushing to `main` triggers a GitHub Actions workflow that automatically builds and deploys the frontend to AWS S3. You do NOT need to manually deploy. Just push the code and it ships.
 
+### WebSocket Server Deployment (Manual via SSH)
+The WebSocket server runs on EC2 (`13.250.26.247:8080`, Singapore `ap-southeast-1`). The SSH key is at the project root: `mission-control-ws.pem`. Deploy with:
+```bash
+scp -i mission-control-ws.pem ws-server/server.js ec2-user@13.250.26.247:~/ws-server/
+ssh -i mission-control-ws.pem ec2-user@13.250.26.247 "cd ~/ws-server && pm2 restart mission-control-ws"
+```
+Deploy the WS server **before** pushing frontend changes that depend on new message types.
+
 ### FAL.ai Image Generation API
 The FAL.ai API key is available in `src/App.tsx` (constant `FAL_API_KEY`). Use it to generate images for:
 - New planet visuals
@@ -88,7 +96,7 @@ The FAL.ai API key is available in `src/App.tsx` (constant `FAL_API_KEY`). Use i
 When working on a feature that could benefit from a generated image (new planet type, new upgrade, new visual element), **offer to generate one** using the FAL.ai API rather than using placeholder graphics.
 
 ### Summary
-You have the database CLI, automatic deployment, and an image generation API. When implementing a feature, use the full toolkit end-to-end — create the DB schema, write the frontend code, generate any needed images, and the deployment happens automatically on push.
+You have the database CLI, automatic frontend deployment, WebSocket server SSH access, and an image generation API. When implementing a feature, use the full toolkit end-to-end — create the DB schema, write the frontend code, deploy WS server changes if needed, generate any needed images, and the frontend deployment happens automatically on push.
 
 ---
 
