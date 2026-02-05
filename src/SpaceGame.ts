@@ -93,7 +93,8 @@ interface EscortDrone {
 const userPlanetTerraformCounts: Map<string, number> = new Map();
 const userPlanetSizeLevels: Map<string, number> = new Map();
 
-const USER_IDS = ['quentin', 'armel', 'alex', 'milya', 'hugues'];
+const USER_IDS = ['quentin', 'armel', 'alex', 'milya', 'hugues', 'testpilot'];
+const TEST_PLAYER_ID = 'testpilot';
 
 // Expanded world to fit all zones
 const WORLD_SIZE = 10000;
@@ -141,6 +142,7 @@ const ZONES: Zone[] = [
   { id: 'zone-armel', name: "Armel's Sector", centerX: CENTER_X, centerY: CENTER_Y - PLAYER_DISTANCE, color: '#98fb98', ownerId: 'armel', zoneType: 'player' }, // Top
   { id: 'zone-milya', name: "Milya's Sector", centerX: CENTER_X - PLAYER_DISTANCE * 0.7, centerY: CENTER_Y - PLAYER_DISTANCE * 0.7, color: '#ff6b9d', ownerId: 'milya', zoneType: 'player' }, // Top-Left
   { id: 'zone-hugues', name: "Hugues's Sector", centerX: CENTER_X - PLAYER_DISTANCE, centerY: CENTER_Y, color: '#8b5cf6', ownerId: 'hugues', zoneType: 'player' }, // Left
+  { id: 'zone-testpilot', name: "Test Sector", centerX: CENTER_X, centerY: CENTER_Y + PLAYER_DISTANCE, color: '#888888', ownerId: 'testpilot', zoneType: 'player' }, // Bottom
 ];
 const SHIP_ACCELERATION = 0.18;
 const SHIP_ROTATION_SPEED = 0.06;
@@ -1270,9 +1272,12 @@ export class SpaceGame {
       alex: { base: '#5490ff', accent: '#3b82f6' },
       milya: { base: '#ff6b9d', accent: '#ff4081' },
       hugues: { base: '#8b5cf6', accent: '#7c3aed' },
+      testpilot: { base: '#888888', accent: '#666666' },
     };
 
     USER_IDS.forEach((userId) => {
+      // Hide test player's planet from non-test players
+      if (userId === TEST_PLAYER_ID && this.currentUser !== TEST_PLAYER_ID) return;
       const colors = userColors[userId];
       const planetData = userPlanets?.[userId];
 
@@ -5233,6 +5238,8 @@ export class SpaceGame {
     let closestDist = Infinity;
 
     for (const zone of ZONES) {
+      // Hide test zone from non-test players
+      if (zone.ownerId === TEST_PLAYER_ID && this.currentUser !== TEST_PLAYER_ID) continue;
       const dx = ship.x - zone.centerX;
       const dy = ship.y - zone.centerY;
       const dist = Math.sqrt(dx * dx + dy * dy);

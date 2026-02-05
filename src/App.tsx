@@ -18,6 +18,8 @@ import { LandedPlanetModal } from './components/LandedPlanetModal';
 import type { PlayerInfo } from './components/LandedPlanetModal';
 import { ControlHubDashboard } from './components/ControlHubDashboard';
 import { WarpTransition } from './components/WarpTransition';
+import { voiceService } from './services/VoiceService';
+import type { GreetingContext } from './services/VoiceService';
 
 const FAL_API_KEY = 'c2df5aba-75d9-4626-95bb-aa366317d09e:8f90bb335a773f0ce3f261354107daa6';
 const STORAGE_KEY = 'mission-control-space-state';
@@ -84,7 +86,11 @@ const USERS = [
   { id: 'alex', name: 'Alex', color: '#5490ff' },
   { id: 'milya', name: 'Milya', color: '#ff6b9d' },
   { id: 'hugues', name: 'Hugues', color: '#8b5cf6' },
+  { id: 'testpilot', name: 'Jack', color: '#888888' },
 ];
+
+const TEST_PLAYER_ID = 'testpilot';
+const isTestPlayer = (username: string) => username === TEST_PLAYER_ID;
 
 // Points awarded per milestone size
 const POINTS_PER_SIZE = { small: 50, medium: 100, big: 200 };
@@ -649,18 +655,22 @@ function App() {
     },
     onPlayerJoined: (player) => {
       console.log('Player joined:', player.displayName);
+      if (isTestPlayer(player.username)) return;
       setEventNotification({ message: `${player.displayName} warped into the party`, type: 'join' });
       setTimeout(() => setEventNotification(null), 4000);
     },
     onPlayerLeft: (playerId) => {
       console.log('Player left:', playerId);
       const player = teamPlayers.find(p => p.id === playerId);
+      if (player && isTestPlayer(player.username)) return;
       const name = player?.displayName || 'Someone';
       setEventNotification({ message: `${name} has left the galaxy`, type: 'leave' });
       setTimeout(() => setEventNotification(null), 4000);
     },
     onPointsEarned: (tx) => {
-      // Show toast for points earned by other players
+      // Show toast for points earned by other players (suppress test player)
+      const txPlayer = teamPlayers.find(p => p.id === tx.playerId);
+      if (txPlayer && isTestPlayer(txPlayer.username)) return;
       setPointToast(tx);
       setTimeout(() => setPointToast(null), 4000);
     },
@@ -1018,11 +1028,17 @@ function App() {
   }, [setPlanetDestroyCallback]);
 
   // Update game with other players (for metadata like ship images, effects, etc.)
+  // Hide test player's ship from non-test players
+  const visibleOtherPlayers = useMemo(() => {
+    if (state.currentUser && isTestPlayer(state.currentUser)) return otherPlayers;
+    return otherPlayers.filter(p => !isTestPlayer(p.username));
+  }, [otherPlayers, state.currentUser]);
+
   useEffect(() => {
-    if (gameRef.current && otherPlayers.length > 0) {
-      gameRef.current.setOtherPlayers(otherPlayers);
+    if (gameRef.current && visibleOtherPlayers.length > 0) {
+      gameRef.current.setOtherPlayers(visibleOtherPlayers);
     }
-  }, [otherPlayers]);
+  }, [visibleOtherPlayers]);
 
   // Broadcast position regularly when game is running
   useEffect(() => {
@@ -2277,6 +2293,7 @@ function App() {
     // Special station planets open modals instead of showing landed panel
     if (planet.id === 'shop-station') {
       setShowShop(true);
+      voiceService.speak('Welcome to the shop, commander.');
       return;
     }
     if (planet.id === 'planet-builder') {
@@ -3547,7 +3564,12 @@ function App() {
         <h1 style={styles.title}>Mission Control</h1>
         <p style={styles.subtitle}>Who are you?</p>
         <div style={styles.userGrid}>
-          {USERS.map(user => (
+          {USERS
+            .filter(user => {
+              if (!isTestPlayer(user.id)) return true;
+              return new URLSearchParams(window.location.search).has('test');
+            })
+            .map(user => (
             <button
               key={user.id}
               style={{ ...styles.userButton, borderColor: user.color }}
@@ -3587,8 +3609,35 @@ function App() {
         <button style={styles.startButton} onClick={() => {
           soundManager.init();
           soundManager.playSelect();
-          soundManager.playIntroMusic(); // Play intro, then ambient auto-queues
           setShowWelcome(false);
+
+          // Build greeting context from already-loaded data
+          const currentPlayer = teamPlayers.find(p => p.username === state.currentUser);
+          const ranked = [...teamPlayers]
+            .filter(p => p.username !== 'anonymous' && !isTestPlayer(p.username))
+            .sort((a, b) => b.totalEarned - a.totalEarned);
+          const playerRank = ranked.findIndex(p => p.username === state.currentUser) + 1;
+          const leader = ranked[0];
+          const isLeader = leader?.username === state.currentUser;
+
+          const online = teamPlayers
+            .filter(p => p.isOnline && p.username !== state.currentUser && p.username !== 'anonymous' && !isTestPlayer(p.username))
+            .map(p => p.displayName);
+
+          const greetingCtx: GreetingContext = {
+            playerName: currentPlayer?.displayName || state.currentUser || 'Commander',
+            playerRank: playerRank || 1,
+            totalPlayers: ranked.length,
+            currencyPoints: personalPoints,
+            ...(leader && !isLeader ? {
+              leaderName: leader.displayName,
+              pointsGap: leader.totalEarned - (currentPlayer?.totalEarned || 0),
+            } : {}),
+            ...(online.length > 0 ? { onlinePlayers: online } : {}),
+          };
+
+          // Fire and forget - plays during warp transition
+          voiceService.greet(greetingCtx);
         }}>
           Launch Mission
         </button>
@@ -3634,14 +3683,19 @@ function App() {
         <img
           src="/logo.png"
           alt="Logo"
-          style={{ ...styles.hudLogo, cursor: state.currentUser && ['quentin', 'armel'].includes(state.currentUser) ? 'pointer' : 'default' }}
-          onClick={() => state.currentUser && ['quentin', 'armel'].includes(state.currentUser) && setShowSettings(true)}
-          title={state.currentUser && ['quentin', 'armel'].includes(state.currentUser) ? 'Admin Settings' : ''}
+          style={{ ...styles.hudLogo, cursor: state.currentUser && ['quentin', 'armel', TEST_PLAYER_ID].includes(state.currentUser) ? 'pointer' : 'default' }}
+          onClick={() => state.currentUser && ['quentin', 'armel', TEST_PLAYER_ID].includes(state.currentUser) && setShowSettings(true)}
+          title={state.currentUser && ['quentin', 'armel', TEST_PLAYER_ID].includes(state.currentUser) ? 'Admin Settings' : ''}
         />
         <span style={styles.hudText}>Mission Control</span>
         <span style={{ color: currentUser?.color, marginLeft: 8 }}>
           ({currentUser?.name})
         </span>
+        {state.currentUser && isTestPlayer(state.currentUser) && (
+          <span style={{ marginLeft: 10, padding: '2px 8px', background: 'rgba(255,0,0,0.3)', border: '1px solid rgba(255,0,0,0.5)', borderRadius: 4, fontSize: '0.7rem', color: '#ff6b6b', fontWeight: 700, letterSpacing: 1 }}>
+            TEST MODE
+          </span>
+        )}
 
         {/* Multiplayer indicator */}
         {team && (
@@ -3650,7 +3704,7 @@ function App() {
               {isConnected ? '●' : '○'}
             </span>
             <span style={{ marginLeft: 4, fontSize: '0.75rem', color: '#aaa' }}>
-              {teamPlayers.filter(p => p.isOnline).length} online
+              {teamPlayers.filter(p => p.isOnline && !isTestPlayer(p.username)).length} online
             </span>
           </div>
         )}
@@ -3707,11 +3761,11 @@ function App() {
       )}
 
       {/* Online players sidebar */}
-      {team && teamPlayers.filter(p => p.isOnline && p.username !== state.currentUser).length > 0 && (
+      {team && teamPlayers.filter(p => p.isOnline && p.username !== state.currentUser && !isTestPlayer(p.username)).length > 0 && (
         <div style={styles.onlinePlayers}>
           <div style={styles.onlinePlayersTitle}>Online</div>
           {teamPlayers
-            .filter(p => p.isOnline && p.username !== state.currentUser)
+            .filter(p => p.isOnline && p.username !== state.currentUser && !isTestPlayer(p.username))
             .map(p => (
               <div key={p.id} style={styles.onlinePlayer}>
                 <span style={{ ...styles.onlinePlayerDot, background: p.color }} />
@@ -3725,7 +3779,7 @@ function App() {
       {/* Next Missions widget */}
       {!editingGoal && !showSettings && !showGameSettings && !showTerraform && !showShop && !showControlHub && !showPlanetCreator && !showLeaderboard && !showPointsHistory && (
         <div style={{
-          position: 'absolute', left: 20, top: team && teamPlayers.filter(p => p.isOnline && p.username !== state.currentUser).length > 0 ? 150 : 70,
+          position: 'absolute', left: 20, top: team && teamPlayers.filter(p => p.isOnline && p.username !== state.currentUser && !isTestPlayer(p.username)).length > 0 ? 150 : 70,
           background: 'rgba(0,0,0,0.75)', borderRadius: 8, padding: '8px 12px',
           border: '1px solid rgba(255,255,255,0.08)', minWidth: 140, maxWidth: 200,
         }}>
@@ -4201,7 +4255,7 @@ function App() {
             <p style={{ color: '#888', fontSize: '0.8rem', marginTop: '0.5rem', marginBottom: '0' }}>Click a player to see breakdown</p>
             <div style={{ marginTop: '1rem' }}>
               {[...teamPlayers]
-                .filter(p => p.username !== 'anonymous')
+                .filter(p => p.username !== 'anonymous' && !isTestPlayer(p.username))
                 .sort((a, b) => b.totalEarned - a.totalEarned)
                 .map((player, index) => (
                   <div
@@ -5868,7 +5922,7 @@ function App() {
                       >
                         <option value="">Choose a player...</option>
                         {teamPlayers
-                          .filter(p => p.username !== 'anonymous')
+                          .filter(p => p.username !== 'anonymous' && (!isTestPlayer(p.username) || isTestPlayer(state.currentUser || '')))
                           .map(player => (
                           <option key={player.id} value={player.id}>
                             {player.displayName} ({player.username}) - ⭐ {player.personalPoints}
