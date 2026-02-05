@@ -2,10 +2,16 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Planet } from '../types';
 import type { EditTaskUpdates } from './EditTaskModal';
 
+export interface PlayerInfo {
+  color: string;
+  shipImage: string;
+}
+
 interface LandedPlanetModalProps {
   planet: Planet;
   currentUser: string;
   destroyCanonEquipped: boolean;
+  playerInfo: Record<string, PlayerInfo>;
   onComplete: (planet: Planet) => void;
   onClaim: (planet: Planet) => void;
   onSend: (planet: Planet, newOwner: string) => void;
@@ -22,6 +28,12 @@ const TEAM_MEMBERS = [
   { id: 'milya', name: 'Milya' },
   { id: 'hugues', name: 'Hugues' },
   { id: '', name: 'Unassigned' },
+];
+
+const TASK_TYPES = [
+  { value: 'task', label: 'Task', image: '/notion-task.png' },
+  { value: 'bug', label: 'Bug', image: '/notion-bug.png' },
+  { value: 'feature', label: 'Feature', image: '/notion-enhancement.png' },
 ];
 
 const PRIORITIES: { value: string; label: string; points: number }[] = [
@@ -48,6 +60,11 @@ function parseTaskType(raw: string | null | undefined): string {
   return 'task';
 }
 
+function getTaskTypeImage(taskType: string): string {
+  const found = TASK_TYPES.find(t => t.value === taskType);
+  return found?.image || '/notion-task.png';
+}
+
 function formatDateDDMMYY(dateStr: string | undefined | null): string {
   if (!dateStr) return '';
   try {
@@ -67,6 +84,7 @@ export function LandedPlanetModal({
   planet,
   currentUser,
   destroyCanonEquipped,
+  playerInfo,
   onComplete,
   onClaim,
   onOpenNotion,
@@ -77,9 +95,13 @@ export function LandedPlanetModal({
   const [editingField, setEditingField] = useState<EditingField>(null);
   const [editName, setEditName] = useState(planet.name || '');
   const [editDescription, setEditDescription] = useState(planet.description || '');
+  const [assignDropdownOpen, setAssignDropdownOpen] = useState(false);
+  const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const descInputRef = useRef<HTMLTextAreaElement>(null);
   const dateInputRef = useRef<HTMLInputElement>(null);
+  const assignDropdownRef = useRef<HTMLDivElement>(null);
+  const typeDropdownRef = useRef<HTMLDivElement>(null);
 
   const isOwn = planet.ownerId === currentUser;
   const isUnassigned = !planet.ownerId || planet.ownerId === '';
@@ -89,6 +111,21 @@ export function LandedPlanetModal({
   const priority = parsePriority(planet.priority);
   const taskType = parseTaskType(planet.taskType);
   const priorityInfo = PRIORITIES.find(p => p.value === priority) || PRIORITIES[2];
+  const planetImage = getTaskTypeImage(taskType);
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (assignDropdownRef.current && !assignDropdownRef.current.contains(e.target as Node)) {
+        setAssignDropdownOpen(false);
+      }
+      if (typeDropdownRef.current && !typeDropdownRef.current.contains(e.target as Node)) {
+        setTypeDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
 
   // Focus input when editing starts
   useEffect(() => {
@@ -122,7 +159,7 @@ export function LandedPlanetModal({
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (editingField !== null) return;
+      if (editingField !== null || assignDropdownOpen || typeDropdownOpen) return;
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return;
 
@@ -159,7 +196,7 @@ export function LandedPlanetModal({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [editingField, planet, currentUser, isOwn, isUnassigned, isCompleted, destroyCanonEquipped, onTakeOff, onComplete, onClaim, onOpenNotion, onDelete]);
+  }, [editingField, assignDropdownOpen, typeDropdownOpen, planet, currentUser, isOwn, isUnassigned, isCompleted, destroyCanonEquipped, onTakeOff, onComplete, onClaim, onOpenNotion, onDelete]);
 
   // Actions
   const showComplete = isOwn && !isCompleted;
@@ -167,13 +204,21 @@ export function LandedPlanetModal({
   const showNotion = !!planet.notionUrl;
   const showDelete = !isCompleted || (isCompleted && destroyCanonEquipped);
 
+  // Current assigned player info
+  const currentAssigned = TEAM_MEMBERS.find(m => m.id === (planet.ownerId || ''));
+  const currentAssignedColor = planet.ownerId ? (playerInfo[planet.ownerId]?.color || '#888') : '#555';
+  const currentAssignedShip = planet.ownerId ? playerInfo[planet.ownerId]?.shipImage : null;
+
+  // Current type info
+  const currentTypeInfo = TASK_TYPES.find(t => t.value === taskType) || TASK_TYPES[0];
+
   return (
     <div style={styles.overlay}>
       <style>{`
         .landed-modal::-webkit-scrollbar { display: none; }
         .landed-date-input { position: absolute; opacity: 0; pointer-events: none; width: 0; height: 0; }
-        .landed-modal select,
         .landed-modal input { border-radius: 10px; }
+        .landed-dropdown-item:hover { background: rgba(255,255,255,0.08) !important; }
       `}</style>
       <div
         className="landed-modal"
@@ -183,24 +228,39 @@ export function LandedPlanetModal({
         }}
         onClick={e => e.stopPropagation()}
       >
-        {/* Header row: status + points badge */}
+        {/* Header: planet image + status + points */}
         <div style={styles.header}>
-          <div style={styles.statusBadge}>
-            <span style={{
-              ...styles.statusDot,
-              background: isCompleted ? '#4ade80' : planet.color,
-              boxShadow: `0 0 8px ${isCompleted ? '#4ade80' : planet.color}66`,
-            }} />
-            <span style={{ ...styles.statusLabel, color: isCompleted ? '#4ade80' : planet.color }}>
-              {isCompleted ? 'COMPLETED' : 'LANDED'}
-            </span>
+          <div style={styles.headerLeft}>
+            <img
+              src={planetImage}
+              alt=""
+              style={{
+                width: 52,
+                height: 52,
+                objectFit: 'contain',
+                borderRadius: 10,
+                filter: `drop-shadow(0 0 8px ${planet.color}66)`,
+              }}
+            />
+            <div>
+              <div style={styles.statusBadge}>
+                <span style={{
+                  ...styles.statusDot,
+                  background: isCompleted ? '#4ade80' : planet.color,
+                  boxShadow: `0 0 8px ${isCompleted ? '#4ade80' : planet.color}66`,
+                }} />
+                <span style={{ ...styles.statusLabel, color: isCompleted ? '#4ade80' : planet.color }}>
+                  {isCompleted ? 'COMPLETED' : 'LANDED'}
+                </span>
+              </div>
+            </div>
           </div>
           <div style={styles.pointsCorner}>
             {planet.points || priorityInfo.points} pts
           </div>
         </div>
 
-        {/* ── Title ── */}
+        {/* Title */}
         <div style={styles.section}>
           <label style={styles.label}>Title</label>
           {editingField === 'name' && isEditable ? (
@@ -228,7 +288,7 @@ export function LandedPlanetModal({
           )}
         </div>
 
-        {/* ── Description ── */}
+        {/* Description */}
         <div style={styles.section}>
           <label style={styles.label}>Description</label>
           {editingField === 'description' && isEditable ? (
@@ -257,21 +317,46 @@ export function LandedPlanetModal({
           )}
         </div>
 
-        {/* ── Properties row: Type, Priority, Due Date ── */}
+        {/* Properties row: Type, Priority, Due Date */}
         <div style={styles.propsRow}>
-          <div style={styles.propField}>
+          {/* Type — custom dropdown with task skin icons */}
+          <div style={styles.propField} ref={typeDropdownRef}>
             <label style={styles.label}>Type</label>
-            <select
-              style={styles.select}
-              value={taskType}
-              disabled={!isEditable}
-              onChange={e => onUpdate({ task_type: e.target.value as 'bug' | 'feature' | 'task' })}
+            <div
+              style={{
+                ...styles.dropdownTrigger,
+                cursor: isEditable ? 'pointer' : 'default',
+                opacity: isEditable ? 1 : 0.5,
+              }}
+              onClick={() => { if (isEditable) setTypeDropdownOpen(!typeDropdownOpen); }}
             >
-              <option value="task">Task</option>
-              <option value="bug">Bug</option>
-              <option value="feature">Feature</option>
-            </select>
+              <img src={currentTypeInfo.image} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />
+              <span>{currentTypeInfo.label}</span>
+            </div>
+            {typeDropdownOpen && (
+              <div style={styles.dropdownMenu}>
+                {TASK_TYPES.map(t => (
+                  <div
+                    key={t.value}
+                    className="landed-dropdown-item"
+                    style={{
+                      ...styles.dropdownItem,
+                      background: t.value === taskType ? 'rgba(255,255,255,0.06)' : 'transparent',
+                    }}
+                    onClick={() => {
+                      onUpdate({ task_type: t.value as 'bug' | 'feature' | 'task' });
+                      setTypeDropdownOpen(false);
+                    }}
+                  >
+                    <img src={t.image} alt="" style={{ width: 20, height: 20, objectFit: 'contain' }} />
+                    <span>{t.label}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
+
+          {/* Priority — native select (no visual enhancement needed) */}
           <div style={styles.propField}>
             <label style={styles.label}>Priority</label>
             <select
@@ -286,9 +371,10 @@ export function LandedPlanetModal({
               <option value="critical">Critical</option>
             </select>
           </div>
+
+          {/* Due Date */}
           <div style={styles.propField}>
             <label style={styles.label}>Due Date</label>
-            {/* Hidden native date input — triggered by clicking the display */}
             <input
               ref={dateInputRef}
               type="date"
@@ -310,25 +396,61 @@ export function LandedPlanetModal({
           </div>
         </div>
 
-        {/* ── Assigned To (inline) ── */}
-        <div style={styles.section}>
+        {/* Assigned To — custom dropdown with colored names + ship previews */}
+        <div style={styles.section} ref={assignDropdownRef}>
           <label style={styles.label}>Assigned To</label>
-          <select
-            style={styles.select}
-            value={planet.ownerId || ''}
-            disabled={!isEditable}
-            onChange={e => onUpdate({ assigned_to: e.target.value || null })}
+          <div
+            style={{
+              ...styles.dropdownTrigger,
+              cursor: isEditable ? 'pointer' : 'default',
+              opacity: isEditable ? 1 : 0.5,
+            }}
+            onClick={() => { if (isEditable) setAssignDropdownOpen(!assignDropdownOpen); }}
           >
-            {TEAM_MEMBERS.map(m => (
-              <option key={m.id} value={m.id}>{m.name}</option>
-            ))}
-          </select>
+            {currentAssignedShip && (
+              <img src={currentAssignedShip} alt="" style={{ width: 20, height: 20, objectFit: 'contain' }} />
+            )}
+            <span style={{ color: currentAssignedColor }}>
+              {currentAssigned?.name || 'Unassigned'}
+            </span>
+          </div>
+          {assignDropdownOpen && (
+            <div style={styles.dropdownMenu}>
+              {TEAM_MEMBERS.map(m => {
+                const info = m.id ? playerInfo[m.id] : null;
+                const color = info?.color || '#555';
+                const ship = info?.shipImage;
+                const isSelected = m.id === (planet.ownerId || '');
+                return (
+                  <div
+                    key={m.id}
+                    className="landed-dropdown-item"
+                    style={{
+                      ...styles.dropdownItem,
+                      background: isSelected ? 'rgba(255,255,255,0.06)' : 'transparent',
+                    }}
+                    onClick={() => {
+                      onUpdate({ assigned_to: m.id || null });
+                      setAssignDropdownOpen(false);
+                    }}
+                  >
+                    {ship ? (
+                      <img src={ship} alt="" style={{ width: 22, height: 22, objectFit: 'contain' }} />
+                    ) : (
+                      <div style={{ width: 22, height: 22 }} />
+                    )}
+                    <span style={{ color }}>{m.name}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
-        {/* ── Divider ── */}
+        {/* Divider */}
         <div style={styles.divider} />
 
-        {/* ── Actions ── */}
+        {/* Actions */}
         <div style={styles.actionsSection}>
           <div style={styles.actionsLeft}>
             {showComplete && (
@@ -361,7 +483,7 @@ export function LandedPlanetModal({
           <div style={styles.shopHint}>Equip weapons in Shop to destroy</div>
         )}
 
-        {/* ── Take off ── */}
+        {/* Take off */}
         <div style={styles.takeOffRow}>
           <span style={styles.takeOffText} onClick={onTakeOff}>
             [ SPACE ] to take off
@@ -405,6 +527,11 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     marginBottom: 28,
   },
+  headerLeft: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 14,
+  },
   statusBadge: {
     display: 'flex',
     alignItems: 'center',
@@ -437,6 +564,7 @@ const styles: Record<string, React.CSSProperties> = {
   // Form sections
   section: {
     marginBottom: 20,
+    position: 'relative' as const,
   },
   label: {
     display: 'block',
@@ -492,6 +620,44 @@ const styles: Record<string, React.CSSProperties> = {
     outline: 'none',
   },
 
+  // Custom dropdown
+  dropdownTrigger: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    padding: '10px 14px',
+    background: 'rgba(255,255,255,0.05)',
+    border: '1px solid #333',
+    borderRadius: 10,
+    fontSize: '0.95rem',
+    fontFamily: 'Space Grotesk, sans-serif',
+    color: '#fff',
+  },
+  dropdownMenu: {
+    position: 'absolute' as const,
+    top: '100%',
+    left: 0,
+    right: 0,
+    marginTop: 4,
+    background: '#1a1a2e',
+    border: '1px solid #333',
+    borderRadius: 10,
+    overflow: 'hidden',
+    zIndex: 10,
+    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+  },
+  dropdownItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    padding: '10px 14px',
+    cursor: 'pointer',
+    fontSize: '0.95rem',
+    fontFamily: 'Space Grotesk, sans-serif',
+    color: '#fff',
+    transition: 'background 0.15s',
+  },
+
   // Properties row
   propsRow: {
     display: 'flex',
@@ -503,7 +669,7 @@ const styles: Record<string, React.CSSProperties> = {
     position: 'relative' as const,
   },
 
-  // Date display (click to open native picker)
+  // Date display
   dateDisplay: {
     padding: '10px 14px',
     background: 'rgba(255,255,255,0.05)',

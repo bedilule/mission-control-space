@@ -15,6 +15,7 @@ import { ReassignTaskModal } from './components/ReassignTaskModal';
 import { EditTaskModal } from './components/EditTaskModal';
 import type { EditTaskUpdates } from './components/EditTaskModal';
 import { LandedPlanetModal } from './components/LandedPlanetModal';
+import type { PlayerInfo } from './components/LandedPlanetModal';
 import { ControlHubDashboard } from './components/ControlHubDashboard';
 
 const FAL_API_KEY = 'c2df5aba-75d9-4626-95bb-aa366317d09e:8f90bb335a773f0ce3f261354107daa6';
@@ -1109,6 +1110,18 @@ function App() {
       return merged;
     });
   }, [teamPlayers]);
+
+  // Build playerInfo for LandedPlanetModal (colors + ship images)
+  const playerInfoForModal = useMemo((): Record<string, PlayerInfo> => {
+    const info: Record<string, PlayerInfo> = {};
+    for (const user of USERS) {
+      info[user.id] = {
+        color: user.color,
+        shipImage: userShips[user.id]?.currentImage || '/ship-base.png',
+      };
+    }
+    return info;
+  }, [userShips]);
 
   // Sync current user's ship effects to game when they change (e.g., loaded from Supabase)
   useEffect(() => {
@@ -3842,6 +3855,7 @@ function App() {
           planet={landedPlanet}
           currentUser={state.currentUser || ''}
           destroyCanonEquipped={getCurrentUserShip().effects.destroyCanonEquipped}
+          playerInfo={playerInfoForModal}
           onComplete={handleColonize}
           onClaim={handleClaimRequest}
           onSend={handleLandedSend}
