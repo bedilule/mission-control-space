@@ -45,6 +45,16 @@ type UpgradeUpdateCallback = (playerId: string, data: {
   targetPlanetId: string | null;
 }) => void;
 
+// Callback type for send animation updates (planet push)
+type SendAnimationCallback = (playerId: string, data: {
+  type: 'start' | 'target';
+  planetId: string;
+  velocityX?: number;
+  velocityY?: number;
+  targetX?: number;
+  targetY?: number;
+}) => void;
+
 interface ShipState {
   x: number;
   y: number;
@@ -59,8 +69,11 @@ interface UsePlayerPositionsReturn {
   otherPlayers: OtherPlayer[];
   broadcastPosition: (shipState: ShipState) => void;
   broadcastUpgradeState: (isUpgrading: boolean, targetPlanetId?: string | null) => void;
+  broadcastSendStart: (planetId: string, velocityX: number, velocityY: number) => void;
+  broadcastSendTarget: (planetId: string, targetX: number, targetY: number) => void;
   setPositionUpdateCallback: (callback: PositionUpdateCallback | null) => void;
   setUpgradeUpdateCallback: (callback: UpgradeUpdateCallback | null) => void;
+  setSendAnimationCallback: (callback: SendAnimationCallback | null) => void;
 }
 
 interface CachedPosition {
@@ -112,6 +125,8 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
   const positionUpdateCallbackRef = useRef<PositionUpdateCallback | null>(null);
   // Direct callback for upgrade animation updates
   const upgradeUpdateCallbackRef = useRef<UpgradeUpdateCallback | null>(null);
+  // Direct callback for send animation updates (planet push)
+  const sendAnimationCallbackRef = useRef<SendAnimationCallback | null>(null);
 
   // Set the callback for direct position updates
   const setPositionUpdateCallback = useCallback((callback: PositionUpdateCallback | null) => {
@@ -121,6 +136,11 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
   // Set the callback for upgrade animation updates
   const setUpgradeUpdateCallback = useCallback((callback: UpgradeUpdateCallback | null) => {
     upgradeUpdateCallbackRef.current = callback;
+  }, []);
+
+  // Set the callback for send animation updates
+  const setSendAnimationCallback = useCallback((callback: SendAnimationCallback | null) => {
+    sendAnimationCallbackRef.current = callback;
   }, []);
 
   // Keep players ref updated without triggering effects
@@ -217,6 +237,34 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
           targetPlanetId,
         },
       });
+    }
+  }, [playerId]);
+
+  // Broadcast send animation start (planet pushed in random direction)
+  const broadcastSendStart = useCallback((planetId: string, velocityX: number, velocityY: number) => {
+    if (!playerId) return;
+
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'send_start',
+        planetId,
+        velocityX,
+        velocityY,
+      }));
+    }
+  }, [playerId]);
+
+  // Broadcast send animation target (planet steers toward destination)
+  const broadcastSendTarget = useCallback((planetId: string, targetX: number, targetY: number) => {
+    if (!playerId) return;
+
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'send_target',
+        planetId,
+        targetX,
+        targetY,
+      }));
     }
   }, [playerId]);
 
@@ -405,6 +453,30 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
               });
             }
           }
+
+          if (data.type === 'send_start') {
+            if (data.playerId === playerId) return;
+            if (sendAnimationCallbackRef.current) {
+              sendAnimationCallbackRef.current(data.playerId, {
+                type: 'start',
+                planetId: data.planetId,
+                velocityX: data.velocityX,
+                velocityY: data.velocityY,
+              });
+            }
+          }
+
+          if (data.type === 'send_target') {
+            if (data.playerId === playerId) return;
+            if (sendAnimationCallbackRef.current) {
+              sendAnimationCallbackRef.current(data.playerId, {
+                type: 'target',
+                planetId: data.planetId,
+                targetX: data.targetX,
+                targetY: data.targetY,
+              });
+            }
+          }
         } catch (err) {
           console.error('[WS] Failed to parse message:', err);
         }
@@ -565,7 +637,10 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
     otherPlayers,
     broadcastPosition,
     broadcastUpgradeState,
+    broadcastSendStart,
+    broadcastSendTarget,
     setPositionUpdateCallback,
     setUpgradeUpdateCallback,
+    setSendAnimationCallback,
   };
 }

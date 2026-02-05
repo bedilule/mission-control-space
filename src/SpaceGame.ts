@@ -299,6 +299,21 @@ export class SpaceGame {
   private otherPlayerUpgrading: Map<string, { targetPlanetId: string | null; satellites: UpgradeSatellite[] }> = new Map();
   // Other players' escort drones (persistent for smooth animation)
   private otherPlayerDrones: Map<string, EscortDrone[]> = new Map();
+  // Other players' send/push animations (planet being pushed across map)
+  private remoteSendAnimations: Map<string, {
+    planetId: string;
+    senderId: string;
+    velocityX: number;
+    velocityY: number;
+    targetX: number;
+    targetY: number;
+    targetReady: boolean;
+    rocketFlame: number;
+    trailPoints: { x: number; y: number; size: number; alpha: number }[];
+    frozenPlanetX: number;
+    frozenPlanetY: number;
+    startTime: number;
+  }> = new Map();
 
   // Space Rifle projectile system
   private projectiles: Projectile[] = [];
@@ -907,17 +922,20 @@ export class SpaceGame {
     // so the animation can continue controlling its position
     const sendingPlanetId = this.isSending ? this.sendPlanetId : null;
 
+    // Collect planet IDs being animated by remote players
+    const remoteSendingPlanetIds = new Set(this.remoteSendAnimations.keys());
+
     // If landed on a notion planet, track it so we can update the reference
     const landedPlanetId = this.isLanded && this.landedPlanet?.id.startsWith('notion-') ? this.landedPlanet.id : null;
 
     // Claiming/sending planet is protected during animation (not replaced by sync)
 
-    // Remove old notion planets EXCEPT the one being claimed/sent (animation controls it)
+    // Remove old notion planets EXCEPT ones being claimed/sent/remote-animated
     this.state.planets = this.state.planets.filter(p =>
-      !p.id.startsWith('notion-') || p.id === claimingPlanetId || p.id === sendingPlanetId
+      !p.id.startsWith('notion-') || p.id === claimingPlanetId || p.id === sendingPlanetId || remoteSendingPlanetIds.has(p.id)
     );
 
-    // Add new notion planets EXCEPT the one being claimed/sent (keep animation's reference)
+    // Add new notion planets EXCEPT ones being claimed/sent/remote-animated (keep animation's reference)
     for (const planet of notionPlanets) {
       if (planet.id === claimingPlanetId) {
         // Store the new planet data to apply after animation completes
@@ -925,6 +943,8 @@ export class SpaceGame {
       } else if (planet.id === sendingPlanetId) {
         // Store the updated planet data to add after animation completes
         this.sendPendingPlanet = planet;
+      } else if (remoteSendingPlanetIds.has(planet.id)) {
+        // Remote send animation controls this planet — skip replacement
       } else {
         this.state.planets.push(planet);
 
@@ -1278,6 +1298,9 @@ export class SpaceGame {
     if (this.isSending) {
       this.updateSendAnimation();
     }
+
+    // Handle remote send animations from other players
+    this.updateRemoteSendAnimations();
 
     // Handle rotation
     if (this.keys.has(this.layoutKeys.left) || this.keys.has('arrowleft')) {
@@ -2075,6 +2098,211 @@ export class SpaceGame {
     this.sendTargetReady = true;
   }
 
+  // Get the current send velocity (so App.tsx can broadcast it after startSendAnimation)
+  public getSendVelocity(): { vx: number; vy: number } | null {
+    if (!this.isSending) return null;
+    return { vx: this.sendVelocityX, vy: this.sendVelocityY };
+  }
+
+  // Start a remote send animation (another player pushing a planet)
+  public startRemoteSendAnimation(playerId: string, planetId: string, velocityX: number, velocityY: number) {
+    const planet = this.state.planets.find(p => p.id === planetId);
+    if (!planet) {
+      console.warn('[RemoteSend] Planet not found:', planetId);
+      return;
+    }
+
+    this.remoteSendAnimations.set(planetId, {
+      planetId,
+      senderId: playerId,
+      velocityX,
+      velocityY,
+      targetX: 0,
+      targetY: 0,
+      targetReady: false,
+      rocketFlame: 0,
+      trailPoints: [],
+      frozenPlanetX: planet.x,
+      frozenPlanetY: planet.y,
+      startTime: Date.now(),
+    });
+  }
+
+  // Set target for a remote send animation
+  public setRemoteSendTarget(planetId: string, targetX: number, targetY: number) {
+    const anim = this.remoteSendAnimations.get(planetId);
+    if (!anim) return; // No animation for this planet — drop silently
+    anim.targetX = targetX;
+    anim.targetY = targetY;
+    anim.targetReady = true;
+  }
+
+  // Update all remote send animations (same physics as local updateSendAnimation)
+  private updateRemoteSendAnimations() {
+    if (this.remoteSendAnimations.size === 0) return;
+
+    const now = Date.now();
+    const speed = 8;
+
+    for (const [planetId, anim] of this.remoteSendAnimations) {
+      // 30-second timeout
+      if (now - anim.startTime > 30000) {
+        this.remoteSendAnimations.delete(planetId);
+        continue;
+      }
+
+      const planet = this.state.planets.find(p => p.id === planetId);
+      if (!planet) {
+        this.remoteSendAnimations.delete(planetId);
+        continue;
+      }
+
+      if (anim.targetReady) {
+        // Steer toward target
+        const dx = anim.targetX - planet.x;
+        const dy = anim.targetY - planet.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < 50) {
+          // Arrived — remove animation, let Supabase realtime deliver final position
+          this.remoteSendAnimations.delete(planetId);
+          continue;
+        }
+
+        // Smoothly turn toward target (steering behavior)
+        const targetAngle = Math.atan2(dy, dx);
+        const currentAngle = Math.atan2(anim.velocityY, anim.velocityX);
+        let angleDiff = targetAngle - currentAngle;
+        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+        const maxTurn = 0.05;
+        const turn = Math.max(-maxTurn, Math.min(maxTurn, angleDiff));
+        const newAngle = currentAngle + turn;
+        anim.velocityX = Math.cos(newAngle) * speed;
+        anim.velocityY = Math.sin(newAngle) * speed;
+      }
+
+      // Move the planet
+      planet.x += anim.velocityX;
+      planet.y += anim.velocityY;
+
+      // Rocket flame flicker
+      anim.rocketFlame = 0.7 + Math.random() * 0.3;
+
+      // Add trail points (rocket exhaust)
+      const angle = Math.atan2(anim.velocityY, anim.velocityX);
+      if (Math.random() < 0.6) {
+        anim.trailPoints.push({
+          x: planet.x - Math.cos(angle) * (planet.radius + 20) + (Math.random() - 0.5) * 10,
+          y: planet.y - Math.sin(angle) * (planet.radius + 20) + (Math.random() - 0.5) * 10,
+          size: 6 + Math.random() * 10,
+          alpha: 1,
+        });
+      }
+
+      // Update trail points (fade out)
+      for (let i = anim.trailPoints.length - 1; i >= 0; i--) {
+        const p = anim.trailPoints[i];
+        p.alpha -= 0.03;
+        p.size *= 0.94;
+        if (p.alpha <= 0 || p.size < 1) {
+          anim.trailPoints.splice(i, 1);
+        }
+      }
+    }
+  }
+
+  // Render all remote send animations (same visuals as local renderSendAnimation)
+  private renderRemoteSendAnimations() {
+    if (this.remoteSendAnimations.size === 0) return;
+
+    const { ctx } = this;
+
+    for (const [planetId, anim] of this.remoteSendAnimations) {
+      const planet = this.state.planets.find(p => p.id === planetId);
+      if (!planet) continue;
+
+      ctx.save();
+      ctx.translate(-this.state.camera.x, -this.state.camera.y);
+
+      // Draw trail points (rocket exhaust smoke)
+      for (const p of anim.trailPoints) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        const gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
+        gradient.addColorStop(0, `rgba(255, 200, 50, ${p.alpha * 0.8})`);
+        gradient.addColorStop(0.4, `rgba(255, 100, 20, ${p.alpha * 0.6})`);
+        gradient.addColorStop(1, `rgba(100, 50, 20, ${p.alpha * 0.2})`);
+        ctx.fillStyle = gradient;
+        ctx.fill();
+      }
+
+      // Calculate rocket angle from velocity
+      const rocketAngle = Math.atan2(anim.velocityY, anim.velocityX);
+
+      // Draw the rocket pushing the planet
+      ctx.save();
+      ctx.translate(planet.x, planet.y);
+      ctx.rotate(rocketAngle + Math.PI); // Rocket on the back, pushing
+
+      const rocketX = planet.radius + 10;
+
+      // Use sender's ship image if available, otherwise fallback
+      const shipImg = this.otherPlayerImages.get(anim.senderId) || this.baseShipImage;
+
+      if (shipImg) {
+        const shipSize = 36;
+        ctx.save();
+        ctx.translate(rocketX - shipSize * 0.3 + shipSize / 2, 0);
+        ctx.rotate(-Math.PI / 2);
+        ctx.drawImage(shipImg, -shipSize / 2, -shipSize / 2, shipSize, shipSize);
+        ctx.restore();
+
+        // Draw flame behind it
+        const flameLength = 12 + anim.rocketFlame * 15;
+        ctx.beginPath();
+        ctx.moveTo(rocketX + 15, 0);
+        ctx.lineTo(rocketX + 15 + flameLength, -4 - Math.random() * 2);
+        ctx.lineTo(rocketX + 15 + flameLength * 0.6, 0);
+        ctx.lineTo(rocketX + 15 + flameLength, 4 + Math.random() * 2);
+        ctx.closePath();
+        const flameGradient = ctx.createLinearGradient(rocketX + 15, 0, rocketX + 15 + flameLength, 0);
+        flameGradient.addColorStop(0, '#ffff00');
+        flameGradient.addColorStop(0.4, '#ff8800');
+        flameGradient.addColorStop(1, 'rgba(255, 50, 0, 0)');
+        ctx.fillStyle = flameGradient;
+        ctx.fill();
+      } else {
+        // Fallback: simple triangle ship shape
+        const shipSize = 16;
+
+        const flameLength = 12 + anim.rocketFlame * 18;
+        ctx.beginPath();
+        ctx.moveTo(rocketX + shipSize * 0.7, 0);
+        ctx.lineTo(rocketX + shipSize * 0.7 + flameLength, -4 - Math.random() * 2);
+        ctx.lineTo(rocketX + shipSize * 0.7 + flameLength * 0.6, 0);
+        ctx.lineTo(rocketX + shipSize * 0.7 + flameLength, 4 + Math.random() * 2);
+        ctx.closePath();
+        const flameGradient = ctx.createLinearGradient(rocketX + shipSize, 0, rocketX + shipSize + flameLength, 0);
+        flameGradient.addColorStop(0, '#ffff00');
+        flameGradient.addColorStop(0.4, '#ff8800');
+        flameGradient.addColorStop(1, 'rgba(255, 50, 0, 0)');
+        ctx.fillStyle = flameGradient;
+        ctx.fill();
+
+        ctx.fillStyle = '#aaaacc';
+        ctx.beginPath();
+        ctx.moveTo(rocketX - shipSize, 0);
+        ctx.lineTo(rocketX + shipSize * 0.5, -shipSize * 0.5);
+        ctx.lineTo(rocketX + shipSize * 0.5, shipSize * 0.5);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      ctx.restore();
+      ctx.restore();
+    }
+  }
 
   // Update send/reassign animation - rocket pushing planet across map
   private updateSendAnimation() {
@@ -5313,6 +5541,9 @@ export class SpaceGame {
     if (this.isSending) {
       this.renderSendAnimation();
     }
+
+    // Draw remote send animations from other players
+    this.renderRemoteSendAnimations();
 
     // Draw planet info panel when nearby OR landed panel when on planet
     // Station planets (shop-station, planet-builder, user-planet-*) don't show the landed panel - they only have shop functionality

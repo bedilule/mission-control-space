@@ -754,7 +754,7 @@ function App() {
   );
 
   // Player positions hook - handles real-time ship positions
-  const { otherPlayers, broadcastPosition, broadcastUpgradeState, setPositionUpdateCallback, setUpgradeUpdateCallback } = usePlayerPositions({
+  const { otherPlayers, broadcastPosition, broadcastUpgradeState, broadcastSendStart, broadcastSendTarget, setPositionUpdateCallback, setUpgradeUpdateCallback, setSendAnimationCallback } = usePlayerPositions({
     teamId: team?.id || null,
     playerId: currentDbPlayerId,
     players: playersForPositions,
@@ -960,6 +960,7 @@ function App() {
   // Uses refs to always call the latest game instance, avoiding stale closure issues
   const positionCallbackRef = useRef<((playerId: string, data: { x: number; y: number; vx: number; vy: number; rotation: number; thrusting: boolean; boosting: boolean; timestamp: number }) => void) | null>(null);
   const upgradeCallbackRef = useRef<((playerId: string, data: { isUpgrading: boolean; targetPlanetId: string | null }) => void) | null>(null);
+  const sendAnimCallbackRef = useRef<((playerId: string, data: { type: 'start' | 'target'; planetId: string; velocityX?: number; velocityY?: number; targetX?: number; targetY?: number }) => void) | null>(null);
 
   // Update callback refs when game is available
   useEffect(() => {
@@ -979,6 +980,13 @@ function App() {
         setTimeout(() => setEventNotification(null), 4000);
       } else {
         gameRef.current?.clearOtherPlayerUpgrading(playerId);
+      }
+    };
+    sendAnimCallbackRef.current = (playerId, data) => {
+      if (data.type === 'start') {
+        gameRef.current?.startRemoteSendAnimation(playerId, data.planetId, data.velocityX ?? 0, data.velocityY ?? 0);
+      } else if (data.type === 'target') {
+        gameRef.current?.setRemoteSendTarget(data.planetId, data.targetX ?? 0, data.targetY ?? 0);
       }
     };
   }, [teamPlayers]);
@@ -1001,6 +1009,15 @@ function App() {
       setUpgradeUpdateCallback(null);
     };
   }, [setUpgradeUpdateCallback]);
+
+  useEffect(() => {
+    setSendAnimationCallback((playerId, data) => {
+      sendAnimCallbackRef.current?.(playerId, data);
+    });
+    return () => {
+      setSendAnimationCallback(null);
+    };
+  }, [setSendAnimationCallback]);
 
   // Update game with other players (for metadata like ship images, effects, etc.)
   useEffect(() => {
@@ -2290,12 +2307,15 @@ function App() {
       if ((!planet.ownerId || planet.ownerId === '') && state.currentUser) {
         // Claim the mission via push animation (mini ship pushes planet to home zone)
         gameRef.current?.startSendAnimation(planet);
+        const sendVel = gameRef.current?.getSendVelocity();
+        if (sendVel) broadcastSendStart(planet.id, sendVel.vx, sendVel.vy);
         soundManager.playClaimVoiceLine();
         setLandedPlanet(null);
 
         const newPosition = await claimNotionPlanet(planet.id, state.currentUser);
         if (newPosition) {
           gameRef.current?.setSendTarget(newPosition.x, newPosition.y);
+          broadcastSendTarget(planet.id, newPosition.x, newPosition.y);
         }
         return;
       }
@@ -2346,7 +2366,7 @@ function App() {
 
     // Clear landed state after colonizing
     setLandedPlanet(null);
-  }, [state.completedPlanets, state.currentUser, team, completeRemotePlanet, completeNotionPlanet, claimNotionPlanet, updateRemotePersonalPoints]);
+  }, [state.completedPlanets, state.currentUser, team, completeRemotePlanet, completeNotionPlanet, claimNotionPlanet, updateRemotePersonalPoints, broadcastSendStart, broadcastSendTarget]);
 
   // Handle claim request - called when user wants to claim an unassigned planet
   // Uses send/push animation (mini ship pushes planet to home zone)
@@ -2360,6 +2380,8 @@ function App() {
 
     // Start push animation immediately for instant feedback
     gameRef.current?.startSendAnimation(planet);
+    const sendVel = gameRef.current?.getSendVelocity();
+    if (sendVel) broadcastSendStart(planet.id, sendVel.vx, sendVel.vy);
     soundManager.playClaimVoiceLine();
     setLandedPlanet(null);
 
@@ -2370,10 +2392,11 @@ function App() {
 
     if (newPosition) {
       gameRef.current?.setSendTarget(newPosition.x, newPosition.y);
+      broadcastSendTarget(planet.id, newPosition.x, newPosition.y);
     } else {
       console.error('Failed to claim planet');
     }
-  }, [state.currentUser, claimNotionPlanet]);
+  }, [state.currentUser, claimNotionPlanet, broadcastSendStart, broadcastSendTarget]);
 
   // Handle opening Notion URL
   const handleOpenNotion = useCallback((url: string) => {
@@ -2397,6 +2420,8 @@ function App() {
 
     // Start the rocket animation and play voice line immediately
     gameRef.current?.startSendAnimation(reassignPlanet);
+    const sendVel = gameRef.current?.getSendVelocity();
+    if (sendVel) broadcastSendStart(reassignPlanet.id, sendVel.vx, sendVel.vy);
     const isSelf = newOwner === state.currentUser;
     if (isSelf) {
       soundManager.playClaimVoiceLine();
@@ -2412,6 +2437,7 @@ function App() {
 
       if (result?.success && result.new_position) {
         gameRef.current?.setSendTarget(result.new_position.x, result.new_position.y);
+        broadcastSendTarget(reassignPlanet.id, result.new_position.x, result.new_position.y);
         setEventNotification({ message: `Task unassigned`, type: 'mission' });
       } else {
         setEventNotification({ message: `Failed to unassign task`, type: 'blackhole' });
@@ -2428,6 +2454,7 @@ function App() {
       if (newPosition) {
         // Set target - rocket will steer toward it
         gameRef.current?.setSendTarget(newPosition.x, newPosition.y);
+        broadcastSendTarget(reassignPlanet.id, newPosition.x, newPosition.y);
         setEventNotification({ message: `Task sent to ${ownerName}!`, type: 'mission' });
         setTimeout(() => setEventNotification(null), 3000);
       } else {
@@ -2437,7 +2464,7 @@ function App() {
     }
 
     setReassignPlanet(null);
-  }, [reassignPlanet, reassignNotionPlanet, updateNotionPlanet]);
+  }, [reassignPlanet, reassignNotionPlanet, updateNotionPlanet, broadcastSendStart, broadcastSendTarget]);
 
   // Handle edit request - opens modal to edit task properties
   const handleEditRequest = useCallback((planet: Planet) => {
@@ -2461,6 +2488,8 @@ function App() {
     if (assigneeChanged && updates.assigned_to) {
       // Start rocket animation for reassignment
       gameRef.current?.startSendAnimation(editPlanet);
+      const sendVel = gameRef.current?.getSendVelocity();
+      if (sendVel) broadcastSendStart(editPlanet.id, sendVel.vx, sendVel.vy);
       const isSelf = updates.assigned_to === state.currentUser;
       if (isSelf) {
         soundManager.playClaimVoiceLine();
@@ -2476,6 +2505,7 @@ function App() {
     if (result?.success) {
       if (assigneeChanged && result.new_position) {
         gameRef.current?.setSendTarget(result.new_position.x, result.new_position.y);
+        broadcastSendTarget(editPlanet.id, result.new_position.x, result.new_position.y);
         if (updates.assigned_to) {
           const ownerName = updates.assigned_to.charAt(0).toUpperCase() + updates.assigned_to.slice(1);
           setEventNotification({ message: `Task updated and sent to ${ownerName}!`, type: 'mission' });
@@ -2492,7 +2522,7 @@ function App() {
     }
 
     setEditPlanet(null);
-  }, [editPlanet, updateNotionPlanet]);
+  }, [editPlanet, updateNotionPlanet, broadcastSendStart, broadcastSendTarget]);
 
   // Handle take-off from React landed modal
   const handleModalTakeOff = useCallback(() => {
@@ -2510,6 +2540,8 @@ function App() {
 
     // Start rocket animation + sound
     gameRef.current?.startSendAnimation(planet);
+    const sendVel = gameRef.current?.getSendVelocity();
+    if (sendVel) broadcastSendStart(planet.id, sendVel.vx, sendVel.vy);
     const isSelf = newOwner === state.currentUser;
     if (isSelf) {
       soundManager.playClaimVoiceLine();
@@ -2523,6 +2555,7 @@ function App() {
       const result = await updateNotionPlanet(planet.id, { assigned_to: null });
       if (result?.success && result.new_position) {
         gameRef.current?.setSendTarget(result.new_position.x, result.new_position.y);
+        broadcastSendTarget(planet.id, result.new_position.x, result.new_position.y);
         setEventNotification({ message: `Task unassigned`, type: 'mission' });
       } else {
         setEventNotification({ message: `Failed to unassign task`, type: 'blackhole' });
@@ -2534,13 +2567,14 @@ function App() {
       const newPosition = await reassignNotionPlanet(planet.id, newOwner);
       if (newPosition) {
         gameRef.current?.setSendTarget(newPosition.x, newPosition.y);
+        broadcastSendTarget(planet.id, newPosition.x, newPosition.y);
         setEventNotification({ message: isSelf ? `Task claimed!` : `Task sent to ${ownerName}!`, type: 'mission' });
       } else {
         setEventNotification({ message: isSelf ? `Failed to claim task` : `Failed to send task`, type: 'blackhole' });
       }
       setTimeout(() => setEventNotification(null), 3000);
     }
-  }, [state.currentUser, updateNotionPlanet, reassignNotionPlanet]);
+  }, [state.currentUser, updateNotionPlanet, reassignNotionPlanet, broadcastSendStart, broadcastSendTarget]);
 
   // Handle delete from React landed modal
   const handleLandedDelete = useCallback((planet: Planet) => {

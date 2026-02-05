@@ -88,6 +88,48 @@ wss.on('connection', (ws, req) => {
         return;
       }
 
+      // Send animation start broadcast (planet pushed in random direction)
+      if (msg.type === 'send_start' && teamId) {
+        const teamPlayers = teams.get(teamId);
+        if (!teamPlayers) return;
+
+        const payload = JSON.stringify({
+          type: 'send_start',
+          playerId: playerId,
+          planetId: msg.planetId,
+          velocityX: msg.velocityX,
+          velocityY: msg.velocityY,
+        });
+
+        for (const [otherPlayerId, otherWs] of teamPlayers) {
+          if (otherPlayerId !== playerId && otherWs.readyState === WebSocket.OPEN) {
+            otherWs.send(payload);
+          }
+        }
+        return;
+      }
+
+      // Send animation target broadcast (planet steers toward destination)
+      if (msg.type === 'send_target' && teamId) {
+        const teamPlayers = teams.get(teamId);
+        if (!teamPlayers) return;
+
+        const payload = JSON.stringify({
+          type: 'send_target',
+          playerId: playerId,
+          planetId: msg.planetId,
+          targetX: msg.targetX,
+          targetY: msg.targetY,
+        });
+
+        for (const [otherPlayerId, otherWs] of teamPlayers) {
+          if (otherPlayerId !== playerId && otherWs.readyState === WebSocket.OPEN) {
+            otherWs.send(payload);
+          }
+        }
+        return;
+      }
+
     } catch (err) {
       console.error('[ERROR] Failed to parse message:', err.message);
     }
