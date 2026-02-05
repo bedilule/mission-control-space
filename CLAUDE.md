@@ -334,7 +334,7 @@ Data syncs to Supabase on changes and periodically (every ~5 seconds for positio
 
 ## Git Rules
 
-- Never push directly to `main` - use feature branches
+- Pushing directly to `main` is fine for this repo
 - No Claude Code footers in commit messages
 - Ask before committing - don't auto-commit after code changes
 - Check `git status` before any branch operations
