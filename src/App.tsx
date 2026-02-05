@@ -529,6 +529,9 @@ function App() {
   const [keyboardLayout, setKeyboardLayout] = useState<'qwerty' | 'azerty'>(
     () => (localStorage.getItem('mission-control-keyboard-layout') as 'qwerty' | 'azerty') || 'qwerty'
   );
+  const [autoOpenNotion, setAutoOpenNotion] = useState(
+    () => localStorage.getItem('mission-control-auto-open-notion') === 'true'
+  );
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [showPointsHistory, setShowPointsHistory] = useState(false);
   const [pointsHistoryTab, setPointsHistoryTab] = useState<'personal' | 'team'>('personal');
@@ -3421,9 +3424,13 @@ function App() {
 
       // Create Notion task in background
       supabase.functions.invoke('notion-create', { body: payload })
-        .then(({ error }) => {
+        .then(({ data, error }) => {
           if (error) {
             console.error('Failed to create Notion task:', error);
+            return;
+          }
+          if (autoOpenNotion && data?.notion_url) {
+            window.open(data.notion_url, '_blank');
           }
         })
         .catch((error) => {

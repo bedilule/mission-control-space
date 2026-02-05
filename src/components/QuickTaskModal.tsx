@@ -36,6 +36,9 @@ export function QuickTaskModal({ isOpen, onClose, currentUser, teamMembers, onCr
   const [taskType, setTaskType] = useState<'task' | 'bug' | 'feature'>('task');
   const [priority, setPriority] = useState<'low' | 'medium' | 'high' | 'critical'>('medium');
   const [assignedTo, setAssignedTo] = useState(currentUser);
+  const [autoOpenNotion, setAutoOpenNotion] = useState(
+    () => localStorage.getItem('mission-control-auto-open-notion') === 'true'
+  );
 
   if (!isOpen) return null;
 
@@ -70,9 +73,13 @@ export function QuickTaskModal({ isOpen, onClose, currentUser, teamMembers, onCr
 
     // Create task in background
     supabase.functions.invoke('notion-create', { body: payload })
-      .then(({ error }) => {
+      .then(({ data, error }) => {
         if (error) {
           console.error('Failed to create Notion task:', error);
+          return;
+        }
+        if (autoOpenNotion && data?.notion_url) {
+          window.open(data.notion_url, '_blank');
         }
       })
       .catch((error) => {
@@ -245,6 +252,46 @@ export function QuickTaskModal({ isOpen, onClose, currentUser, teamMembers, onCr
           >
             Create Task
           </button>
+        </div>
+
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
+            marginTop: '1rem',
+            cursor: 'pointer',
+            userSelect: 'none',
+          }}
+          onClick={() => {
+            const newValue = !autoOpenNotion;
+            setAutoOpenNotion(newValue);
+            localStorage.setItem('mission-control-auto-open-notion', String(newValue));
+          }}
+        >
+          <div style={{
+            width: 28,
+            height: 14,
+            borderRadius: 7,
+            background: autoOpenNotion ? 'rgba(0, 200, 255, 0.4)' : 'rgba(255,255,255,0.1)',
+            position: 'relative',
+            transition: 'background 0.2s ease',
+          }}>
+            <div style={{
+              width: 10,
+              height: 10,
+              borderRadius: '50%',
+              background: autoOpenNotion ? '#00c8ff' : '#555',
+              position: 'absolute',
+              top: 2,
+              left: autoOpenNotion ? 16 : 2,
+              transition: 'all 0.2s ease',
+            }} />
+          </div>
+          <span style={{ color: autoOpenNotion ? '#00c8ff' : '#555', fontSize: '0.7rem', letterSpacing: '0.02em' }}>
+            Auto-open in Notion
+          </span>
         </div>
 
         <p style={styles.shortcutHint}>Press Esc to close</p>
