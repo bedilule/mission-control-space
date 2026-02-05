@@ -2099,10 +2099,12 @@ export class SpaceGame {
     this.isSending = true;
   }
 
-  // Create a temporary planet at ship position and animate it toward home zone
+  // Create a temporary planet at ship position and animate it toward a player's zone
   // Target is set when the real planet arrives via realtime sync (smooth redirect, no teleport)
-  public startNewTaskSendAnimation(taskName: string, taskType: string, priority: string): { vx: number; vy: number } | null {
+  // assignedTo: player name, empty string for unassigned, undefined defaults to current user
+  public startNewTaskSendAnimation(taskName: string, taskType: string, priority: string, assignedTo?: string): { vx: number; vy: number } | null {
     const { ship } = this.state;
+    const owner = assignedTo === undefined ? this.currentUser : (assignedTo || null);
 
     // Determine color based on task type
     const typeColors: Record<string, { color: string; glowColor: string }> = {
@@ -2131,7 +2133,7 @@ export class SpaceGame {
       completed: false,
       type: 'notion',
       size,
-      ownerId: this.currentUser,
+      ownerId: owner,
       taskType,
       priority,
     };
@@ -7030,10 +7032,10 @@ export class SpaceGame {
       }
     }
 
-    // Takeoff hint
+    // Close hint
     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.font = '12px Space Grotesk';
-    ctx.fillText('[ SPACE ] to take off', boxX + boxWidth / 2, boxY + boxHeight - 12);
+    ctx.fillText('[ ESC ] to close', boxX + boxWidth / 2, boxY + boxHeight - 12);
 
     ctx.restore();
   }

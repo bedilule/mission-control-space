@@ -3867,9 +3867,19 @@ function App() {
           isOpen={showQuickTaskModal}
           onClose={() => setShowQuickTaskModal(false)}
           currentUser={state.currentUser || 'unknown'}
+          teamMembers={USERS.map(u => ({
+            id: u.id,
+            name: u.name,
+            color: u.color,
+            shipImage: userShips[u.id]?.currentImage || '/ship-base.png',
+          }))}
           onCreatedForSelf={(taskName, taskType, priority) => {
             soundManager.playClaimVoiceLine();
             gameRef.current?.startNewTaskSendAnimation(taskName, taskType, priority);
+          }}
+          onCreatedForOther={(taskName, taskType, priority, assignedTo) => {
+            soundManager.playSendVoiceLine();
+            gameRef.current?.startNewTaskSendAnimation(taskName, taskType, priority, assignedTo);
           }}
         />
       )}

@@ -483,10 +483,10 @@ export function LandedPlanetModal({
           <div style={styles.shopHint}>Equip weapons in Shop to destroy</div>
         )}
 
-        {/* Take off */}
+        {/* Close hint */}
         <div style={styles.takeOffRow}>
           <span style={styles.takeOffText} onClick={onTakeOff}>
-            [ SPACE ] to take off
+            [ ESC ] to close
           </span>
         </div>
       </div>

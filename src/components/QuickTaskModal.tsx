@@ -1,23 +1,29 @@
 import { useState } from 'react';
 import { supabase } from '../lib/supabase';
 
+interface TeamMember {
+  id: string;
+  name: string;
+  color: string;
+  shipImage: string;
+}
+
 interface QuickTaskModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentUser: string;
+  teamMembers: TeamMember[];
   onCreatedForSelf?: (taskName: string, taskType: string, priority: string) => void;
+  onCreatedForOther?: (taskName: string, taskType: string, priority: string, assignedTo: string) => void;
 }
 
-const TEAM_MEMBERS = [
-  { id: '', name: 'Unassigned' },
-  { id: 'quentin', name: 'Quentin' },
-  { id: 'armel', name: 'Armel' },
-  { id: 'alex', name: 'Alex' },
-  { id: 'milya', name: 'Milya' },
-  { id: 'hugues', name: 'Hugues' },
-];
+const TASK_TYPES = [
+  { value: 'task', label: 'Task', image: '/notion-task.png' },
+  { value: 'bug', label: 'Bug', image: '/notion-bug.png' },
+  { value: 'feature', label: 'Feature', image: '/notion-enhancement.png' },
+] as const;
 
-export function QuickTaskModal({ isOpen, onClose, currentUser, onCreatedForSelf }: QuickTaskModalProps) {
+export function QuickTaskModal({ isOpen, onClose, currentUser, teamMembers, onCreatedForSelf, onCreatedForOther }: QuickTaskModalProps) {
   const [taskName, setTaskName] = useState('');
   const [description, setDescription] = useState('');
   const [taskType, setTaskType] = useState<'task' | 'bug' | 'feature'>('task');
@@ -39,9 +45,12 @@ export function QuickTaskModal({ isOpen, onClose, currentUser, onCreatedForSelf 
       created_by: currentUser,
     };
 
-    // Play voice line + send animation if assigning to self
+    // Play voice line + send animation
     if (assignedTo === currentUser && onCreatedForSelf) {
       onCreatedForSelf(payload.name, taskType, priority);
+    } else if (onCreatedForOther) {
+      // Assigned to someone else or unassigned — send animation + delivery sounds
+      onCreatedForOther(payload.name, taskType, priority, assignedTo);
     }
 
     // Reset form and close immediately
@@ -100,46 +109,105 @@ export function QuickTaskModal({ isOpen, onClose, currentUser, onCreatedForSelf 
           />
         </div>
 
-        <div style={styles.formRow}>
-          <div style={{ ...styles.formGroup, flex: 1 }}>
-            <label style={styles.label}>Type</label>
-            <select
-              style={styles.select}
-              value={taskType}
-              onChange={(e) => setTaskType(e.target.value as 'task' | 'bug' | 'feature')}
-            >
-              <option value="task">Task</option>
-              <option value="bug">Bug</option>
-              <option value="feature">Feature</option>
-            </select>
-          </div>
-
-          <div style={{ ...styles.formGroup, flex: 1 }}>
-            <label style={styles.label}>Priority</label>
-            <select
-              style={styles.select}
-              value={priority}
-              onChange={(e) => setPriority(e.target.value as 'low' | 'medium' | 'high' | 'critical')}
-            >
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-              <option value="critical">Critical</option>
-            </select>
+        <div style={styles.formGroup}>
+          <label style={styles.label}>Type</label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {TASK_TYPES.map(t => {
+              const isSelected = taskType === t.value;
+              return (
+                <button
+                  key={t.value}
+                  type="button"
+                  onClick={() => setTaskType(t.value as 'task' | 'bug' | 'feature')}
+                  style={{
+                    ...styles.typePill,
+                    borderColor: isSelected ? '#00c8ff' : 'transparent',
+                    background: isSelected ? 'rgba(0,200,255,0.12)' : 'rgba(255,255,255,0.05)',
+                  }}
+                >
+                  <img src={t.image} alt="" style={{ width: 20, height: 20, objectFit: 'contain' }} />
+                  <span style={{ color: isSelected ? '#fff' : '#aaa', fontSize: '0.85rem' }}>{t.label}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
         <div style={styles.formGroup}>
-          <label style={styles.label}>Assign To</label>
+          <label style={styles.label}>Priority</label>
           <select
             style={styles.select}
-            value={assignedTo}
-            onChange={(e) => setAssignedTo(e.target.value)}
+            value={priority}
+            onChange={(e) => setPriority(e.target.value as 'low' | 'medium' | 'high' | 'critical')}
           >
-            {TEAM_MEMBERS.map(member => (
-              <option key={member.id} value={member.id}>{member.name}</option>
-            ))}
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="critical">Critical</option>
           </select>
+        </div>
+
+        <div style={styles.formGroup}>
+          <label style={styles.label}>Assign To</label>
+          <div style={styles.playerPillsContainer}>
+            {teamMembers.map(member => {
+              const isSelected = assignedTo === member.id;
+              return (
+                <button
+                  key={member.id}
+                  type="button"
+                  onClick={() => setAssignedTo(member.id)}
+                  style={{
+                    ...styles.playerPill,
+                    borderColor: isSelected ? member.color : 'transparent',
+                    background: isSelected
+                      ? `rgba(${hexToRgb(member.color)}, 0.15)`
+                      : 'rgba(255,255,255,0.03)',
+                  }}
+                >
+                  <img
+                    src={member.shipImage}
+                    alt={member.name}
+                    style={{
+                      width: 28,
+                      height: 28,
+                      objectFit: 'contain',
+                      flexShrink: 0,
+                    }}
+                  />
+                  <span style={{
+                    color: isSelected ? member.color : '#aaa',
+                    fontSize: '0.8rem',
+                    fontWeight: isSelected ? 600 : 400,
+                  }}>{member.name}</span>
+                </button>
+              );
+            })}
+            {/* Unassigned option - last */}
+            <button
+              type="button"
+              onClick={() => setAssignedTo('')}
+              style={{
+                ...styles.playerPill,
+                borderColor: assignedTo === '' ? '#666' : 'transparent',
+                background: assignedTo === '' ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.03)',
+              }}
+            >
+              <div style={{
+                width: 28,
+                height: 28,
+                borderRadius: '50%',
+                background: 'rgba(255,255,255,0.1)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '0.75rem',
+                color: '#666',
+                flexShrink: 0,
+              }}>?</div>
+              <span style={{ color: '#888', fontSize: '0.8rem' }}>None</span>
+            </button>
+          </div>
         </div>
 
         <div style={styles.modalButtons}>
@@ -168,6 +236,13 @@ export function QuickTaskModal({ isOpen, onClose, currentUser, onCreatedForSelf 
   );
 }
 
+function hexToRgb(hex: string): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `${r}, ${g}, ${b}`;
+}
+
 const styles: Record<string, React.CSSProperties> = {
   modalOverlay: {
     position: 'fixed',
@@ -189,6 +264,7 @@ const styles: Record<string, React.CSSProperties> = {
     maxWidth: 420,
     maxHeight: '90vh',
     overflowY: 'auto',
+    scrollbarWidth: 'none',
     border: '1px solid #00c8ff',
     boxShadow: '0 0 30px rgba(0, 200, 255, 0.2)',
   },
@@ -260,6 +336,37 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     fontSize: '1rem',
     fontWeight: 600,
+  },
+  typePill: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '6px 10px',
+    border: '2px solid transparent',
+    borderRadius: 10,
+    cursor: 'pointer',
+    outline: 'none',
+    fontFamily: 'inherit',
+    transition: 'all 0.15s ease',
+    flex: 1,
+    justifyContent: 'center',
+  },
+  playerPillsContainer: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  playerPill: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '6px 12px 6px 6px',
+    border: '2px solid transparent',
+    borderRadius: 12,
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+    outline: 'none',
+    fontFamily: 'inherit',
   },
   shortcutHint: {
     textAlign: 'center',
