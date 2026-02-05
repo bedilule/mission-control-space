@@ -935,6 +935,10 @@ export class SpaceGame {
       !p.id.startsWith('notion-') || p.id === claimingPlanetId || p.id === sendingPlanetId || remoteSendingPlanetIds.has(p.id)
     );
 
+    // Check if we're sending a temp new-task planet (needs to find matching real planet)
+    const isSendingTempTask = sendingPlanetId?.startsWith('temp-new-task-');
+    const tempPlanet = isSendingTempTask ? this.state.planets.find(p => p.id === sendingPlanetId) : null;
+
     // Add new notion planets EXCEPT ones being claimed/sent/remote-animated (keep animation's reference)
     for (const planet of notionPlanets) {
       if (planet.id === claimingPlanetId) {
@@ -945,6 +949,11 @@ export class SpaceGame {
         this.sendPendingPlanet = planet;
       } else if (remoteSendingPlanetIds.has(planet.id)) {
         // Remote send animation controls this planet — skip replacement
+      } else if (isSendingTempTask && tempPlanet && !this.sendTargetReady &&
+                 planet.name === tempPlanet.name && planet.ownerId === tempPlanet.ownerId) {
+        // Real planet arrived for our temp new-task animation — redirect to its position
+        this.setSendTarget(planet.x, planet.y);
+        this.sendPendingPlanet = planet;
       } else {
         this.state.planets.push(planet);
 
@@ -2090,14 +2099,10 @@ export class SpaceGame {
     this.isSending = true;
   }
 
-  // Create a temporary planet at ship position and animate it to the player's home zone
-  // Used when creating a task assigned to yourself
+  // Create a temporary planet at ship position and animate it toward home zone
+  // Target is set when the real planet arrives via realtime sync (smooth redirect, no teleport)
   public startNewTaskSendAnimation(taskName: string, taskType: string, priority: string): { vx: number; vy: number } | null {
     const { ship } = this.state;
-
-    // Find the current user's home zone
-    const playerZone = ZONES.find(z => z.ownerId === this.currentUser);
-    if (!playerZone) return null;
 
     // Determine color based on task type
     const typeColors: Record<string, { color: string; glowColor: string }> = {
@@ -2133,13 +2138,8 @@ export class SpaceGame {
 
     this.state.planets.push(tempPlanet);
 
-    // Start send animation
+    // Start send animation — flies in random direction until real planet arrives via sync
     this.startSendAnimation(tempPlanet);
-
-    // Set target to home zone immediately (with some random offset for variety)
-    const offsetX = (Math.random() - 0.5) * 300;
-    const offsetY = (Math.random() - 0.5) * 300;
-    this.setSendTarget(playerZone.centerX + offsetX, playerZone.centerY + offsetY);
 
     return this.getSendVelocity();
   }
