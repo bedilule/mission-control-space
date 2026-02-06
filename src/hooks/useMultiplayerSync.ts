@@ -218,6 +218,26 @@ export function useMultiplayerSync(options: UseMultiplayerSyncOptions): UseMulti
     }
   }, [teamId, username, displayName, color]);
 
+  // Log session event (login/logout) to player_sessions table
+  const logSessionEvent = useCallback(async (eventType: 'login' | 'logout') => {
+    if (!playerDbIdRef.current) return;
+    try {
+      await supabase.from('player_sessions').insert({
+        player_id: playerDbIdRef.current,
+        username,
+        display_name: displayName,
+        event_type: eventType,
+      });
+    } catch (err) {
+      console.error('[logSessionEvent] Failed to log', eventType, err);
+    }
+  }, [username, displayName]);
+
+  // Track whether we've already logged a login for this session
+  const hasLoggedLoginRef = useRef(false);
+  // Track last logged status to avoid duplicate logout entries
+  const lastLoggedStatusRef = useRef<boolean | null>(null);
+
   // Update player online status
   const updateOnlineStatus = useCallback(async (isOnline: boolean) => {
     if (!playerDbIdRef.current) return;
@@ -229,7 +249,15 @@ export function useMultiplayerSync(options: UseMultiplayerSyncOptions): UseMulti
         last_seen: new Date().toISOString(),
       })
       .eq('id', playerDbIdRef.current);
-  }, []);
+
+    // Log logout events (login is logged after registerPlayer)
+    if (!isOnline && lastLoggedStatusRef.current !== false) {
+      lastLoggedStatusRef.current = false;
+      logSessionEvent('logout');
+    } else if (isOnline) {
+      lastLoggedStatusRef.current = true;
+    }
+  }, [logSessionEvent]);
 
   // Fetch initial team data
   const fetchTeamData = useCallback(async () => {
@@ -627,6 +655,12 @@ export function useMultiplayerSync(options: UseMultiplayerSyncOptions): UseMulti
 
       // NOW register player and fetch data - subscription is active so we won't miss events
       await registerPlayer();
+      // Log login session event (only once per mount)
+      if (!hasLoggedLoginRef.current && playerDbIdRef.current) {
+        hasLoggedLoginRef.current = true;
+        lastLoggedStatusRef.current = true;
+        logSessionEvent('login');
+      }
       await fetchTeamData();
     };
 
@@ -641,6 +675,9 @@ export function useMultiplayerSync(options: UseMultiplayerSyncOptions): UseMulti
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;
       }
+      // Reset session tracking for next mount
+      hasLoggedLoginRef.current = false;
+      lastLoggedStatusRef.current = null;
       // Clear player ref when effect re-runs (e.g., user switch)
       playerDbIdRef.current = null;
     };

@@ -586,7 +586,15 @@ function App() {
   const [showSyncDetails, setShowSyncDetails] = useState(false);
 
   // Admin panel state
-  const [adminTab, setAdminTab] = useState<'goals' | 'players' | 'notion' | 'reset' | 'debug'>('goals');
+  const [adminTab, setAdminTab] = useState<'goals' | 'players' | 'activity' | 'notion' | 'reset' | 'debug'>('goals');
+  const [activityLog, setActivityLog] = useState<Array<{
+    id: string;
+    username: string;
+    display_name: string;
+    event_type: 'login' | 'logout';
+    created_at: string;
+  }>>([]);
+  const [activityLoading, setActivityLoading] = useState(false);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   const [playerPointsInput, setPlayerPointsInput] = useState('');
   const [debugShipLevel, setDebugShipLevel] = useState(1);
@@ -5884,6 +5892,7 @@ function App() {
                   {([
                     { id: 'goals', label: '🎯 Goals' },
                     { id: 'players', label: '👥 Players' },
+                    { id: 'activity', label: '📊 Activity' },
                     { id: 'notion', label: '📋 Notion' },
                     { id: 'reset', label: '🗑️ Reset' },
                     { id: 'debug', label: '🔧 Debug' },
@@ -5902,7 +5911,19 @@ function App() {
                         fontSize: '0.85rem',
                         transition: 'all 0.2s',
                       }}
-                      onClick={() => setAdminTab(tab.id)}
+                      onClick={async () => {
+                        setAdminTab(tab.id);
+                        if (tab.id === 'activity' && activityLog.length === 0) {
+                          setActivityLoading(true);
+                          const { data } = await supabase
+                            .from('player_sessions')
+                            .select('*')
+                            .order('created_at', { ascending: false })
+                            .limit(100);
+                          if (data) setActivityLog(data);
+                          setActivityLoading(false);
+                        }
+                      }}
                     >
                       {tab.label}
                     </button>
@@ -6152,6 +6173,133 @@ function App() {
                       <p style={{ color: '#666', textAlign: 'center', padding: '2rem 0' }}>
                         Select a player to manage their data
                       </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Activity Log Tab */}
+                {adminTab === 'activity' && (
+                  <div style={{ ...styles.resetSection, borderColor: '#22d3ee' }}>
+                    <h3 style={{ ...styles.resetSectionTitle, color: '#22d3ee' }}>📊 Activity Log</h3>
+
+                    <button
+                      style={{
+                        ...styles.saveButton,
+                        marginBottom: '1rem',
+                        width: '100%',
+                        opacity: activityLoading ? 0.6 : 1,
+                      }}
+                      disabled={activityLoading}
+                      onClick={async () => {
+                        setActivityLoading(true);
+                        const { data, error } = await supabase
+                          .from('player_sessions')
+                          .select('*')
+                          .order('created_at', { ascending: false })
+                          .limit(100);
+                        if (data && !error) {
+                          setActivityLog(data);
+                        }
+                        setActivityLoading(false);
+                      }}
+                    >
+                      {activityLoading ? 'Loading...' : 'Refresh'}
+                    </button>
+
+                    {activityLog.length === 0 ? (
+                      <p style={{ color: '#666', textAlign: 'center', padding: '2rem 0' }}>
+                        {activityLoading ? 'Loading activity...' : 'No activity yet. Click Refresh to load.'}
+                      </p>
+                    ) : (
+                      <div style={{
+                        maxHeight: '50vh',
+                        overflow: 'auto',
+                        scrollbarWidth: 'none',
+                        msOverflowStyle: 'none',
+                      }}>
+                        <style>{`.activity-scroll::-webkit-scrollbar { display: none; }`}</style>
+                        <div className="activity-scroll" style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '4px',
+                        }}>
+                          {activityLog.map((entry) => {
+                            const player = teamPlayers.find(p => p.username === entry.username);
+                            const playerColor = player?.color || '#888';
+                            const isLogin = entry.event_type === 'login';
+                            const time = new Date(entry.created_at);
+                            const now = new Date();
+                            const diffMs = now.getTime() - time.getTime();
+                            const diffMins = Math.floor(diffMs / 60000);
+                            const diffHours = Math.floor(diffMins / 60);
+                            const diffDays = Math.floor(diffHours / 24);
+                            let timeAgo = '';
+                            if (diffMins < 1) timeAgo = 'just now';
+                            else if (diffMins < 60) timeAgo = `${diffMins}m ago`;
+                            else if (diffHours < 24) timeAgo = `${diffHours}h ago`;
+                            else timeAgo = `${diffDays}d ago`;
+
+                            return (
+                              <div
+                                key={entry.id}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '10px',
+                                  padding: '8px 12px',
+                                  background: isLogin
+                                    ? 'rgba(74, 222, 128, 0.06)'
+                                    : 'rgba(239, 68, 68, 0.06)',
+                                  borderRadius: '6px',
+                                  borderLeft: `3px solid ${isLogin ? '#4ade80' : '#ef4444'}`,
+                                }}
+                              >
+                                <div style={{
+                                  width: 8,
+                                  height: 8,
+                                  borderRadius: '50%',
+                                  background: isLogin ? '#4ade80' : '#ef4444',
+                                  flexShrink: 0,
+                                }} />
+                                <div style={{
+                                  width: 28,
+                                  height: 28,
+                                  borderRadius: '50%',
+                                  background: playerColor,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 'bold',
+                                  color: '#fff',
+                                  flexShrink: 0,
+                                }}>
+                                  {(entry.display_name || entry.username).charAt(0).toUpperCase()}
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <span style={{ color: playerColor, fontWeight: 600, fontSize: '0.85rem' }}>
+                                    {entry.display_name || entry.username}
+                                  </span>
+                                  <span style={{ color: '#888', fontSize: '0.8rem', marginLeft: '6px' }}>
+                                    {isLogin ? 'logged in' : 'logged out'}
+                                  </span>
+                                </div>
+                                <div style={{
+                                  color: '#666',
+                                  fontSize: '0.75rem',
+                                  flexShrink: 0,
+                                  textAlign: 'right',
+                                }}>
+                                  <div>{timeAgo}</div>
+                                  <div style={{ fontSize: '0.65rem', color: '#555' }}>
+                                    {time.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} {time.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
                     )}
                   </div>
                 )}
