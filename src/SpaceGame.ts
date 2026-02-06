@@ -1496,7 +1496,7 @@ export class SpaceGame {
         // Sound: collision
         soundManager.playCollision();
 
-        // Collision voice: trigger on boost-speed hit or 10+ bumps in 3s
+        // Collision voice: trigger on full-speed hit or 100+ bumps in 3s
         const isBoosting = this.keys.has('shift');
         const now = performance.now();
         if (now - this.collisionBumpTimer > 3000) {
@@ -1505,7 +1505,13 @@ export class SpaceGame {
         this.collisionBumpCount++;
         this.collisionBumpTimer = now;
 
-        if ((isBoosting || this.collisionBumpCount >= 10) && this.onCollisionVoice && now - this.lastCollisionVoice > 5000) {
+        // Check if player is at max speed (90%+ of their current max)
+        const collisionSpeedMultiplier = 1 + ((this.shipEffects.speedBonus || 0) * 0.2);
+        const currentMaxSpeed = (isBoosting ? SHIP_BOOST_MAX_SPEED : SHIP_MAX_SPEED) * collisionSpeedMultiplier;
+        const collisionSpeed = Math.sqrt(ship.vx ** 2 + ship.vy ** 2);
+        const isFullSpeed = collisionSpeed >= currentMaxSpeed * 0.9;
+
+        if ((isFullSpeed || this.collisionBumpCount >= 100) && this.onCollisionVoice && now - this.lastCollisionVoice > 5000) {
           this.collisionBumpCount = 0;
           this.lastCollisionVoice = now;
           this.onCollisionVoice();
