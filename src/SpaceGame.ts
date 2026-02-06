@@ -1485,6 +1485,9 @@ export class SpaceGame {
         ship.x += nx * overlap;
         ship.y += ny * overlap;
 
+        // Capture speed BEFORE reflection for collision voice check
+        const preCollisionSpeed = Math.sqrt(ship.vx ** 2 + ship.vy ** 2);
+
         // Reflect velocity
         const dot = ship.vx * nx + ship.vy * ny;
         ship.vx -= 2 * dot * nx * 0.6;
@@ -1505,11 +1508,10 @@ export class SpaceGame {
         this.collisionBumpCount++;
         this.collisionBumpTimer = now;
 
-        // Check if player is at max speed (90%+ of their current max)
+        // Check if player was at max speed before bounce (80%+ of their current max)
         const collisionSpeedMultiplier = 1 + ((this.shipEffects.speedBonus || 0) * 0.2);
         const currentMaxSpeed = (isBoosting ? SHIP_BOOST_MAX_SPEED : SHIP_MAX_SPEED) * collisionSpeedMultiplier;
-        const collisionSpeed = Math.sqrt(ship.vx ** 2 + ship.vy ** 2);
-        const isFullSpeed = collisionSpeed >= currentMaxSpeed * 0.9;
+        const isFullSpeed = preCollisionSpeed >= currentMaxSpeed * 0.8;
 
         if ((isFullSpeed || this.collisionBumpCount >= 100) && this.onCollisionVoice && now - this.lastCollisionVoice > 5000) {
           this.collisionBumpCount = 0;
