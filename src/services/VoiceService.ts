@@ -1,5 +1,5 @@
 const ELEVENLABS_KEY = 'sk_3d39d8b1fae43e41bc56d8f67e1890fac778d2dcb464a69c';
-const ELEVENLABS_VOICE = 'TDmjk7hPaTls0MPeE6PT'; // Lucien - ship AI
+const ELEVENLABS_VOICE = 'CwhRBWXzGAHq8TQ4Fs17'; // Roger - default ship AI
 const ELEVENLABS_SHOP_VOICE = 'Z7RrOqZFTyLpIlzCgfsp'; // Toby - Little Mythical Monster (shop merchant goblin)
 const SUPABASE_URL = 'https://qdizfhhsqolvuddoxugj.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFkaXpmaGhzcW9sdnVkZG94dWdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk4NzY1MjMsImV4cCI6MjA4NTQ1MjUyM30.W00V-_gmfGT19HcSfpwmFNEDlXg6Wt6rZCE_gVPj4fw';
@@ -33,8 +33,6 @@ function buildUserMessage(ctx: GreetingContext): string {
   } else if (ctx.playerRank === 1) {
     parts.push(`Currently #1 on the leaderboard.`);
   }
-
-  parts.push(`Has ${ctx.currencyPoints} credits to spend.`);
 
   if (ctx.onlinePlayers && ctx.onlinePlayers.length > 0) {
     parts.push(`Online: ${ctx.onlinePlayers.join(', ')}.`);
@@ -75,17 +73,23 @@ class VoiceService {
 
   private pendingShopAudio: Promise<Blob | null> | null = null;
 
+  private static buildShopMessage(ctx: ShopContext): string {
+    const parts = [`Player: ${ctx.playerName}. Credits: ${ctx.credits}.`];
+    if (ctx.unownedItems.length > 0) {
+      // Shuffle so the LLM doesn't always fixate on the first item
+      const shuffled = [...ctx.unownedItems].sort(() => Math.random() - 0.5);
+      parts.push(`Available to buy (in no particular order): ${shuffled.join(', ')}.`);
+    } else {
+      parts.push('Owns everything in the shop.');
+    }
+    return parts.join(' ');
+  }
+
   prepareShopGreeting(ctx: ShopContext): void {
     if (!this.enabled) return;
 
     const t0 = performance.now();
-    const parts = [`Player: ${ctx.playerName}. Credits: ${ctx.credits}.`];
-    if (ctx.unownedItems.length > 0) {
-      parts.push(`Available to buy: ${ctx.unownedItems.join(', ')}.`);
-    } else {
-      parts.push('Owns everything in the shop.');
-    }
-    const userMessage = parts.join(' ');
+    const userMessage = VoiceService.buildShopMessage(ctx);
     console.log('[Voice] Pre-generating shop greeting...');
     console.log('[Voice] Shop context:', ctx);
 
@@ -144,13 +148,7 @@ class VoiceService {
 
     const t0 = performance.now();
     try {
-      const parts = [`Player: ${ctx.playerName}. Credits: ${ctx.credits}.`];
-      if (ctx.unownedItems.length > 0) {
-        parts.push(`Available to buy: ${ctx.unownedItems.join(', ')}.`);
-      } else {
-        parts.push('Owns everything in the shop.');
-      }
-      const userMessage = parts.join(' ');
+      const userMessage = VoiceService.buildShopMessage(ctx);
       console.log('[Voice] Shop greeting (not pre-generated):', ctx);
 
       const res = await fetch(`${SUPABASE_URL}/functions/v1/voice-greeting`, {
