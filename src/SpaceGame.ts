@@ -172,6 +172,8 @@ export class SpaceGame {
   private keys: Set<string> = new Set();
   private keyboardLayout: 'qwerty' | 'azerty' = 'qwerty';
   private animationId: number = 0;
+  private lastFrameTime: number = 0;
+  private dt: number = 1; // Delta-time normalized to 60fps (1.0 = 16.67ms)
   private onDock: (planet: Planet) => void;
   private logoImage: HTMLImageElement | null = null;
   private shipImage: HTMLImageElement | null = null;
@@ -1341,7 +1343,14 @@ export class SpaceGame {
     return planets;
   }
 
-  private gameLoop = () => {
+  private gameLoop = (timestamp: number = 0) => {
+    // Calculate delta-time normalized to 60fps (dt=1.0 at 60fps, dt=0.5 at 120fps)
+    if (this.lastFrameTime > 0) {
+      const elapsed = timestamp - this.lastFrameTime;
+      this.dt = Math.min(elapsed / (1000 / 60), 3); // Cap at 3x to prevent huge jumps
+    }
+    this.lastFrameTime = timestamp;
+
     this.update();
     this.render();
     this.animationId = requestAnimationFrame(this.gameLoop);
@@ -1411,10 +1420,10 @@ export class SpaceGame {
 
     // Handle rotation
     if (this.keys.has(this.layoutKeys.left) || this.keys.has('arrowleft')) {
-      ship.rotation -= SHIP_ROTATION_SPEED;
+      ship.rotation -= SHIP_ROTATION_SPEED * this.dt;
     }
     if (this.keys.has(this.layoutKeys.right) || this.keys.has('arrowright')) {
-      ship.rotation += SHIP_ROTATION_SPEED;
+      ship.rotation += SHIP_ROTATION_SPEED * this.dt;
     }
 
     // Check if boosting
@@ -1427,8 +1436,8 @@ export class SpaceGame {
     const wasThrusting = ship.thrusting;
     ship.thrusting = this.keys.has(this.layoutKeys.thrust) || this.keys.has('arrowup');
     if (ship.thrusting) {
-      ship.vx += Math.cos(ship.rotation) * acceleration;
-      ship.vy += Math.sin(ship.rotation) * acceleration;
+      ship.vx += Math.cos(ship.rotation) * acceleration * this.dt;
+      ship.vy += Math.sin(ship.rotation) * acceleration * this.dt;
       this.emitThrustParticles(isBoosting);
 
       // Sound: start or update thrust
@@ -1444,13 +1453,13 @@ export class SpaceGame {
 
     // Brake
     if (this.keys.has(this.layoutKeys.brake) || this.keys.has('arrowdown')) {
-      ship.vx *= 0.94;
-      ship.vy *= 0.94;
+      ship.vx *= Math.pow(0.94, this.dt);
+      ship.vy *= Math.pow(0.94, this.dt);
     }
 
-    // Apply friction
-    ship.vx *= SHIP_FRICTION;
-    ship.vy *= SHIP_FRICTION;
+    // Apply friction (exponential decay scales with dt)
+    ship.vx *= Math.pow(SHIP_FRICTION, this.dt);
+    ship.vy *= Math.pow(SHIP_FRICTION, this.dt);
 
     // Limit speed
     const speed = Math.sqrt(ship.vx ** 2 + ship.vy ** 2);
@@ -1460,8 +1469,8 @@ export class SpaceGame {
     }
 
     // Update position
-    ship.x += ship.vx;
-    ship.y += ship.vy;
+    ship.x += ship.vx * this.dt;
+    ship.y += ship.vy * this.dt;
 
     // Collision with planets (bounce off)
     for (const planet of planets) {
@@ -1532,8 +1541,8 @@ export class SpaceGame {
         const pullStrength = Math.pow((this.blackHole.pullRadius - bhDist) / this.blackHole.pullRadius, 2) * 0.5;
         const nx = bhDx / bhDist;
         const ny = bhDy / bhDist;
-        ship.vx += nx * pullStrength;
-        ship.vy += ny * pullStrength;
+        ship.vx += nx * pullStrength * this.dt;
+        ship.vy += ny * pullStrength * this.dt;
 
         // Sound: update black hole proximity
         const proximity = 1 - (bhDist / this.blackHole.pullRadius);
@@ -1567,13 +1576,13 @@ export class SpaceGame {
       }
     } else {
       // Ship is being sucked in - animate and then rick roll
-      this.suckProgress += 0.02;
+      this.suckProgress += 0.02 * this.dt;
       const bhDx = this.blackHole.x - ship.x;
       const bhDy = this.blackHole.y - ship.y;
       const bhDist = Math.sqrt(bhDx * bhDx + bhDy * bhDy);
-      ship.x += bhDx * 0.1;
-      ship.y += bhDy * 0.1;
-      ship.rotation += 0.3; // Spin while being sucked
+      ship.x += bhDx * 0.1 * this.dt;
+      ship.y += bhDy * 0.1 * this.dt;
+      ship.rotation += 0.3 * this.dt; // Spin while being sucked
 
       if (this.suckProgress >= 1 || bhDist < 5) {
         // Notify about black hole death
@@ -1787,7 +1796,7 @@ export class SpaceGame {
 
     // ~3.5 second animation at 60fps, faster with landing speed upgrades (+15% per level)
     const landingSpeedMultiplier = 1 + (this.shipEffects.landingSpeedBonus || 0) * 0.15;
-    this.landingProgress += 0.005 * landingSpeedMultiplier;
+    this.landingProgress += 0.005 * landingSpeedMultiplier * this.dt;
     const progress = Math.min(this.landingProgress, 1);
 
     const planet = this.landingPlanet;
@@ -2383,7 +2392,7 @@ export class SpaceGame {
         let angleDiff = targetAngle - currentAngle;
         while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
         while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-        const maxTurn = 0.05;
+        const maxTurn = 0.05 * this.dt;
         const turn = Math.max(-maxTurn, Math.min(maxTurn, angleDiff));
         const newAngle = currentAngle + turn;
         anim.velocityX = Math.cos(newAngle) * speed;
@@ -2391,8 +2400,8 @@ export class SpaceGame {
       }
 
       // Move the planet
-      planet.x += anim.velocityX;
-      planet.y += anim.velocityY;
+      planet.x += anim.velocityX * this.dt;
+      planet.y += anim.velocityY * this.dt;
 
       // Rocket flame flicker
       anim.rocketFlame = 0.7 + Math.random() * 0.3;
@@ -2411,8 +2420,8 @@ export class SpaceGame {
       // Update trail points (fade out)
       for (let i = anim.trailPoints.length - 1; i >= 0; i--) {
         const p = anim.trailPoints[i];
-        p.alpha -= 0.03;
-        p.size *= 0.94;
+        p.alpha -= 0.03 * this.dt;
+        p.size *= Math.pow(0.94, this.dt);
         if (p.alpha <= 0 || p.size < 1) {
           anim.trailPoints.splice(i, 1);
         }
@@ -2557,7 +2566,7 @@ export class SpaceGame {
       while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
 
       // Gradual turn (max 3 degrees per frame)
-      const maxTurn = 0.05;
+      const maxTurn = 0.05 * this.dt;
       const turn = Math.max(-maxTurn, Math.min(maxTurn, angleDiff));
       const newAngle = currentAngle + turn;
 
@@ -2566,8 +2575,8 @@ export class SpaceGame {
     }
 
     // Move the planet
-    planet.x += this.sendVelocityX;
-    planet.y += this.sendVelocityY;
+    planet.x += this.sendVelocityX * this.dt;
+    planet.y += this.sendVelocityY * this.dt;
 
     // Rocket flame flicker
     this.sendRocketFlame = 0.7 + Math.random() * 0.3;
@@ -2587,8 +2596,8 @@ export class SpaceGame {
     // Update trail points (fade out)
     for (let i = this.sendTrailPoints.length - 1; i >= 0; i--) {
       const p = this.sendTrailPoints[i];
-      p.alpha -= 0.03;
-      p.size *= 0.94;
+      p.alpha -= 0.03 * this.dt;
+      p.size *= Math.pow(0.94, this.dt);
       if (p.alpha <= 0 || p.size < 1) {
         this.sendTrailPoints.splice(i, 1);
       }
@@ -2719,7 +2728,7 @@ export class SpaceGame {
     if (this.claimProgress < CHARGING_END || !this.claimTargetReady) {
       // Charging phase - keep progressing up to CHARGING_END, then hold
       if (this.claimProgress < CHARGING_END) {
-        this.claimProgress += 0.012; // Slower charging for more dramatic effect
+        this.claimProgress += 0.012 * this.dt; // Slower charging for more dramatic effect
       }
       // If we hit the end but target isn't ready, clamp progress and keep charging effects
       if (this.claimProgress >= CHARGING_END && !this.claimTargetReady) {
@@ -2757,7 +2766,7 @@ export class SpaceGame {
       }
     } else {
       // Target is ready, continue with rest of animation
-      this.claimProgress += 0.018; // Slightly faster for the action phases
+      this.claimProgress += 0.018 * this.dt; // Slightly faster for the action phases
     }
 
     // Phase 2: Warp flash (0.25-0.35) - still at ORIGINAL location
@@ -2951,21 +2960,21 @@ export class SpaceGame {
 
     // Update particles (decay)
     this.warpParticles = this.warpParticles.filter(p => {
-      p.x += p.vx;
-      p.y += p.vy;
-      p.life--;
+      p.x += p.vx * this.dt;
+      p.y += p.vy * this.dt;
+      p.life -= this.dt;
       return p.life > 0;
     });
 
     // Update trail points (fade)
     this.warpTrailPoints = this.warpTrailPoints.filter(tp => {
-      tp.alpha -= 0.02;
+      tp.alpha -= 0.02 * this.dt;
       return tp.alpha > 0;
     });
 
     // Phase 1: Charging (0 - 0.2)
     if (this.warpProgress < CHARGING_END) {
-      this.warpProgress += 0.015;
+      this.warpProgress += 0.015 * this.dt;
 
       // Keep ship at start position during charging
       ship.x = this.warpStartX;
@@ -2993,7 +3002,7 @@ export class SpaceGame {
 
     // Phase 2: Movement (0.2 - 0.8)
     if (this.warpProgress >= CHARGING_END && this.warpProgress < MOVEMENT_END) {
-      this.warpProgress += 0.025;
+      this.warpProgress += 0.025 * this.dt;
 
       const moveProgress = (this.warpProgress - CHARGING_END) / (MOVEMENT_END - CHARGING_END);
       // Use easeInOutCubic for smooth acceleration/deceleration
@@ -3039,7 +3048,7 @@ export class SpaceGame {
 
     // Phase 3: Arrival (0.8 - 1.0)
     if (this.warpProgress >= MOVEMENT_END) {
-      this.warpProgress += 0.02;
+      this.warpProgress += 0.02 * this.dt;
 
       // Ship at destination
       ship.x = this.warpTargetX;
@@ -3300,25 +3309,25 @@ export class SpaceGame {
     const MOVEMENT_END = 0.8;
 
     // Update portal rotation for visual effect
-    this.portalAngle += 0.05;
+    this.portalAngle += 0.05 * this.dt;
 
     // Update particles (decay)
     this.portalParticles = this.portalParticles.filter(p => {
-      p.x += p.vx;
-      p.y += p.vy;
-      p.life--;
+      p.x += p.vx * this.dt;
+      p.y += p.vy * this.dt;
+      p.life -= this.dt;
       return p.life > 0;
     });
 
     // Update trail points (fade)
     this.portalTrailPoints = this.portalTrailPoints.filter(tp => {
-      tp.alpha -= 0.02;
+      tp.alpha -= 0.02 * this.dt;
       return tp.alpha > 0;
     });
 
     // Phase 1: Charging (0 - 0.2)
     if (this.portalProgress < CHARGING_END) {
-      this.portalProgress += 0.015;
+      this.portalProgress += 0.015 * this.dt;
 
       // Keep ship at start position during charging
       ship.x = this.portalStartX;
@@ -3346,7 +3355,7 @@ export class SpaceGame {
 
     // Phase 2: Movement (0.2 - 0.8)
     if (this.portalProgress >= CHARGING_END && this.portalProgress < MOVEMENT_END) {
-      this.portalProgress += 0.025;
+      this.portalProgress += 0.025 * this.dt;
 
       const moveProgress = (this.portalProgress - CHARGING_END) / (MOVEMENT_END - CHARGING_END);
       // Use easeInOutCubic for smooth acceleration/deceleration
@@ -3392,7 +3401,7 @@ export class SpaceGame {
 
     // Phase 3: Arrival (0.8 - 1.0)
     if (this.portalProgress >= MOVEMENT_END) {
-      this.portalProgress += 0.02;
+      this.portalProgress += 0.02 * this.dt;
 
       // Ship at destination
       ship.x = this.portalTargetX;
@@ -3922,9 +3931,9 @@ export class SpaceGame {
       const p = this.projectiles[i];
 
       // Move
-      p.x += p.vx;
-      p.y += p.vy;
-      p.life--;
+      p.x += p.vx * this.dt;
+      p.y += p.vy * this.dt;
+      p.life -= this.dt;
 
       let bulletRemoved = false;
 
@@ -4326,10 +4335,10 @@ export class SpaceGame {
     for (let i = this.plasmaProjectiles.length - 1; i >= 0; i--) {
       const p = this.plasmaProjectiles[i];
 
-      p.x += p.vx;
-      p.y += p.vy;
-      p.life--;
-      p.rotation += 0.1; // Spin effect
+      p.x += p.vx * this.dt;
+      p.y += p.vy * this.dt;
+      p.life -= this.dt;
+      p.rotation += 0.1 * this.dt; // Spin effect
 
       let removed = false;
 
@@ -4518,7 +4527,7 @@ export class SpaceGame {
           while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
           while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
 
-          r.rotation += Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), this.ROCKET_TURN_SPEED);
+          r.rotation += Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), this.ROCKET_TURN_SPEED * this.dt);
         } else {
           r.targetPlanetId = null; // Target destroyed or invalid
         }
@@ -4529,9 +4538,9 @@ export class SpaceGame {
       r.vx = Math.cos(r.rotation) * speed;
       r.vy = Math.sin(r.rotation) * speed;
 
-      r.x += r.vx;
-      r.y += r.vy;
-      r.life--;
+      r.x += r.vx * this.dt;
+      r.y += r.vy * this.dt;
+      r.life -= this.dt;
 
       // Emit trail
       if (Math.random() < 0.5) {
@@ -4700,7 +4709,7 @@ export class SpaceGame {
 
     // Rifle destruction is faster and starts at explosion phase
     const animSpeed = this.destroyFromRifle ? 0.04 : 0.025;
-    this.destroyProgress += animSpeed;
+    this.destroyProgress += animSpeed * this.dt;
 
     // Only position ship for canon destruction (not rifle)
     if (!this.destroyFromRifle) {
@@ -4768,11 +4777,11 @@ export class SpaceGame {
     // Update destroy particles
     for (let i = this.destroyParticles.length - 1; i >= 0; i--) {
       const p = this.destroyParticles[i];
-      p.x += p.vx;
-      p.y += p.vy;
-      p.vx *= 0.98;
-      p.vy *= 0.98;
-      p.life--;
+      p.x += p.vx * this.dt;
+      p.y += p.vy * this.dt;
+      p.vx *= Math.pow(0.98, this.dt);
+      p.vy *= Math.pow(0.98, this.dt);
+      p.life -= this.dt;
       if (p.life <= 0) {
         this.destroyParticles.splice(i, 1);
       }
@@ -4960,19 +4969,19 @@ export class SpaceGame {
     // Rifle bullets
     for (let i = this.remoteProjectiles.length - 1; i >= 0; i--) {
       const p = this.remoteProjectiles[i];
-      p.x += p.vx;
-      p.y += p.vy;
-      p.life--;
+      p.x += p.vx * this.dt;
+      p.y += p.vy * this.dt;
+      p.life -= this.dt;
       if (p.life <= 0) this.remoteProjectiles.splice(i, 1);
     }
 
     // Plasma
     for (let i = this.remotePlasmaProjectiles.length - 1; i >= 0; i--) {
       const p = this.remotePlasmaProjectiles[i];
-      p.x += p.vx;
-      p.y += p.vy;
-      p.rotation += 0.15;
-      p.life--;
+      p.x += p.vx * this.dt;
+      p.y += p.vy * this.dt;
+      p.rotation += 0.15 * this.dt;
+      p.life -= this.dt;
       if (p.life <= 0) this.remotePlasmaProjectiles.splice(i, 1);
     }
 
@@ -4990,16 +4999,16 @@ export class SpaceGame {
           let angleDiff = targetAngle - r.rotation;
           while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
           while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-          r.rotation += Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), this.ROCKET_TURN_SPEED);
+          r.rotation += Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), this.ROCKET_TURN_SPEED * this.dt);
           const speed = Math.sqrt(r.vx * r.vx + r.vy * r.vy);
           r.vx = Math.cos(r.rotation) * speed;
           r.vy = Math.sin(r.rotation) * speed;
         }
       }
 
-      r.x += r.vx;
-      r.y += r.vy;
-      r.life--;
+      r.x += r.vx * this.dt;
+      r.y += r.vy * this.dt;
+      r.life -= this.dt;
       if (r.life <= 0) this.remoteRockets.splice(i, 1);
     }
   }
@@ -5007,7 +5016,7 @@ export class SpaceGame {
   // Update remote destroy animations (explosion particles)
   private updateRemoteDestroyAnimations() {
     for (const [planetId, anim] of this.remoteDestroyAnimations) {
-      anim.progress += 0.04; // Same speed as rifle destroy
+      anim.progress += 0.04 * this.dt; // Same speed as rifle destroy
 
       // Spawn explosion particles (phase 3: 0.6 - 0.85)
       if (anim.progress < 0.75) {
@@ -5028,11 +5037,11 @@ export class SpaceGame {
       // Update particles
       for (let i = anim.particles.length - 1; i >= 0; i--) {
         const p = anim.particles[i];
-        p.x += p.vx;
-        p.y += p.vy;
-        p.vx *= 0.96;
-        p.vy *= 0.96;
-        p.life--;
+        p.x += p.vx * this.dt;
+        p.y += p.vy * this.dt;
+        p.vx *= Math.pow(0.96, this.dt);
+        p.vy *= Math.pow(0.96, this.dt);
+        p.life -= this.dt;
         if (p.life <= 0) anim.particles.splice(i, 1);
       }
 
@@ -5256,20 +5265,21 @@ export class SpaceGame {
     this.prevShipX = ship.x;
     this.prevShipY = ship.y;
 
-    // Smooth camera follow
+    // Smooth camera follow (exponential interpolation scales with dt)
     const targetCamX = ship.x - this.canvas.width / 2;
     const targetCamY = ship.y - this.canvas.height / 2;
-    camera.x += (targetCamX - camera.x) * 0.06;
-    camera.y += (targetCamY - camera.y) * 0.06;
+    const camLerp = 1 - Math.pow(1 - 0.06, this.dt);
+    camera.x += (targetCamX - camera.x) * camLerp;
+    camera.y += (targetCamY - camera.y) * camLerp;
   }
 
   private updateParticles() {
     this.state.particles = this.state.particles.filter(p => {
-      p.x += p.vx;
-      p.y += p.vy;
-      p.life--;
-      p.vx *= 0.97;
-      p.vy *= 0.97;
+      p.x += p.vx * this.dt;
+      p.y += p.vy * this.dt;
+      p.life -= this.dt;
+      p.vx *= Math.pow(0.97, this.dt);
+      p.vy *= Math.pow(0.97, this.dt);
       return p.life > 0;
     });
   }
@@ -5433,9 +5443,9 @@ export class SpaceGame {
 
       for (const sat of this.upgradeSatellites) {
         // Orbit around
-        sat.angle += sat.speed;
+        sat.angle += sat.speed * this.dt;
         // Wobble the distance
-        sat.wobble += sat.wobbleSpeed;
+        sat.wobble += sat.wobbleSpeed * this.dt;
 
         // Emit tiny sparkle particles occasionally
         if (Math.random() < 0.05) {
@@ -5690,7 +5700,7 @@ export class SpaceGame {
       const drone = this.escortDrones[i];
 
       // Update wobble
-      drone.wobble += drone.wobbleSpeed;
+      drone.wobble += drone.wobbleSpeed * this.dt;
 
       let targetX: number;
       let targetY: number;
@@ -5738,16 +5748,16 @@ export class SpaceGame {
       const damping = Math.min(baseDamping + (i * 0.025), 0.92);
 
       // Apply spring force
-      drone.vx += dx * springK;
-      drone.vy += dy * springK;
+      drone.vx += dx * springK * this.dt;
+      drone.vy += dy * springK * this.dt;
 
       // Apply damping
-      drone.vx *= damping;
-      drone.vy *= damping;
+      drone.vx *= Math.pow(damping, this.dt);
+      drone.vy *= Math.pow(damping, this.dt);
 
       // Update position
-      drone.worldX += drone.vx;
-      drone.worldY += drone.vy;
+      drone.worldX += drone.vx * this.dt;
+      drone.worldY += drone.vy * this.dt;
 
       // Emit trail particles
       this.emitDroneTrailParticles(drone);
@@ -7998,9 +8008,10 @@ export class SpaceGame {
       // Unwrap target for world wrapping
       const unwrapped = this.unwrapPosition(renderState.renderX, renderState.renderY, targetX, targetY);
 
-      // Lerp toward predicted target
-      renderState.renderX += (unwrapped.x - renderState.renderX) * LERP_FACTOR;
-      renderState.renderY += (unwrapped.y - renderState.renderY) * LERP_FACTOR;
+      // Lerp toward predicted target (exponential interpolation scales with dt)
+      const lerpFactor = 1 - Math.pow(1 - LERP_FACTOR, this.dt);
+      renderState.renderX += (unwrapped.x - renderState.renderX) * lerpFactor;
+      renderState.renderY += (unwrapped.y - renderState.renderY) * lerpFactor;
 
       // Wrap back to world bounds
       const wrapped = this.wrapPosition(renderState.renderX, renderState.renderY);
@@ -8011,7 +8022,7 @@ export class SpaceGame {
       let rotDiff = targetRotation - renderState.renderRotation;
       while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
       while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
-      renderState.renderRotation += rotDiff * LERP_FACTOR;
+      renderState.renderRotation += rotDiff * lerpFactor;
 
       // Thrusting and boosting - direct (no interpolation needed)
       renderState.renderThrusting = targetThrusting;
