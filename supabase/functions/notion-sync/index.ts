@@ -420,8 +420,10 @@ Deno.serve(async (req) => {
     const team = teams[0];
 
     // Fetch ALL pages from Notion database with pagination
-    // Only get "Ticket Open" tasks (live planets)
-    // Using "select" filter since the Status property is a Select field
+    // Get both "Ticket Open" and "Archived" tasks so we can:
+    // - Keep active planets for "Ticket Open"
+    // - Keep completed planets for "Archived"
+    // - Delete planets only for "Destroyed" or tasks missing from Notion
     let pages: any[] = [];
     let hasMore = true;
     let nextCursor: string | undefined = undefined;
@@ -429,10 +431,16 @@ Deno.serve(async (req) => {
     while (hasMore) {
       const requestBody: any = {
         filter: {
-          property: 'Status',
-          select: {
-            equals: 'Ticket Open',
-          },
+          or: [
+            {
+              property: 'Status',
+              select: { equals: 'Ticket Open' },
+            },
+            {
+              property: 'Status',
+              select: { equals: 'Archived' },
+            },
+          ],
         },
         page_size: 100,
       };
@@ -470,19 +478,18 @@ Deno.serve(async (req) => {
 
     console.log(`Notion API returned ${pages.length} total pages across all pagination`);
 
-    // Double-check: filter to only "Ticket Open" status (safeguard against API quirks)
-    // This ensures we never recreate Archived or Destroyed tasks
+    // Safeguard: filter to only "Ticket Open" and "Archived" statuses
     pages = pages.filter((page: any) => {
       const props = page.properties;
-      const status = props['Status']?.select?.name || props['Status']?.status?.name || '';
-      const isTicketOpen = status.toLowerCase() === 'ticket open';
-      if (!isTicketOpen) {
-        console.log(`Filtering out "${props['Ticket']?.title?.[0]?.plain_text || page.id}" - status is "${status}", not "Ticket Open"`);
+      const status = (props['Status']?.select?.name || props['Status']?.status?.name || '').toLowerCase();
+      const isValid = status === 'ticket open' || status === 'archived';
+      if (!isValid) {
+        console.log(`Filtering out "${props['Ticket']?.title?.[0]?.plain_text || page.id}" - status is "${status}"`);
       }
-      return isTicketOpen;
+      return isValid;
     });
 
-    console.log(`After filtering: ${pages.length} "Ticket Open" tasks`);
+    console.log(`After filtering: ${pages.length} tasks (Ticket Open + Archived)`);
 
     const created: string[] = [];
     const updated: string[] = [];
@@ -518,11 +525,11 @@ Deno.serve(async (req) => {
       existingPositions.push({ id: planet.id, x: planet.x, y: planet.y });
     }
 
-    // Find planets whose Notion tasks are no longer "Ticket Open"
-    // Delete all such planets, even if completed
+    // Find planets whose Notion tasks are no longer in "Ticket Open" or "Archived"
+    // These are "Destroyed" tasks or tasks deleted from Notion entirely
     for (const planet of allPlanets || []) {
       if (!notionTaskIds.has(normalizeId(planet.notion_task_id))) {
-        // Task is no longer "Ticket Open" in Notion - remove it
+        // Task is Destroyed or missing from Notion - remove the planet
         const { error: deleteError } = await supabase
           .from('notion_planets')
           .delete()
@@ -532,7 +539,7 @@ Deno.serve(async (req) => {
           errors.push(`Failed to delete ${planet.name}: ${deleteError.message}`);
         } else {
           deleted.push(`${planet.name} (${planet.assigned_to || 'unassigned'})`);
-          console.log(`Deleted planet "${planet.name}" (${planet.assigned_to || 'unassigned'}) - Notion task no longer "Ticket Open"`);
+          console.log(`Deleted planet "${planet.name}" (${planet.assigned_to || 'unassigned'}) - Notion task is Destroyed or missing`);
         }
       }
     }
@@ -571,6 +578,9 @@ Deno.serve(async (req) => {
 
       // Calculate points based on priority
       const points = calculatePoints(parsed.priority);
+
+      // Determine completed state from Notion status
+      const isArchived = (parsed.status || '').toLowerCase() === 'archived';
 
       // Determine which planets to create, update, or delete
       const newAssignees = new Set(resolvedAssignees.map(a => a.username || ''));
@@ -622,6 +632,7 @@ Deno.serve(async (req) => {
             points: points,
             notion_url: parsed.url || null,
             due_date: parsed.due_date || null,
+            completed: isArchived,
           };
 
           if (needsReposition) {
@@ -644,6 +655,45 @@ Deno.serve(async (req) => {
             errors.push(`Failed to update ${parsed.name} (${assigneeKey || 'unassigned'}): ${updateError.message}`);
           } else {
             updated.push(`${parsed.name} (${assigneeKey || 'unassigned'})`);
+
+            // Award completion points if transitioning to archived and not already awarded
+            if (isArchived && !existingPlanet.completed && assigneeKey) {
+              const player = await findPlayerByNotionUser(supabase, team.id, undefined, assigneeKey);
+              if (player) {
+                const { data: existingTx } = await supabase
+                  .from('point_transactions')
+                  .select('id')
+                  .eq('notion_task_id', parsed.id)
+                  .eq('player_id', player.id)
+                  .ilike('task_name', 'Completed:%')
+                  .single();
+
+                if (!existingTx) {
+                  await supabase.from('point_transactions').insert({
+                    team_id: team.id,
+                    player_id: player.id,
+                    source: 'notion',
+                    notion_task_id: parsed.id,
+                    task_name: `Completed: ${parsed.name}`,
+                    points: points,
+                    point_type: 'personal',
+                  });
+
+                  const { data: playerData } = await supabase
+                    .from('players')
+                    .select('personal_points')
+                    .eq('id', player.id)
+                    .single();
+
+                  await supabase
+                    .from('players')
+                    .update({ personal_points: (playerData?.personal_points || 0) + points })
+                    .eq('id', player.id);
+
+                  console.log(`Sync: Awarded ${points} points to ${player.username} for completing "${parsed.name}"`);
+                }
+              }
+            }
           }
         } else {
           // Create new planet for this assignee
@@ -664,7 +714,7 @@ Deno.serve(async (req) => {
               points: points,
               x: Math.round(position.x),
               y: Math.round(position.y),
-              completed: false,
+              completed: isArchived,
               due_date: parsed.due_date || null,
             })
             .select('id')
@@ -680,6 +730,45 @@ Deno.serve(async (req) => {
           // Add to position tracking
           if (newPlanet) {
             existingPositions.push({ id: newPlanet.id, x: position.x, y: position.y });
+          }
+
+          // Award completion points for newly created archived planets
+          if (isArchived && assignee.username) {
+            const player = await findPlayerByNotionUser(supabase, team.id, undefined, assignee.username);
+            if (player) {
+              const { data: existingTx } = await supabase
+                .from('point_transactions')
+                .select('id')
+                .eq('notion_task_id', parsed.id)
+                .eq('player_id', player.id)
+                .ilike('task_name', 'Completed:%')
+                .single();
+
+              if (!existingTx) {
+                await supabase.from('point_transactions').insert({
+                  team_id: team.id,
+                  player_id: player.id,
+                  source: 'notion',
+                  notion_task_id: parsed.id,
+                  task_name: `Completed: ${parsed.name}`,
+                  points: points,
+                  point_type: 'personal',
+                });
+
+                const { data: playerData } = await supabase
+                  .from('players')
+                  .select('personal_points')
+                  .eq('id', player.id)
+                  .single();
+
+                await supabase
+                  .from('players')
+                  .update({ personal_points: (playerData?.personal_points || 0) + points })
+                  .eq('id', player.id);
+
+                console.log(`Sync: Awarded ${points} points to ${player.username} for archived task "${parsed.name}"`);
+              }
+            }
           }
 
           // Award creator points only once per task

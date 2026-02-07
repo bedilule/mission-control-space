@@ -766,6 +766,7 @@ Deno.serve(async (req) => {
         priority: payload.priority || null,
         points: points,
         notion_url: payload.url || null,
+        ...(isTicketOpen && { completed: false }),
       };
       // Only touch due_date if it was actually in the Notion payload
       if (payload.due_date !== undefined) {

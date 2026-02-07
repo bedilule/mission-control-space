@@ -2428,12 +2428,6 @@ function App() {
       completeNotionPlanet(planet.id);
 
       gameRef.current?.completePlanet(planet.id);
-
-      // Archive the task in Notion (fire and forget)
-      const actualId = planet.id.replace('notion-', '');
-      supabase.functions.invoke('notion-update-status', {
-        body: { planet_id: actualId, action: 'archive' },
-      }).catch(err => console.error('Failed to archive in Notion:', err));
     } else {
       // Regular planets
       if (state.completedPlanets.includes(planet.id)) return;
