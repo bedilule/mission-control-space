@@ -1517,12 +1517,12 @@ export class SpaceGame {
         this.collisionBumpCount++;
         this.collisionBumpTimer = now;
 
-        // Check if player was at max speed before bounce (80%+ of their current max)
+        // Check if player was at max boosted speed before bounce (90%+ of boost max)
         const collisionSpeedMultiplier = 1 + ((this.shipEffects.speedBonus || 0) * 0.2);
-        const currentMaxSpeed = (isBoosting ? SHIP_BOOST_MAX_SPEED : SHIP_MAX_SPEED) * collisionSpeedMultiplier;
-        const isFullSpeed = preCollisionSpeed >= currentMaxSpeed * 0.8;
+        const boostMaxSpeed = SHIP_BOOST_MAX_SPEED * collisionSpeedMultiplier;
+        const isFullSpeed = preCollisionSpeed >= boostMaxSpeed * 0.9;
 
-        if ((isFullSpeed || this.collisionBumpCount >= 100) && this.onCollisionVoice && now - this.lastCollisionVoice > 30000) {
+        if (isFullSpeed && this.onCollisionVoice && now - this.lastCollisionVoice > 30000) {
           this.collisionBumpCount = 0;
           this.lastCollisionVoice = now;
           this.onCollisionVoice();
