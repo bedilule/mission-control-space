@@ -4236,11 +4236,11 @@ function App() {
           destroyCanonEquipped={getCurrentUserShip().effects.destroyCanonEquipped}
           playerInfo={playerInfoForModal}
           mode="featured"
-          onComplete={() => {}}
-          onClaim={() => {}}
+          onComplete={(planet) => { setFeaturedViewPlanet(null); handleColonize(planet); }}
+          onClaim={(planet) => { setFeaturedViewPlanet(null); handleClaimRequest(planet); }}
           onSend={() => {}}
           onOpenNotion={handleOpenNotion}
-          onDelete={() => {}}
+          onDelete={(planet) => { setFeaturedViewPlanet(null); gameRef.current?.startDestroyAnimation(planet); }}
           onTakeOff={() => setFeaturedViewPlanet(null)}
           onUpdate={async (updates) => {
             // Optimistic update for featured view

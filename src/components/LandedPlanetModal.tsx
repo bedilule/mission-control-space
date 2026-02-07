@@ -184,7 +184,7 @@ export function LandedPlanetModal({
         return;
       }
 
-      if (key === 'c' && !isCompleted && !isFeaturedView) {
+      if (key === 'c' && !isCompleted) {
         e.preventDefault();
         if (isUnassigned) {
           onClaim(planet);
@@ -200,7 +200,7 @@ export function LandedPlanetModal({
         return;
       }
 
-      if (key === 'x' && !isFeaturedView) {
+      if (key === 'x') {
         e.preventDefault();
         if (!isCompleted || (isCompleted && destroyCanonEquipped)) onDelete(planet);
         return;
@@ -212,10 +212,10 @@ export function LandedPlanetModal({
   }, [editingField, assignDropdownOpen, typeDropdownOpen, planet, currentUser, isOwn, isUnassigned, isCompleted, isFeaturedView, destroyCanonEquipped, onTakeOff, onComplete, onClaim, onOpenNotion, onDelete, onFeatureToggle]);
 
   // Actions
-  const showComplete = isOwn && !isCompleted && !isFeaturedView;
-  const showClaim = isUnassigned && !isCompleted && !isFeaturedView;
+  const showComplete = isOwn && !isCompleted;
+  const showClaim = isUnassigned && !isCompleted;
   const showNotion = !!planet.notionUrl;
-  const showDelete = (!isCompleted || (isCompleted && destroyCanonEquipped)) && !isFeaturedView;
+  const showDelete = !isCompleted || (isCompleted && destroyCanonEquipped);
 
   // Current assigned player info
   const currentAssigned = TEAM_MEMBERS.find(m => m.id === (planet.ownerId || ''));
