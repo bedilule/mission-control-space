@@ -37,7 +37,7 @@ interface UserPlanetData {
 
 interface ShipEffects {
   glowColor: string | null;
-  trailType: 'default' | 'fire' | 'ice' | 'rainbow';
+  trailType: 'default' | 'fire' | 'ice' | 'rainbow' | 'plasma' | 'star';
   sizeBonus: number;
   speedBonus: number;
   landingSpeedBonus: number;
@@ -381,6 +381,20 @@ export class SpaceGame {
   private criticalAssetsTotal = 0;
   private assetsReady = false;
   private onAssetsReady: (() => void) | null = null;
+
+  // Shooting stars (ambient cosmic events)
+  private shootingStars: { x: number; y: number; vx: number; vy: number; life: number; maxLife: number; brightness: number; length: number; color: string }[] = [];
+  private lastShootingStarSpawn: number = 0;
+
+  // Konami code Easter egg
+  private konamiBuffer: string[] = [];
+  private konamiActivated: boolean = false;
+  private konamiEffectTimer: number = 0;
+  private readonly KONAMI_SEQUENCE = ['arrowup', 'arrowup', 'arrowdown', 'arrowdown', 'arrowleft', 'arrowright', 'arrowleft', 'arrowright', 'b', 'a'];
+
+  // Idle ship ambient effect
+  private idleTimer: number = 0;
+  private idleParticles: { angle: number; dist: number; speed: number; size: number; alpha: number }[] = [];
 
   // Escort drones (permanent companions based on ship level)
   private escortDrones: EscortDrone[] = [];
@@ -1138,6 +1152,23 @@ export class SpaceGame {
       }
 
       this.keys.add(e.key.toLowerCase());
+
+      // Track Konami code sequence
+      this.konamiBuffer.push(e.key.toLowerCase());
+      if (this.konamiBuffer.length > this.KONAMI_SEQUENCE.length) {
+        this.konamiBuffer.shift();
+      }
+      if (this.konamiBuffer.length === this.KONAMI_SEQUENCE.length &&
+          this.konamiBuffer.every((k, i) => k === this.KONAMI_SEQUENCE[i]) &&
+          !this.konamiActivated) {
+        this.konamiActivated = true;
+        this.konamiEffectTimer = 180; // 3 seconds at 60fps
+        this.konamiBuffer = [];
+      }
+
+      // Reset idle timer on any key
+      this.idleTimer = 0;
+
       if (['w', 'a', 's', 'd', 'z', 'q', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'c', 'n', 't', 'f'].includes(e.key.toLowerCase())) {
         e.preventDefault();
       }
@@ -1651,6 +1682,14 @@ export class SpaceGame {
     this.updateOtherPlayersInterpolation();
     this.updateOtherPlayersParticles();
     this.updateZoneTitle();
+    this.updateShootingStars();
+    this.updateIdleEffect();
+    if (this.konamiEffectTimer > 0) {
+      this.konamiEffectTimer -= this.dt;
+      if (this.konamiEffectTimer <= 0) {
+        this.konamiActivated = false;
+      }
+    }
 
     // Check nearby and docking
     this.state.dockingPlanet = null;
@@ -5945,6 +5984,16 @@ export class SpaceGame {
           life = isBoosting ? 50 + Math.random() * 30 : 40 + Math.random() * 20;
           size = Math.random() * (isBoosting ? 7 : 5) + (isBoosting ? 4 : 3);
           break;
+        case 'plasma':
+          colors = ['#cc44ff', '#aa22dd', '#ee66ff', '#8800cc', '#ff88ff'];
+          life = isBoosting ? 55 + Math.random() * 25 : 40 + Math.random() * 20;
+          size = Math.random() * (isBoosting ? 9 : 7) + (isBoosting ? 5 : 4);
+          break;
+        case 'star':
+          colors = ['#ffd700', '#ffec80', '#fff4cc', '#ffaa00', '#ffe44d'];
+          life = isBoosting ? 60 + Math.random() * 30 : 50 + Math.random() * 25;
+          size = Math.random() * (isBoosting ? 5 : 3) + (isBoosting ? 2 : 1.5);
+          break;
         default:
           colors = isBoosting
             ? ['#00ffff', '#00ccff', '#ffffff', '#88ffff']
@@ -6032,6 +6081,9 @@ export class SpaceGame {
       ctx.fill();
       ctx.globalAlpha = 1;
     }
+
+    // Draw shooting stars (behind everything, just above stars)
+    this.renderShootingStars();
 
     // Draw zone backgrounds and boundaries
     this.drawZones();
@@ -6142,6 +6194,14 @@ export class SpaceGame {
       ctx.fillText(this.zoneTitleText, canvas.width / 2, titleY);
 
       ctx.restore();
+    }
+
+    // Draw idle ship particles
+    this.renderIdleEffect();
+
+    // Draw Konami code effect
+    if (this.konamiActivated) {
+      this.renderKonamiEffect();
     }
 
     // Draw warp home animation ON TOP of everything (including UI)
@@ -8296,6 +8356,16 @@ export class SpaceGame {
           life = isBoosting ? 50 + Math.random() * 30 : 40 + Math.random() * 20;
           size = Math.random() * (isBoosting ? 7 : 5) + (isBoosting ? 4 : 3);
           break;
+        case 'plasma':
+          colors = ['#cc44ff', '#aa22dd', '#ee66ff', '#8800cc', '#ff88ff'];
+          life = isBoosting ? 55 + Math.random() * 25 : 40 + Math.random() * 20;
+          size = Math.random() * (isBoosting ? 9 : 7) + (isBoosting ? 5 : 4);
+          break;
+        case 'star':
+          colors = ['#ffd700', '#ffec80', '#fff4cc', '#ffaa00', '#ffe44d'];
+          life = isBoosting ? 60 + Math.random() * 30 : 50 + Math.random() * 25;
+          size = Math.random() * (isBoosting ? 5 : 3) + (isBoosting ? 2 : 1.5);
+          break;
         default:
           colors = isBoosting
             ? ['#00ffff', '#00ccff', '#ffffff', '#88ffff']
@@ -8318,5 +8388,222 @@ export class SpaceGame {
         color: colors[Math.floor(Math.random() * colors.length)],
       });
     }
+  }
+
+  // ===== EASTER EGGS & AMBIENT EFFECTS =====
+
+  private updateShootingStars() {
+    const now = Date.now();
+
+    // Spawn a shooting star roughly every 25-45 seconds
+    if (now - this.lastShootingStarSpawn > 25000 + Math.random() * 20000) {
+      this.lastShootingStarSpawn = now;
+
+      // Random start position along one edge of the visible area (in world space)
+      const { camera } = this.state;
+      const edge = Math.floor(Math.random() * 4);
+      let sx: number, sy: number, angle: number;
+
+      switch (edge) {
+        case 0: // top
+          sx = camera.x + Math.random() * this.canvas.width;
+          sy = camera.y - 50;
+          angle = Math.PI * 0.3 + Math.random() * 0.4; // downward-ish
+          break;
+        case 1: // right
+          sx = camera.x + this.canvas.width + 50;
+          sy = camera.y + Math.random() * this.canvas.height;
+          angle = Math.PI * 0.6 + Math.random() * 0.4; // leftward-ish
+          break;
+        case 2: // bottom
+          sx = camera.x + Math.random() * this.canvas.width;
+          sy = camera.y + this.canvas.height + 50;
+          angle = -Math.PI * 0.3 - Math.random() * 0.4; // upward-ish
+          break;
+        default: // left
+          sx = camera.x - 50;
+          sy = camera.y + Math.random() * this.canvas.height;
+          angle = -Math.PI * 0.1 + Math.random() * 0.3;
+          break;
+      }
+
+      const speed = 8 + Math.random() * 6;
+      const starColors = ['#ffffff', '#ffe4b5', '#b0c4de', '#add8e6'];
+
+      this.shootingStars.push({
+        x: sx,
+        y: sy,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 60 + Math.random() * 40,
+        maxLife: 100,
+        brightness: 0.6 + Math.random() * 0.4,
+        length: 40 + Math.random() * 60,
+        color: starColors[Math.floor(Math.random() * starColors.length)],
+      });
+    }
+
+    // Update existing shooting stars
+    this.shootingStars = this.shootingStars.filter(s => {
+      s.x += s.vx * this.dt;
+      s.y += s.vy * this.dt;
+      s.life -= this.dt;
+      return s.life > 0;
+    });
+  }
+
+  private renderShootingStars() {
+    const { ctx, state } = this;
+    const { camera } = state;
+
+    for (const s of this.shootingStars) {
+      const x = s.x - camera.x;
+      const y = s.y - camera.y;
+      const alpha = Math.min(1, s.life / (s.maxLife * 0.3)) * s.brightness;
+      if (alpha <= 0) continue;
+
+      const speed = Math.sqrt(s.vx * s.vx + s.vy * s.vy);
+      if (speed === 0) continue;
+
+      // Draw tail
+      const dirX = s.vx / speed;
+      const dirY = s.vy / speed;
+      const tailX = x - dirX * s.length;
+      const tailY = y - dirY * s.length;
+
+      ctx.save();
+
+      // Tail line with gradient opacity
+      ctx.globalAlpha = alpha * 0.4;
+      ctx.beginPath();
+      ctx.moveTo(tailX, tailY);
+      ctx.lineTo(x, y);
+      ctx.strokeStyle = s.color;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Bright head
+      ctx.globalAlpha = alpha;
+      ctx.beginPath();
+      ctx.arc(x, y, 2, 0, Math.PI * 2);
+      ctx.fillStyle = s.color;
+      ctx.fill();
+
+      // Subtle glow around head
+      ctx.globalAlpha = alpha * 0.3;
+      ctx.beginPath();
+      ctx.arc(x, y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = s.color;
+      ctx.fill();
+
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+  }
+
+  private updateIdleEffect() {
+    // Increment idle timer
+    const hasMovementInput = this.keys.has(this.layoutKeys.thrust) || this.keys.has(this.layoutKeys.left) ||
+      this.keys.has(this.layoutKeys.right) || this.keys.has(this.layoutKeys.brake) ||
+      this.keys.has('arrowup') || this.keys.has('arrowdown') || this.keys.has('arrowleft') || this.keys.has('arrowright');
+
+    if (hasMovementInput) {
+      this.idleTimer = 0;
+      this.idleParticles = [];
+      return;
+    }
+
+    this.idleTimer += this.dt;
+
+    // After 60 seconds (3600 frames at 60fps), start idle effect
+    if (this.idleTimer > 3600) {
+      // Maintain a few orbiting particles
+      if (this.idleParticles.length < 5) {
+        this.idleParticles.push({
+          angle: Math.random() * Math.PI * 2,
+          dist: 30 + Math.random() * 25,
+          speed: 0.005 + Math.random() * 0.008,
+          size: 1 + Math.random() * 1.5,
+          alpha: 0,
+        });
+      }
+
+      // Update particles
+      for (const p of this.idleParticles) {
+        p.angle += p.speed * this.dt;
+        // Fade in gently
+        if (p.alpha < 0.4) p.alpha += 0.003 * this.dt;
+      }
+    }
+  }
+
+  private renderIdleEffect() {
+    if (this.idleParticles.length === 0) return;
+
+    const { ctx, state } = this;
+    const { ship, camera } = state;
+    const sx = ship.x - camera.x;
+    const sy = ship.y - camera.y;
+
+    ctx.save();
+    for (const p of this.idleParticles) {
+      const px = sx + Math.cos(p.angle) * p.dist;
+      const py = sy + Math.sin(p.angle) * p.dist;
+
+      ctx.beginPath();
+      ctx.arc(px, py, p.size, 0, Math.PI * 2);
+      ctx.fillStyle = '#8888cc';
+      ctx.globalAlpha = p.alpha * (0.5 + 0.5 * Math.sin(p.angle * 3));
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  private renderKonamiEffect() {
+    const { ctx, canvas } = this;
+    const progress = 1 - (this.konamiEffectTimer / 180);
+
+    ctx.save();
+
+    // Rainbow border pulse
+    const hue = (Date.now() * 0.5) % 360;
+    const pulseAlpha = Math.max(0, 0.6 - progress * 0.8);
+
+    // Top edge
+    const edgeGrad = ctx.createLinearGradient(0, 0, canvas.width, 0);
+    for (let i = 0; i <= 6; i++) {
+      edgeGrad.addColorStop(i / 6, `hsla(${(hue + i * 60) % 360}, 100%, 60%, ${pulseAlpha})`);
+    }
+    ctx.fillStyle = edgeGrad;
+    ctx.fillRect(0, 0, canvas.width, 3);
+    ctx.fillRect(0, canvas.height - 3, canvas.width, 3);
+
+    // Side edges
+    const sideGrad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    for (let i = 0; i <= 6; i++) {
+      sideGrad.addColorStop(i / 6, `hsla(${(hue + i * 60 + 30) % 360}, 100%, 60%, ${pulseAlpha})`);
+    }
+    ctx.fillStyle = sideGrad;
+    ctx.fillRect(0, 0, 3, canvas.height);
+    ctx.fillRect(canvas.width - 3, 0, 3, canvas.height);
+
+    // Brief center flash at start
+    if (progress < 0.15) {
+      const flashAlpha = (0.15 - progress) / 0.15 * 0.3;
+      ctx.fillStyle = `rgba(255, 255, 255, ${flashAlpha})`;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    // Small text that fades
+    if (progress < 0.5) {
+      ctx.globalAlpha = Math.max(0, 1 - progress * 2) * 0.7;
+      ctx.font = '14px Orbitron';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = `hsl(${hue}, 100%, 70%)`;
+      ctx.fillText('// nice find //', canvas.width / 2, canvas.height * 0.4);
+    }
+
+    ctx.restore();
   }
 }

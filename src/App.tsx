@@ -119,12 +119,16 @@ const GLOW_EFFECTS = [
   { id: 'glow_blue', name: 'Blue', icon: '🔵', cost: 50, value: '#00aaff' },
   { id: 'glow_purple', name: 'Purple', icon: '🟣', cost: 75, value: '#aa00ff' },
   { id: 'glow_green', name: 'Green', icon: '🟢', cost: 100, value: '#00ff88' },
+  { id: 'glow_white', name: 'White', icon: '⚪', cost: 125, value: '#eeeeff' },
+  { id: 'glow_gold', name: 'Gold', icon: '🥇', cost: 200, value: '#ffd700' },
 ];
 
 const TRAIL_EFFECTS = [
   { id: 'trail_fire', name: 'Fire', icon: '🔥', cost: 75, value: 'fire' },
   { id: 'trail_ice', name: 'Ice', icon: '❄️', cost: 100, value: 'ice' },
   { id: 'trail_rainbow', name: 'Rainbow', icon: '🌈', cost: 200, value: 'rainbow' },
+  { id: 'trail_plasma', name: 'Plasma', icon: '🔮', cost: 150, value: 'plasma' },
+  { id: 'trail_star', name: 'Stardust', icon: '✨', cost: 250, value: 'star' },
 ];
 
 // Weapon costs (one-time purchases)
@@ -214,7 +218,7 @@ interface MascotHistoryEntry {
 
 interface ShipEffects {
   glowColor: string | null;
-  trailType: 'default' | 'fire' | 'ice' | 'rainbow';
+  trailType: 'default' | 'fire' | 'ice' | 'rainbow' | 'plasma' | 'star';
   sizeBonus: number; // Percentage bonus (e.g., 10 = +10%)
   speedBonus: number; // 0-10 levels, each gives +20% speed
   landingSpeedBonus: number; // 0-5 levels, each gives +15% faster landing
@@ -3154,7 +3158,7 @@ function App() {
 
     if (owned) {
       // Already owned - toggle (free switch or turn off)
-      const newTrail: ShipEffects['trailType'] = currentEffects.trailType === trail.value ? 'default' : trail.value as 'fire' | 'ice' | 'rainbow';
+      const newTrail: ShipEffects['trailType'] = currentEffects.trailType === trail.value ? 'default' : trail.value as ShipEffects['trailType'];
       const newEffects: ShipEffects = { ...currentEffects, trailType: newTrail };
       updateUserShipEffects(userId, currentShip, newEffects);
       soundManager.playSelect();
@@ -3164,7 +3168,7 @@ function App() {
       const newEffects: ShipEffects = {
         ...currentEffects,
         ownedTrails: [...currentEffects.ownedTrails, trail.value],
-        trailType: trail.value as 'fire' | 'ice' | 'rainbow',
+        trailType: trail.value as ShipEffects['trailType'],
       };
       // Deduct personal points and sync to backend
       setPersonalPoints(prev => prev - trail.cost);

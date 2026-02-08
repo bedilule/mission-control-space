@@ -167,7 +167,7 @@ export interface OtherPlayer {
 
 export interface ShipEffects {
   glowColor: string | null;
-  trailType: 'default' | 'fire' | 'ice' | 'rainbow';
+  trailType: 'default' | 'fire' | 'ice' | 'rainbow' | 'plasma' | 'star';
   sizeBonus: number;
   speedBonus: number;
   landingSpeedBonus: number;
