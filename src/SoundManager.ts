@@ -128,6 +128,20 @@ const SOUND_CONFIGS: Record<string, SoundConfig> = {
     src: [`${SOUNDS_PATH}blackhole-suck.mp3`, `${SOUNDS_PATH}blackhole-suck.ogg`],
     volume: 0.7,
   },
+
+  // Black hole whispers (Easter egg)
+  blackHoleWhisper1: {
+    src: [`${SOUNDS_PATH}blackhole-whisper-1.mp3`],
+    volume: 0.25,
+  },
+  blackHoleWhisper2: {
+    src: [`${SOUNDS_PATH}blackhole-whisper-2.mp3`],
+    volume: 0.25,
+  },
+  blackHoleWhisper3: {
+    src: [`${SOUNDS_PATH}blackhole-whisper-3.mp3`],
+    volume: 0.25,
+  },
 };
 
 // Background music configs (separate from SFX)
@@ -479,6 +493,13 @@ export class SoundManager {
 
   public playBlackHoleSuck() {
     this.play('blackHoleSuck');
+  }
+
+  public playBlackHoleWhisper(level: number) {
+    if (!this.initialized || !this.prefs.sfxEnabled) return;
+    if (level === 1) this.play('blackHoleWhisper1');
+    else if (level === 2) this.play('blackHoleWhisper2');
+    else if (level >= 3) this.play('blackHoleWhisper3');
   }
 
   // Impact sounds

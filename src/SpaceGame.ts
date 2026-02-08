@@ -413,6 +413,14 @@ export class SpaceGame {
   private distanceMilestoneTimer: number = 0;
   private milestoneText: string = '';
   private milestoneColor: string = '#ffd700';
+  private lastBlackHoleWhisperCount: number = 0;
+
+  // Space whale (rare ambient creature)
+  private spaceWhaleImage: HTMLImageElement | null = null;
+  private spaceWhale: { x: number; y: number; vx: number; vy: number; alpha: number; scale: number; active: boolean; fadeIn: boolean } = {
+    x: 0, y: 0, vx: 0, vy: 0, alpha: 0, scale: 1, active: false, fadeIn: false
+  };
+  private lastWhaleSpawn: number = 0;
 
   // Escort drones (permanent companions based on ship level)
   private escortDrones: EscortDrone[] = [];
@@ -594,6 +602,14 @@ export class SpaceGame {
     portalImg.src = '/portal.png';
     portalImg.onload = () => {
       this.portalImage = portalImg;
+    };
+
+    // Load Space Whale image
+    const whaleImg = new Image();
+    whaleImg.crossOrigin = 'anonymous';
+    whaleImg.src = '/space-whale.png';
+    whaleImg.onload = () => {
+      this.spaceWhaleImage = whaleImg;
     };
   }
 
@@ -1646,6 +1662,18 @@ export class SpaceGame {
         if (this.wasInBlackHolePull) {
           this.wasInBlackHolePull = false;
           this.blackHoleCloseCallCount++;
+
+          // Trigger black hole whispers at milestones
+          if (this.blackHoleCloseCallCount >= 10 && this.lastBlackHoleWhisperCount < 10) {
+            this.lastBlackHoleWhisperCount = 10;
+            soundManager.playBlackHoleWhisper(3);
+          } else if (this.blackHoleCloseCallCount >= 5 && this.lastBlackHoleWhisperCount < 5) {
+            this.lastBlackHoleWhisperCount = 5;
+            soundManager.playBlackHoleWhisper(2);
+          } else if (this.blackHoleCloseCallCount >= 3 && this.lastBlackHoleWhisperCount < 3) {
+            this.lastBlackHoleWhisperCount = 3;
+            soundManager.playBlackHoleWhisper(1);
+          }
         }
       }
     } else {
@@ -1728,6 +1756,7 @@ export class SpaceGame {
     this.updateShootingStars();
     this.updateIdleEffect();
     this.updatePassiveAchievements();
+    this.updateSpaceWhale();
     if (this.konamiEffectTimer > 0) {
       this.konamiEffectTimer -= this.dt;
       if (this.konamiEffectTimer <= 0) {
@@ -6135,6 +6164,9 @@ export class SpaceGame {
       ctx.globalAlpha = 1;
     }
 
+    // Draw space whale (deep background, behind everything)
+    this.renderSpaceWhale();
+
     // Draw shooting stars (behind everything, just above stars)
     this.renderShootingStars();
 
@@ -8936,5 +8968,107 @@ export class SpaceGame {
       ctx.globalAlpha = 1;
       ctx.restore();
     }
+  }
+
+  // ===== SPACE WHALE - Rare ambient creature =====
+  private updateSpaceWhale() {
+    const now = Date.now();
+    const spawnInterval = 180000 + Math.random() * 120000; // 3-5 minutes
+
+    if (!this.spaceWhale.active && now - this.lastWhaleSpawn > spawnInterval && this.spaceWhaleImage) {
+      // Spawn a whale somewhere in the world, drifting across
+      const edge = Math.floor(Math.random() * 4);
+      let wx = 0, wy = 0, wvx = 0, wvy = 0;
+      const speed = 0.3 + Math.random() * 0.2;
+
+      if (edge === 0) { // from left
+        wx = -200; wy = 1000 + Math.random() * 8000;
+        wvx = speed; wvy = (Math.random() - 0.5) * 0.1;
+      } else if (edge === 1) { // from right
+        wx = 10200; wy = 1000 + Math.random() * 8000;
+        wvx = -speed; wvy = (Math.random() - 0.5) * 0.1;
+      } else if (edge === 2) { // from top
+        wx = 1000 + Math.random() * 8000; wy = -200;
+        wvx = (Math.random() - 0.5) * 0.1; wvy = speed;
+      } else { // from bottom
+        wx = 1000 + Math.random() * 8000; wy = 10200;
+        wvx = (Math.random() - 0.5) * 0.1; wvy = -speed;
+      }
+
+      this.spaceWhale = {
+        x: wx, y: wy, vx: wvx, vy: wvy,
+        alpha: 0, scale: 0.6 + Math.random() * 0.4,
+        active: true, fadeIn: true
+      };
+      this.lastWhaleSpawn = now;
+    }
+
+    if (this.spaceWhale.active) {
+      this.spaceWhale.x += this.spaceWhale.vx * this.dt;
+      this.spaceWhale.y += this.spaceWhale.vy * this.dt;
+
+      // Gentle sine wave undulation
+      this.spaceWhale.y += Math.sin(now * 0.0008) * 0.15 * this.dt;
+
+      // Fade in/out
+      if (this.spaceWhale.fadeIn) {
+        this.spaceWhale.alpha = Math.min(0.35, this.spaceWhale.alpha + 0.002 * this.dt);
+        if (this.spaceWhale.alpha >= 0.35) this.spaceWhale.fadeIn = false;
+      }
+
+      // Despawn when out of world bounds
+      if (this.spaceWhale.x < -400 || this.spaceWhale.x > 10400 ||
+          this.spaceWhale.y < -400 || this.spaceWhale.y > 10400) {
+        this.spaceWhale.active = false;
+      }
+    }
+  }
+
+  private renderSpaceWhale() {
+    if (!this.spaceWhale.active || !this.spaceWhaleImage) return;
+
+    const { camera } = this.state;
+    const ctx = this.ctx;
+    const sx = this.spaceWhale.x - camera.x;
+    const sy = this.spaceWhale.y - camera.y;
+
+    // Only render if on screen (with generous margin for the whale size)
+    if (sx < -300 || sx > this.canvas.width + 300 || sy < -200 || sy > this.canvas.height + 200) return;
+
+    ctx.save();
+    ctx.globalAlpha = this.spaceWhale.alpha;
+
+    const w = this.spaceWhaleImage.width * this.spaceWhale.scale * 0.5;
+    const h = this.spaceWhaleImage.height * this.spaceWhale.scale * 0.5;
+
+    // Flip whale to face direction of travel
+    if (this.spaceWhale.vx < 0) {
+      ctx.translate(sx, sy);
+      ctx.scale(-1, 1);
+      ctx.drawImage(this.spaceWhaleImage, -w / 2, -h / 2, w, h);
+    } else {
+      ctx.drawImage(this.spaceWhaleImage, sx - w / 2, sy - h / 2, w, h);
+    }
+
+    // Subtle bioluminescent glow
+    const glowAlpha = this.spaceWhale.alpha * 0.3 * (0.7 + Math.sin(Date.now() * 0.002) * 0.3);
+    ctx.globalAlpha = glowAlpha;
+    const glow = ctx.createRadialGradient(
+      this.spaceWhale.vx < 0 ? 0 : sx, this.spaceWhale.vx < 0 ? sy : sy,
+      0,
+      this.spaceWhale.vx < 0 ? 0 : sx, this.spaceWhale.vx < 0 ? sy : sy,
+      w * 0.6
+    );
+    glow.addColorStop(0, 'rgba(100, 200, 255, 0.15)');
+    glow.addColorStop(1, 'rgba(100, 200, 255, 0)');
+    ctx.fillStyle = glow;
+    if (this.spaceWhale.vx < 0) {
+      ctx.fillRect(-w, sy - w * 0.6, w * 2, w * 1.2);
+    } else {
+      ctx.fillRect(sx - w, sy - w * 0.6, w * 2, w * 1.2);
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.restore();
   }
 }
