@@ -421,6 +421,9 @@ export class SpaceGame {
     x: 0, y: 0, vx: 0, vy: 0, alpha: 0, scale: 1, active: false, fadeIn: false
   };
   private lastWhaleSpawn: number = 0;
+  private whaleEncountered: boolean = false;
+  private whaleEncounterTimer: number = 0;
+  private whaleSoundPlayed: boolean = false;
 
   // Escort drones (permanent companions based on ship level)
   private escortDrones: EscortDrone[] = [];
@@ -9001,14 +9004,20 @@ export class SpaceGame {
         active: true, fadeIn: true
       };
       this.lastWhaleSpawn = now;
+      this.whaleSoundPlayed = false;
     }
 
     if (this.spaceWhale.active) {
       this.spaceWhale.x += this.spaceWhale.vx * this.dt;
       this.spaceWhale.y += this.spaceWhale.vy * this.dt;
 
-      // Gentle sine wave undulation
-      this.spaceWhale.y += Math.sin(now * 0.0008) * 0.15 * this.dt;
+      // Gentle sine wave undulation perpendicular to travel direction
+      const travelAngle = Math.atan2(this.spaceWhale.vy, this.spaceWhale.vx);
+      const perpX = -Math.sin(travelAngle);
+      const perpY = Math.cos(travelAngle);
+      const wave = Math.sin(now * 0.0008) * 0.15 * this.dt;
+      this.spaceWhale.x += perpX * wave;
+      this.spaceWhale.y += perpY * wave;
 
       // Fade in/out
       if (this.spaceWhale.fadeIn) {
@@ -9016,11 +9025,32 @@ export class SpaceGame {
         if (this.spaceWhale.alpha >= 0.55) this.spaceWhale.fadeIn = false;
       }
 
+      // Proximity to player - whale sound + encounter achievement
+      const { ship } = this.state;
+      const dx = ship.x - this.spaceWhale.x;
+      const dy = ship.y - this.spaceWhale.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < 500 && !this.whaleSoundPlayed) {
+        this.whaleSoundPlayed = true;
+        soundManager.playSpaceWhale();
+      }
+
+      if (dist < 300 && !this.whaleEncountered) {
+        this.whaleEncountered = true;
+        this.whaleEncounterTimer = 240;
+      }
+
       // Despawn when out of world bounds
       if (this.spaceWhale.x < -400 || this.spaceWhale.x > 10400 ||
           this.spaceWhale.y < -400 || this.spaceWhale.y > 10400) {
         this.spaceWhale.active = false;
       }
+    }
+
+    // Achievement timer
+    if (this.whaleEncounterTimer > 0) {
+      this.whaleEncounterTimer -= this.dt;
     }
   }
 
@@ -9036,35 +9066,21 @@ export class SpaceGame {
     if (sx < -400 || sx > this.canvas.width + 400 || sy < -300 || sy > this.canvas.height + 300) return;
 
     const now = Date.now();
-    const breathe = 1 + Math.sin(now * 0.0015) * 0.03; // Subtle breathing scale pulse
+    const breathe = 1 + Math.sin(now * 0.0015) * 0.03;
     const w = this.spaceWhaleImage.width * this.spaceWhale.scale * 0.5 * breathe;
     const h = this.spaceWhaleImage.height * this.spaceWhale.scale * 0.5 * breathe;
-    const flipX = this.spaceWhale.vx < 0;
+
+    // Rotation: face direction of travel + gentle oscillation for swimming feel
+    const travelAngle = Math.atan2(this.spaceWhale.vy, this.spaceWhale.vx);
+    const swimOscillation = Math.sin(now * 0.002) * 0.06; // Subtle body sway
 
     ctx.save();
     ctx.globalAlpha = this.spaceWhale.alpha;
-
-    // Position at whale center, flip if needed
     ctx.translate(sx, sy);
-    if (flipX) ctx.scale(-1, 1);
+    ctx.rotate(travelAngle + swimOscillation);
 
-    // Draw whale in vertical slices with sine wave offset for swimming undulation
-    const slices = 20;
-    const sliceW = this.spaceWhaleImage.width / slices;
-    const destSliceW = w / slices;
-
-    for (let i = 0; i < slices; i++) {
-      // Progressive wave: tail (end) moves more than head (start)
-      const t = i / slices;
-      const waveAmp = t * t * 8; // Quadratic increase toward tail
-      const yOffset = Math.sin(now * 0.003 + t * Math.PI * 2) * waveAmp;
-
-      ctx.drawImage(
-        this.spaceWhaleImage,
-        sliceW * i, 0, sliceW + 1, this.spaceWhaleImage.height, // source (+1 to avoid gaps)
-        -w / 2 + destSliceW * i, -h / 2 + yOffset, destSliceW + 1, h // dest
-      );
-    }
+    // Draw whale (image faces right by default)
+    ctx.drawImage(this.spaceWhaleImage, -w / 2, -h / 2, w, h);
 
     // Bioluminescent glow that pulses
     const glowAlpha = this.spaceWhale.alpha * 0.25 * (0.6 + Math.sin(now * 0.002) * 0.4);
@@ -9078,5 +9094,30 @@ export class SpaceGame {
 
     ctx.globalAlpha = 1;
     ctx.restore();
+
+    // Whale encounter achievement text
+    if (this.whaleEncounterTimer > 0) {
+      const progress = 1 - (this.whaleEncounterTimer / 240);
+      ctx.save();
+
+      const fadeIn = Math.min(1, progress * 4);
+      const fadeOut = Math.max(0, 1 - (progress - 0.6) * 2.5);
+      ctx.globalAlpha = fadeIn * fadeOut * 0.7;
+
+      ctx.font = '14px Orbitron';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#88ddff';
+      ctx.fillText('The Leviathan', this.canvas.width / 2, this.canvas.height * 0.2);
+
+      if (progress > 0.15 && progress < 0.75) {
+        ctx.globalAlpha = fadeIn * fadeOut * 0.4;
+        ctx.font = '11px "Space Grotesk"';
+        ctx.fillStyle = '#aaccdd';
+        ctx.fillText('A rare encounter', this.canvas.width / 2, this.canvas.height * 0.2 + 22);
+      }
+
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
   }
 }

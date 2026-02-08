@@ -142,6 +142,10 @@ const SOUND_CONFIGS: Record<string, SoundConfig> = {
     src: [`${SOUNDS_PATH}blackhole-whisper-3.mp3`],
     volume: 0.25,
   },
+  spaceWhale: {
+    src: [`${SOUNDS_PATH}space-whale.mp3`],
+    volume: 0.3,
+  },
 };
 
 // Background music configs (separate from SFX)
@@ -500,6 +504,11 @@ export class SoundManager {
     if (level === 1) this.play('blackHoleWhisper1');
     else if (level === 2) this.play('blackHoleWhisper2');
     else if (level >= 3) this.play('blackHoleWhisper3');
+  }
+
+  public playSpaceWhale() {
+    if (!this.initialized || !this.prefs.sfxEnabled) return;
+    this.play('spaceWhale');
   }
 
   // Impact sounds
