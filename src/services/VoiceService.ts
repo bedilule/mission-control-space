@@ -2,6 +2,7 @@ const ELEVENLABS_KEY = 'sk_3d39d8b1fae43e41bc56d8f67e1890fac778d2dcb464a69c';
 const ELEVENLABS_VOICE = 'CwhRBWXzGAHq8TQ4Fs17'; // Roger - default ship AI
 const ELEVENLABS_SHOP_VOICE = 'Z7RrOqZFTyLpIlzCgfsp'; // Toby - Little Mythical Monster (shop merchant goblin)
 const ELEVENLABS_COLLISION_VOICE = 'JBFqnCBsd6RMkjVDRZzb'; // George - British collision commentator
+const ELEVENLABS_NOMAD_VOICE = 'nPczCjzI2devNBz1zQrb'; // Brian - high energy hype man
 
 const COLLISION_LINES = [
   "You can't park there, mate.",
@@ -30,6 +31,13 @@ export interface ShopContext {
   playerName: string;
   credits: number;
   unownedItems: string[];
+}
+
+export interface NomadContext {
+  playerName: string;
+  credits: number;
+  unownedHorns: string[];
+  unownedEmotes: string[];
 }
 
 export interface GreetingContext {
@@ -153,6 +161,70 @@ class VoiceService {
       if (blob) await this.playBlob(blob);
     } catch (e) {
       console.error('[Voice] Shop greeting play failed:', e);
+    }
+  }
+
+  private pendingNomadAudio: Promise<Blob | null> | null = null;
+
+  private static buildNomadMessage(ctx: NomadContext): string {
+    const parts = [`Player: ${ctx.playerName}. Credits: ${ctx.credits}.`];
+    const totalUnowned = ctx.unownedHorns.length + ctx.unownedEmotes.length;
+    if (totalUnowned > 0) {
+      parts.push(`${ctx.unownedHorns.length} horns and ${ctx.unownedEmotes.length} emotes available to buy.`);
+    } else {
+      parts.push('Owns ALL horns and emotes. Complete collection!');
+    }
+    return parts.join(' ');
+  }
+
+  prepareNomadGreeting(ctx: NomadContext): void {
+    if (!this.enabled) return;
+
+    const t0 = performance.now();
+    const userMessage = VoiceService.buildNomadMessage(ctx);
+    console.log('[Voice] Pre-generating nomad greeting...');
+
+    this.pendingNomadAudio = fetch(`${SUPABASE_URL}/functions/v1/voice-greeting`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ userMessage, mode: 'nomad' }),
+    })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        const text = data?.text;
+        if (!text) return null;
+        console.log(`[Voice] Nomad pre-gen OpenAI: ${Math.round(performance.now() - t0)}ms → "${text}"`);
+        return fetch(
+          `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_NOMAD_VOICE}?output_format=mp3_22050_32`,
+          {
+            method: 'POST',
+            headers: { 'xi-api-key': ELEVENLABS_KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, model_id: 'eleven_flash_v2_5' }),
+          }
+        );
+      })
+      .then(res => res && res.ok ? res.blob() : null)
+      .then(blob => {
+        if (blob) console.log(`[Voice] Nomad pre-gen total: ${Math.round(performance.now() - t0)}ms`);
+        return blob;
+      })
+      .catch(e => {
+        console.error('[Voice] Nomad pre-gen failed:', e);
+        return null;
+      });
+  }
+
+  async playNomadGreeting(): Promise<void> {
+    if (!this.enabled || this.speaking || !this.pendingNomadAudio) return;
+    try {
+      const blob = await this.pendingNomadAudio;
+      this.pendingNomadAudio = null;
+      if (blob) await this.playBlob(blob);
+    } catch (e) {
+      console.error('[Voice] Nomad greeting play failed:', e);
     }
   }
 

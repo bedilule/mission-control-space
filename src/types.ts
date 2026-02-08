@@ -183,6 +183,10 @@ export interface ShipEffects {
   rocketLauncherEquipped: boolean;
   hasWarpDrive: boolean;
   hasMissionControlPortal: boolean;
+  ownedHorns: string[];
+  equippedHorn: string | null;
+  ownedEmotes: string[];
+  equippedEmote: string | null;
 }
 
 export interface MultiplayerTeam {

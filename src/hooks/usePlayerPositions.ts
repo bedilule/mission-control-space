@@ -72,6 +72,16 @@ type PlanetDestroyCallback = (playerId: string, data: {
   fromRifle: boolean;
 }) => void;
 
+// Callback type for horn updates (remote horn sound)
+type HornCallback = (playerId: string, data: {
+  hornType: string;
+}) => void;
+
+// Callback type for emote updates (remote emote visual)
+type EmoteCallback = (playerId: string, data: {
+  emoteType: string;
+}) => void;
+
 interface ShipState {
   x: number;
   y: number;
@@ -90,11 +100,15 @@ interface UsePlayerPositionsReturn {
   broadcastSendTarget: (planetId: string, targetX: number, targetY: number) => void;
   broadcastWeaponFire: (weaponType: 'rifle' | 'plasma' | 'rocket', x: number, y: number, vx: number, vy: number, rotation: number, targetPlanetId?: string | null) => void;
   broadcastPlanetDestroy: (planetId: string, fromRifle: boolean) => void;
+  broadcastHorn: (hornType: string) => void;
+  broadcastEmote: (emoteType: string) => void;
   setPositionUpdateCallback: (callback: PositionUpdateCallback | null) => void;
   setUpgradeUpdateCallback: (callback: UpgradeUpdateCallback | null) => void;
   setSendAnimationCallback: (callback: SendAnimationCallback | null) => void;
   setWeaponFireCallback: (callback: WeaponFireCallback | null) => void;
   setPlanetDestroyCallback: (callback: PlanetDestroyCallback | null) => void;
+  setHornCallback: (callback: HornCallback | null) => void;
+  setEmoteCallback: (callback: EmoteCallback | null) => void;
 }
 
 interface CachedPosition {
@@ -127,6 +141,10 @@ const defaultShipEffects: ShipEffects = {
   rocketLauncherEquipped: false,
   hasWarpDrive: false,
   hasMissionControlPortal: false,
+  ownedHorns: [],
+  equippedHorn: null,
+  ownedEmotes: [],
+  equippedEmote: null,
 };
 
 export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlayerPositionsReturn {
@@ -152,6 +170,10 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
   const weaponFireCallbackRef = useRef<WeaponFireCallback | null>(null);
   // Direct callback for planet destroy updates (remote explosion)
   const planetDestroyCallbackRef = useRef<PlanetDestroyCallback | null>(null);
+  // Direct callback for horn updates (remote horn sound)
+  const hornCallbackRef = useRef<HornCallback | null>(null);
+  // Direct callback for emote updates (remote emote visual)
+  const emoteCallbackRef = useRef<EmoteCallback | null>(null);
 
   // Set the callback for direct position updates
   const setPositionUpdateCallback = useCallback((callback: PositionUpdateCallback | null) => {
@@ -176,6 +198,16 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
   // Set the callback for planet destroy updates
   const setPlanetDestroyCallback = useCallback((callback: PlanetDestroyCallback | null) => {
     planetDestroyCallbackRef.current = callback;
+  }, []);
+
+  // Set the callback for horn updates
+  const setHornCallback = useCallback((callback: HornCallback | null) => {
+    hornCallbackRef.current = callback;
+  }, []);
+
+  // Set the callback for emote updates
+  const setEmoteCallback = useCallback((callback: EmoteCallback | null) => {
+    emoteCallbackRef.current = callback;
   }, []);
 
   // Keep players ref updated without triggering effects
@@ -330,6 +362,30 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
         type: 'planet_destroy',
         planetId,
         fromRifle,
+      }));
+    }
+  }, [playerId]);
+
+  // Broadcast horn activation (other players hear it)
+  const broadcastHorn = useCallback((hornType: string) => {
+    if (!playerId) return;
+
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'horn',
+        hornType,
+      }));
+    }
+  }, [playerId]);
+
+  // Broadcast emote activation (other players see it)
+  const broadcastEmote = useCallback((emoteType: string) => {
+    if (!playerId) return;
+
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'emote',
+        emoteType,
       }));
     }
   }, [playerId]);
@@ -568,6 +624,24 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
               });
             }
           }
+
+          if (data.type === 'horn') {
+            if (data.playerId === playerId) return;
+            if (hornCallbackRef.current) {
+              hornCallbackRef.current(data.playerId, {
+                hornType: data.hornType,
+              });
+            }
+          }
+
+          if (data.type === 'emote') {
+            if (data.playerId === playerId) return;
+            if (emoteCallbackRef.current) {
+              emoteCallbackRef.current(data.playerId, {
+                emoteType: data.emoteType,
+              });
+            }
+          }
         } catch (err) {
           console.error('[WS] Failed to parse message:', err);
         }
@@ -732,10 +806,14 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
     broadcastSendTarget,
     broadcastWeaponFire,
     broadcastPlanetDestroy,
+    broadcastHorn,
+    broadcastEmote,
     setPositionUpdateCallback,
     setUpgradeUpdateCallback,
     setSendAnimationCallback,
     setWeaponFireCallback,
     setPlanetDestroyCallback,
+    setHornCallback,
+    setEmoteCallback,
   };
 }

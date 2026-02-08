@@ -146,6 +146,47 @@ const SOUND_CONFIGS: Record<string, SoundConfig> = {
     src: [`${SOUNDS_PATH}space-whale.mp3`],
     volume: 0.3,
   },
+
+  // Neon Nomad
+  nomadJingle: {
+    src: [`${SOUNDS_PATH}nomad/nomad-jingle.mp3`],
+    volume: 0,
+    loop: true,
+  },
+
+  // Horns
+  horn_air: {
+    src: [`${SOUNDS_PATH}horns/air.mp3`],
+    volume: 0.6,
+  },
+  horn_sad: {
+    src: [`${SOUNDS_PATH}horns/sad.mp3`],
+    volume: 0.6,
+  },
+  horn_dolphin: {
+    src: [`${SOUNDS_PATH}horns/dolphin.mp3`],
+    volume: 0.6,
+  },
+  horn_wilhelm: {
+    src: [`${SOUNDS_PATH}horns/wilhelm.mp3`],
+    volume: 0.6,
+  },
+  horn_foghorn: {
+    src: [`${SOUNDS_PATH}horns/foghorn.mp3`],
+    volume: 0.6,
+  },
+  horn_laser: {
+    src: [`${SOUNDS_PATH}horns/laser.mp3`],
+    volume: 0.6,
+  },
+  horn_duck: {
+    src: [`${SOUNDS_PATH}horns/duck.mp3`],
+    volume: 0.6,
+  },
+  horn_dramatic: {
+    src: [`${SOUNDS_PATH}horns/dramatic.mp3`],
+    volume: 0.6,
+  },
 };
 
 // Background music configs (separate from SFX)
@@ -301,6 +342,7 @@ export class SoundManager {
   private isThrusting = false;
   private isBoosting = false;
   private introPlayed = false;
+  private nomadJingleId: number | null = null;
 
   constructor() {
     // Load saved preferences
@@ -382,6 +424,12 @@ export class SoundManager {
     const blackHoleAmbient = this.sounds.get('blackHoleAmbient');
     if (blackHoleAmbient) {
       this.blackHoleId = blackHoleAmbient.play();
+    }
+
+    // Start nomad jingle (at 0 volume initially, proximity-based)
+    const nomadJingle = this.sounds.get('nomadJingle');
+    if (nomadJingle) {
+      this.nomadJingleId = nomadJingle.play();
     }
 
     // Load voice lines
@@ -824,6 +872,26 @@ export class SoundManager {
 
   public getPreferences(): AudioPreferences {
     return { ...this.prefs };
+  }
+
+  // Neon Nomad proximity effect (jingle fades in/out)
+  public updateNomadProximity(proximity: number) {
+    const sound = this.sounds.get('nomadJingle');
+    if (!sound || this.nomadJingleId === null) return;
+
+    const volume = Math.pow(proximity, 2) * 0.4;
+    sound.volume(volume, this.nomadJingleId);
+  }
+
+  // Play a horn sound at given volume
+  public playHorn(hornType: string, volume: number = 1) {
+    if (!this.initialized || !this.prefs.sfxEnabled) return;
+    const soundName = `horn_${hornType}`;
+    const sound = this.sounds.get(soundName);
+    if (sound) {
+      const id = sound.play();
+      sound.volume(Math.min(volume, 1) * 0.6, id);
+    }
   }
 
   // Cleanup

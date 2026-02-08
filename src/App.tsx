@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 
-import { SpaceGame } from './SpaceGame';
+import { SpaceGame, ACHIEVEMENTS } from './SpaceGame';
 import { Planet, RewardType, OtherPlayer, PointTransaction as PointTx, ShipEffects as TypedShipEffects } from './types';
 import { soundManager } from './SoundManager';
 import { useTeam } from './hooks/useTeam';
@@ -131,6 +131,29 @@ const TRAIL_EFFECTS = [
   { id: 'trail_star', name: 'Stardust', icon: '✨', cost: 250, value: 'star' },
 ];
 
+// Neon Nomad items (horns + emotes)
+const HORN_ITEMS = [
+  { id: 'air', name: 'Air Horn', icon: '\uD83D\uDCE2', cost: 50 },
+  { id: 'sad', name: 'Sad Trombone', icon: '\uD83C\uDFBA', cost: 75 },
+  { id: 'dolphin', name: 'Dolphin', icon: '\uD83D\uDC2C', cost: 100 },
+  { id: 'wilhelm', name: 'Wilhelm Scream', icon: '\uD83D\uDE31', cost: 100 },
+  { id: 'foghorn', name: 'Foghorn', icon: '\u26F5', cost: 75 },
+  { id: 'laser', name: 'Laser Pew', icon: '\uD83D\uDD2B', cost: 125 },
+  { id: 'duck', name: 'Duck Quack', icon: '\uD83E\uDD86', cost: 50 },
+  { id: 'dramatic', name: 'Dramatic', icon: '\uD83C\uDFAD', cost: 150 },
+];
+
+const EMOTE_ITEMS = [
+  { id: 'neon_burst', name: 'Neon Burst', icon: '\uD83D\uDCA5', cost: 75 },
+  { id: 'rainbow_spin', name: 'Rainbow Spin', icon: '\uD83C\uDF08', cost: 100 },
+  { id: 'holo_heart', name: 'Holo Heart', icon: '\uD83D\uDC96', cost: 100 },
+  { id: 'flash_colors', name: 'Flash Colors', icon: '\uD83C\uDF86', cost: 75 },
+  { id: 'star_shower', name: 'Star Shower', icon: '\u2B50', cost: 125 },
+  { id: 'glitch_effect', name: 'Glitch', icon: '\uD83D\uDCBB', cost: 150 },
+  { id: 'fire_ring', name: 'Fire Ring', icon: '\uD83D\uDD25', cost: 150 },
+  { id: 'wave_emoji', name: 'Wave', icon: '\uD83D\uDC4B', cost: 75 },
+];
+
 // Weapon costs (one-time purchases)
 const SPACE_RIFLE_COST = 500;
 const WARP_DRIVE_COST = 750;
@@ -234,6 +257,10 @@ interface ShipEffects {
   rocketLauncherEquipped: boolean; // Rocket Launcher is equipped
   hasWarpDrive: boolean; // Owns Warp Drive (teleport home with H key)
   hasMissionControlPortal: boolean; // Owns Mission Control Portal (teleport to MC from home)
+  ownedHorns: string[];
+  equippedHorn: string | null;
+  ownedEmotes: string[];
+  equippedEmote: string | null;
 }
 
 interface UserShip {
@@ -471,6 +498,7 @@ function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<SpaceGame | null>(null);
   const onDockRef = useRef<(planet: Planet) => void>(() => {});
+  const achievementHandlerRef = useRef<(id: string) => void>(() => {});
   const landingCallbacksRef = useRef<{
     onLand: (planet: Planet) => void;
     onTakeoff: () => void;
@@ -485,6 +513,10 @@ function App() {
     onFeatureToggle: (planet: Planet) => void;
     onShopApproach: () => void;
     onCollisionVoice: () => void;
+    onNomadDock: () => void;
+    onNomadApproach: () => void;
+    onHornActivate: () => void;
+    onEmoteActivate: () => void;
   }>({
     onLand: () => {},
     onTakeoff: () => {},
@@ -499,6 +531,10 @@ function App() {
     onFeatureToggle: () => {},
     onShopApproach: () => {},
     onCollisionVoice: () => {},
+    onNomadDock: () => {},
+    onNomadApproach: () => {},
+    onHornActivate: () => {},
+    onEmoteActivate: () => {},
   });
   const [state, setState] = useState<SavedState>(loadState);
   const [customPlanets, setCustomPlanets] = useState<CustomPlanet[]>([]); // Loaded from Supabase
@@ -540,6 +576,8 @@ function App() {
   const [showUserSelect, setShowUserSelect] = useState(!state.currentUser);
   const [showPlanetCreator, setShowPlanetCreator] = useState(false);
   const [showShop, setShowShop] = useState(false);
+  const [showNomadShop, setShowNomadShop] = useState(false);
+  const [nomadShopTab, setNomadShopTab] = useState<'horns' | 'emotes'>('horns');
   const [showControlHub, setShowControlHub] = useState(false);
   const [shopTab, setShopTab] = useState<'stats' | 'cosmetics' | 'weapons' | 'utility'>('stats');
   const [musicEnabled, setMusicEnabled] = useState(soundManager.isMusicEnabled());
@@ -554,6 +592,7 @@ function App() {
     () => localStorage.getItem('mission-control-auto-open-notion') === 'true'
   );
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [showAchievements, setShowAchievements] = useState(false);
   const [showPointsHistory, setShowPointsHistory] = useState(false);
   const [pointsHistoryTab, setPointsHistoryTab] = useState<'personal' | 'team'>('personal');
   const [pointsHistory, setPointsHistory] = useState<PointTx[]>([]);
@@ -702,6 +741,35 @@ function App() {
     return found?.id || null;
   }, [teamPlayers, state.currentUser]);
 
+  // Current player's achievements from Supabase
+  const currentPlayerAchievements = useMemo(() => {
+    const found = teamPlayers.find(p => p.username === state.currentUser);
+    return found?.achievements || {};
+  }, [teamPlayers, state.currentUser]);
+
+  // Achievement unlock handler - saves to Supabase + awards points
+  const handleAchievementUnlock = useCallback(async (achievementId: string) => {
+    // Double-check not already unlocked
+    if (currentPlayerAchievements[achievementId]) return;
+
+    const def = ACHIEVEMENTS.find(a => a.id === achievementId);
+    if (!def) return;
+
+    console.log(`[Achievement] Unlocked: ${def.name} (+${def.points} pts)`);
+
+    // Save to Supabase
+    const updatedAchievements = {
+      ...currentPlayerAchievements,
+      [achievementId]: new Date().toISOString(),
+    };
+    await updatePlayerData({ achievements: updatedAchievements });
+
+    // Award points
+    if (def.points > 0) {
+      await updateRemotePersonalPoints(def.points, `Achievement: ${def.name}`);
+    }
+  }, [currentPlayerAchievements, updatePlayerData, updateRemotePersonalPoints]);
+
   const playersForPositions = useMemo(() =>
     teamPlayers.map(p => ({
       id: p.id,
@@ -720,7 +788,7 @@ function App() {
   );
 
   // Player positions hook - handles real-time ship positions
-  const { otherPlayers, broadcastPosition, broadcastUpgradeState, broadcastSendStart, broadcastSendTarget, broadcastWeaponFire, broadcastPlanetDestroy, setPositionUpdateCallback, setUpgradeUpdateCallback, setSendAnimationCallback, setWeaponFireCallback, setPlanetDestroyCallback } = usePlayerPositions({
+  const { otherPlayers, broadcastPosition, broadcastUpgradeState, broadcastSendStart, broadcastSendTarget, broadcastWeaponFire, broadcastPlanetDestroy, broadcastHorn, broadcastEmote, setPositionUpdateCallback, setUpgradeUpdateCallback, setSendAnimationCallback, setWeaponFireCallback, setPlanetDestroyCallback, setHornCallback, setEmoteCallback } = usePlayerPositions({
     teamId: team?.id || null,
     playerId: currentDbPlayerId,
     players: playersForPositions,
@@ -927,6 +995,13 @@ function App() {
     gameRef.current?.setFeaturedPlanetIds(featuredPlanetIds);
   }, [featuredPlanetIds]);
 
+  // Sync achievements to game engine (hydrate on load + keep in sync)
+  useEffect(() => {
+    if (gameRef.current && Object.keys(currentPlayerAchievements).length > 0) {
+      gameRef.current.setAchievements(currentPlayerAchievements);
+    }
+  }, [currentPlayerAchievements]);
+
   // Cleanup stale featured IDs when planets change (deleted planets)
   useEffect(() => {
     if (featuredPlanetIds.size === 0) return;
@@ -960,6 +1035,8 @@ function App() {
   const sendAnimCallbackRef = useRef<((playerId: string, data: { type: 'start' | 'target'; planetId: string; velocityX?: number; velocityY?: number; targetX?: number; targetY?: number }) => void) | null>(null);
   const weaponFireCallbackRef = useRef<((playerId: string, data: { weaponType: 'rifle' | 'plasma' | 'rocket'; x: number; y: number; vx: number; vy: number; rotation: number; targetPlanetId: string | null }) => void) | null>(null);
   const planetDestroyCallbackRef = useRef<((playerId: string, data: { planetId: string; fromRifle: boolean }) => void) | null>(null);
+  const hornCallbackRef = useRef<((playerId: string, data: { hornType: string }) => void) | null>(null);
+  const emoteCallbackRef = useRef<((playerId: string, data: { emoteType: string }) => void) | null>(null);
 
   // Update callback refs when game is available
   useEffect(() => {
@@ -993,6 +1070,12 @@ function App() {
     };
     planetDestroyCallbackRef.current = (playerId, data) => {
       gameRef.current?.onRemotePlanetDestroy(playerId, data);
+    };
+    hornCallbackRef.current = (playerId, data) => {
+      gameRef.current?.playRemoteHorn(playerId, data.hornType);
+    };
+    emoteCallbackRef.current = (playerId, data) => {
+      gameRef.current?.showRemoteEmote(playerId, data.emoteType);
     };
   }, [teamPlayers]);
 
@@ -1041,6 +1124,24 @@ function App() {
       setPlanetDestroyCallback(null);
     };
   }, [setPlanetDestroyCallback]);
+
+  useEffect(() => {
+    setHornCallback((playerId, data) => {
+      hornCallbackRef.current?.(playerId, data);
+    });
+    return () => {
+      setHornCallback(null);
+    };
+  }, [setHornCallback]);
+
+  useEffect(() => {
+    setEmoteCallback((playerId, data) => {
+      emoteCallbackRef.current?.(playerId, data);
+    });
+    return () => {
+      setEmoteCallback(null);
+    };
+  }, [setEmoteCallback]);
 
   // Update game with other players (for metadata like ship images, effects, etc.)
   // Hide test player's ship from non-test players
@@ -2291,6 +2392,11 @@ function App() {
     onDockRef.current = handleDock;
   }, [handleDock]);
 
+  // Keep achievement handler ref updated
+  useEffect(() => {
+    achievementHandlerRef.current = handleAchievementUnlock;
+  }, [handleAchievementUnlock]);
+
   // Stable callback that uses the ref
   const stableOnDock = useCallback((planet: Planet) => {
     onDockRef.current(planet);
@@ -2833,6 +2939,38 @@ function App() {
       onCollisionVoice: () => {
         voiceService.collisionComment();
       },
+      onNomadApproach: () => {
+        const currentShip = getCurrentUserShip();
+        const effects = getEffectsWithDefaults(currentShip.effects);
+        const unownedHorns = HORN_ITEMS.filter(h => !effects.ownedHorns.includes(h.id)).map(h => h.name);
+        const unownedEmotes = EMOTE_ITEMS.filter(e => !effects.ownedEmotes.includes(e.id)).map(e => e.name);
+        voiceService.prepareNomadGreeting({
+          playerName: USERS.find(u => u.id === state.currentUser)?.name || state.currentUser || 'friend',
+          credits: personalPoints,
+          unownedHorns,
+          unownedEmotes,
+        });
+      },
+      onNomadDock: () => {
+        setShowNomadShop(true);
+        voiceService.playNomadGreeting();
+      },
+      onHornActivate: () => {
+        const currentShip = getCurrentUserShip();
+        const effects = getEffectsWithDefaults(currentShip.effects);
+        if (effects.equippedHorn) {
+          soundManager.playHorn(effects.equippedHorn, 1);
+          broadcastHorn(effects.equippedHorn);
+        }
+      },
+      onEmoteActivate: () => {
+        const currentShip = getCurrentUserShip();
+        const effects = getEffectsWithDefaults(currentShip.effects);
+        if (effects.equippedEmote) {
+          gameRef.current?.setLocalEmote(effects.equippedEmote);
+          broadcastEmote(effects.equippedEmote);
+        }
+      },
     };
   });
 
@@ -2843,7 +2981,7 @@ function App() {
       if (e.key === 'Escape' && !isUpgrading) {
         const isGameLanded = gameRef.current?.isPlayerLanded();
         const hasOpenModal = editingGoal || showSettings || showGameSettings || showTerraform ||
-          viewingPlanetOwner || showShop || showControlHub || showPlanetCreator || landedPlanet || isGameLanded || showQuickTaskModal || showReassignModal || showEditModal || featuredViewPlanet;
+          viewingPlanetOwner || showShop || showNomadShop || showControlHub || showPlanetCreator || landedPlanet || isGameLanded || showQuickTaskModal || showReassignModal || showEditModal || featuredViewPlanet || showAchievements;
 
         if (hasOpenModal) {
           e.preventDefault();
@@ -2854,6 +2992,7 @@ function App() {
           setShowTerraform(false);
           setViewingPlanetOwner(null);
           setShowShop(false);
+          setShowNomadShop(false);
           setShowControlHub(false);
           setShowPlanetCreator(false);
           setLandedPlanet(null);
@@ -2863,6 +3002,7 @@ function App() {
           setShowEditModal(false);
           setEditPlanet(null);
           setFeaturedViewPlanet(null);
+          setShowAchievements(false);
           // Also clear SpaceGame's internal landed state
           gameRef.current?.setSuppressLandedPanel(false);
           gameRef.current?.clearLandedState();
@@ -2876,7 +3016,7 @@ function App() {
         const isGameLanded = gameRef.current?.isPlayerLanded();
         const hasOpenModal = editingGoal || showSettings || showGameSettings || showTerraform ||
           viewingPlanetOwner || showShop || showControlHub || showPlanetCreator || landedPlanet || isGameLanded || showQuickTaskModal ||
-          showWelcome || showUserSelect || showLeaderboard || showPointsHistory || showReassignModal || showEditModal || featuredViewPlanet;
+          showWelcome || showUserSelect || showLeaderboard || showPointsHistory || showReassignModal || showEditModal || featuredViewPlanet || showAchievements;
 
         if (!isTyping && !hasOpenModal && !isUpgrading) {
           e.preventDefault();
@@ -2887,7 +3027,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showTerraform, viewingPlanetOwner, showShop, showControlHub, showPlanetCreator, showSettings, showGameSettings, editingGoal, landedPlanet, isUpgrading, showQuickTaskModal, showWelcome, showUserSelect, showLeaderboard, showPointsHistory, showReassignModal, showEditModal, featuredViewPlanet]);
+  }, [showTerraform, viewingPlanetOwner, showShop, showControlHub, showPlanetCreator, showSettings, showGameSettings, editingGoal, landedPlanet, isUpgrading, showQuickTaskModal, showWelcome, showUserSelect, showLeaderboard, showPointsHistory, showReassignModal, showEditModal, featuredViewPlanet, showAchievements]);
 
   // Buy visual upgrade from shop (AI-generated changes to ship appearance)
   const buyVisualUpgrade = async () => {
@@ -3424,6 +3564,10 @@ function App() {
     rocketLauncherEquipped: effects?.rocketLauncherEquipped ?? false,
     hasWarpDrive: effects?.hasWarpDrive ?? false,
     hasMissionControlPortal: effects?.hasMissionControlPortal ?? false,
+    ownedHorns: effects?.ownedHorns ?? [],
+    equippedHorn: effects?.equippedHorn ?? null,
+    ownedEmotes: effects?.ownedEmotes ?? [],
+    equippedEmote: effects?.equippedEmote ?? null,
   });
 
   // Helper to update ship effects
@@ -3436,6 +3580,58 @@ function App() {
 
     // Sync effects to backend for multiplayer
     updatePlayerData({ ship_effects: newEffects });
+  };
+
+  // Neon Nomad: Buy horn
+  const buyHorn = (hornId: string, cost: number) => {
+    if (!state.currentUser) return;
+    const userId = state.currentUser;
+    const currentShip = getCurrentUserShip();
+    const currentEffects = getEffectsWithDefaults(currentShip.effects);
+
+    if (currentEffects.ownedHorns.includes(hornId)) {
+      // Already owned → equip/unequip
+      const newEquipped = currentEffects.equippedHorn === hornId ? null : hornId;
+      const newEffects = { ...currentEffects, equippedHorn: newEquipped };
+      updateUserShipEffects(userId, currentShip, newEffects);
+      soundManager.playSelect();
+      return;
+    }
+
+    if (personalPoints < cost) return;
+    setPersonalPoints(prev => prev - cost);
+    updateRemotePersonalPoints(-cost, `Horn: ${hornId}`);
+    const newOwned = [...currentEffects.ownedHorns, hornId];
+    const newEquipped = currentEffects.equippedHorn ?? hornId; // Auto-equip first
+    const newEffects = { ...currentEffects, ownedHorns: newOwned, equippedHorn: newEquipped };
+    updateUserShipEffects(userId, currentShip, newEffects);
+    soundManager.playPowerUp();
+  };
+
+  // Neon Nomad: Buy emote
+  const buyEmote = (emoteId: string, cost: number) => {
+    if (!state.currentUser) return;
+    const userId = state.currentUser;
+    const currentShip = getCurrentUserShip();
+    const currentEffects = getEffectsWithDefaults(currentShip.effects);
+
+    if (currentEffects.ownedEmotes.includes(emoteId)) {
+      // Already owned → equip/unequip
+      const newEquipped = currentEffects.equippedEmote === emoteId ? null : emoteId;
+      const newEffects = { ...currentEffects, equippedEmote: newEquipped };
+      updateUserShipEffects(userId, currentShip, newEffects);
+      soundManager.playSelect();
+      return;
+    }
+
+    if (personalPoints < cost) return;
+    setPersonalPoints(prev => prev - cost);
+    updateRemotePersonalPoints(-cost, `Emote: ${emoteId}`);
+    const newOwned = [...currentEffects.ownedEmotes, emoteId];
+    const newEquipped = currentEffects.equippedEmote ?? emoteId; // Auto-equip first
+    const newEffects = { ...currentEffects, ownedEmotes: newOwned, equippedEmote: newEquipped };
+    updateUserShipEffects(userId, currentShip, newEffects);
+    soundManager.playPowerUp();
   };
 
   // Select user
@@ -3624,6 +3820,10 @@ function App() {
       onFeatureToggle: (planet) => landingCallbacksRef.current.onFeatureToggle(planet),
       onShopApproach: () => landingCallbacksRef.current.onShopApproach(),
       onCollisionVoice: () => landingCallbacksRef.current.onCollisionVoice(),
+      onNomadDock: () => landingCallbacksRef.current.onNomadDock(),
+      onNomadApproach: () => landingCallbacksRef.current.onNomadApproach(),
+      onHornActivate: () => landingCallbacksRef.current.onHornActivate(),
+      onEmoteActivate: () => landingCallbacksRef.current.onEmoteActivate(),
     });
 
     // Set up weapon fire broadcast callback (game → WS)
@@ -3634,6 +3834,11 @@ function App() {
     // Set up planet destroy broadcast callback (game → WS)
     game.setPlanetDestroyBroadcastCallback((planetId, fromRifle) => {
       broadcastPlanetDestroy(planetId, fromRifle);
+    });
+
+    // Set up achievement callback (game → Supabase)
+    game.setAchievementCallback((achievementId) => {
+      achievementHandlerRef.current(achievementId);
     });
 
     // Sync notion planets immediately if already loaded
@@ -3815,9 +4020,16 @@ function App() {
         )}
       </div>
 
-      {/* Leaderboard button - always available when connected */}
+      {/* Leaderboard & Achievements buttons - always available when connected */}
       {team && (
         <div style={styles.multiplayerButtons}>
+          <button
+            style={styles.leaderboardButton}
+            onClick={() => setShowAchievements(true)}
+            title="View achievements"
+          >
+            🏅 {Object.keys(currentPlayerAchievements).length}/{ACHIEVEMENTS.length}
+          </button>
           <button
             style={styles.leaderboardButton}
             onClick={() => setShowLeaderboard(true)}
@@ -3894,7 +4106,7 @@ function App() {
       )}
 
       {/* Next Missions widget */}
-      {!editingGoal && !showSettings && !showGameSettings && !showTerraform && !showShop && !showControlHub && !showPlanetCreator && !showLeaderboard && !showPointsHistory && (
+      {!editingGoal && !showSettings && !showGameSettings && !showTerraform && !showShop && !showControlHub && !showPlanetCreator && !showLeaderboard && !showPointsHistory && !showAchievements && (
         <div style={{
           position: 'absolute', left: 20, top: team && teamPlayers.filter(p => p.isOnline && p.username !== state.currentUser && !isTestPlayer(p.username)).length > 0 ? 150 : 70,
           background: 'rgba(0,0,0,0.75)', borderRadius: 8, padding: '8px 12px',
@@ -4111,7 +4323,7 @@ function App() {
       </button>
 
       {/* Quick Task FAB - hidden when modals are open */}
-      {!editingGoal && !showSettings && !showGameSettings && !showTerraform && !viewingPlanetOwner && !showShop && !showControlHub && !showPlanetCreator && !landedPlanet && !showQuickTaskModal && !showLeaderboard && !showPointsHistory && !showShipHistory && !gameRef.current?.isPlayerLanded() && (
+      {!editingGoal && !showSettings && !showGameSettings && !showTerraform && !viewingPlanetOwner && !showShop && !showControlHub && !showPlanetCreator && !landedPlanet && !showQuickTaskModal && !showLeaderboard && !showPointsHistory && !showAchievements && !showShipHistory && !gameRef.current?.isPlayerLanded() && (
         <button
           style={{
             position: 'fixed',
@@ -4462,6 +4674,78 @@ function App() {
             <button
               style={{ ...styles.closeButton, marginTop: '1.5rem' }}
               onClick={() => setShowLeaderboard(false)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Achievements Modal */}
+      {showAchievements && (
+        <div style={styles.modalOverlay} onClick={() => setShowAchievements(false)}>
+          <div style={{ ...styles.modal, maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+            <h2 style={styles.modalTitle}>🏅 Achievements</h2>
+            <div style={{
+              display: 'flex', justifyContent: 'center', gap: '1rem', marginBottom: '1rem',
+            }}>
+              <div style={{
+                background: 'rgba(255,215,0,0.1)', borderRadius: 8, padding: '0.5rem 1rem',
+                border: '1px solid rgba(255,215,0,0.2)', textAlign: 'center',
+              }}>
+                <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#ffd700' }}>
+                  {Object.keys(currentPlayerAchievements).length}/{ACHIEVEMENTS.length}
+                </div>
+                <div style={{ fontSize: '0.7rem', color: '#888' }}>Unlocked</div>
+              </div>
+              <div style={{
+                background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '0.5rem 1rem',
+                border: '1px solid rgba(255,255,255,0.05)', textAlign: 'center',
+              }}>
+                <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#ffc800' }}>
+                  ⭐ {ACHIEVEMENTS.reduce((sum, a) => sum + (currentPlayerAchievements[a.id] ? a.points : 0), 0)}
+                </div>
+                <div style={{ fontSize: '0.7rem', color: '#888' }}>Points Earned</div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '400px', overflowY: 'auto' }}>
+              {ACHIEVEMENTS.map(a => {
+                const unlocked = !!currentPlayerAchievements[a.id];
+                const unlockDate = unlocked ? new Date(currentPlayerAchievements[a.id]).toLocaleDateString() : null;
+                return (
+                  <div key={a.id} style={{
+                    display: 'flex', alignItems: 'center', gap: '12px',
+                    padding: '10px 14px', borderRadius: '10px',
+                    background: unlocked ? 'rgba(255,215,0,0.08)' : 'rgba(255,255,255,0.02)',
+                    border: unlocked ? '1px solid rgba(255,215,0,0.2)' : '1px solid rgba(255,255,255,0.04)',
+                    opacity: unlocked ? 1 : 0.45,
+                  }}>
+                    <span style={{ fontSize: '1.5rem', width: 36, textAlign: 'center', filter: unlocked ? 'none' : 'grayscale(1)' }}>
+                      {a.icon}
+                    </span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ color: unlocked ? '#fff' : '#666', fontWeight: 600, fontSize: '0.9rem' }}>
+                        {unlocked ? a.name : '???'}
+                      </div>
+                      <div style={{ color: unlocked ? '#aaa' : '#444', fontSize: '0.75rem' }}>
+                        {unlocked ? a.description : '???'}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      <div style={{ color: unlocked ? '#ffc800' : '#555', fontWeight: 600, fontSize: '0.85rem' }}>
+                        +{a.points}
+                      </div>
+                      {unlockDate && (
+                        <div style={{ color: '#666', fontSize: '0.65rem' }}>{unlockDate}</div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <button
+              style={{ ...styles.closeButton, marginTop: '1.5rem' }}
+              onClick={() => setShowAchievements(false)}
             >
               Close
             </button>
@@ -5248,6 +5532,86 @@ function App() {
             )}
 
             <button style={{ ...styles.cancelButton, width: '100%', marginTop: '1rem' }} onClick={() => { setShowShop(false); gameRef.current?.clearLandedState(); }}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Neon Nomad Shop Modal */}
+      {showNomadShop && (
+        <div style={styles.modalOverlay} onClick={() => setShowNomadShop(false)}>
+          <div style={{ ...styles.modal, maxWidth: 460, border: '1px solid #ff00ff33' }} onClick={e => e.stopPropagation()}>
+            <h2 style={{ ...styles.modalTitle, color: '#ff00ff' }}>NEON NOMAD</h2>
+            <p style={{ ...styles.shopPoints, color: '#00ffff' }}>{'\u2B50'} {personalPoints} Points Available</p>
+
+            {/* Tab Navigation */}
+            <div style={{ display: 'flex', gap: '4px', marginBottom: '1rem', background: 'rgba(255,0,255,0.05)', borderRadius: '8px', padding: '4px' }}>
+              {(['horns', 'emotes'] as const).map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setNomadShopTab(tab)}
+                  style={{
+                    flex: 1,
+                    padding: '10px 12px',
+                    border: 'none',
+                    borderRadius: '6px',
+                    background: nomadShopTab === tab ? 'rgba(255, 0, 255, 0.2)' : 'transparent',
+                    color: nomadShopTab === tab ? '#ff00ff' : '#888',
+                    fontWeight: nomadShopTab === tab ? 600 : 400,
+                    cursor: 'pointer',
+                    fontSize: '0.85rem',
+                    transition: 'all 0.2s',
+                    fontFamily: 'Orbitron',
+                  }}
+                >
+                  {tab === 'horns' ? '\uD83D\uDCE2 Horns' : '\u2728 Emotes'}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ ...styles.shopGrid }}>
+              {(nomadShopTab === 'horns' ? HORN_ITEMS : EMOTE_ITEMS).map(item => {
+                const currentShip = getCurrentUserShip();
+                const effects = getEffectsWithDefaults(currentShip.effects);
+                const isHorn = nomadShopTab === 'horns';
+                const owned = isHorn ? effects.ownedHorns.includes(item.id) : effects.ownedEmotes.includes(item.id);
+                const equipped = isHorn ? effects.equippedHorn === item.id : effects.equippedEmote === item.id;
+                const canAfford = personalPoints >= item.cost;
+
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => {
+                      if (isHorn) buyHorn(item.id, item.cost);
+                      else buyEmote(item.id, item.cost);
+                    }}
+                    style={{
+                      ...styles.shopItem,
+                      border: equipped ? '1px solid #ff00ff' : owned ? '1px solid #00ffff33' : '1px solid #333',
+                      opacity: !owned && !canAfford ? 0.5 : 1,
+                      cursor: !owned && !canAfford ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    <span style={styles.shopIcon}>{item.icon}</span>
+                    <span style={{ ...styles.shopName, color: equipped ? '#ff00ff' : owned ? '#00ffff' : '#ccc' }}>{item.name}</span>
+                    <span style={{
+                      fontSize: '0.75rem',
+                      color: owned ? (equipped ? '#ff00ff' : '#00ffff') : canAfford ? '#ffd700' : '#666',
+                      fontWeight: 600,
+                    }}>
+                      {equipped ? 'EQUIPPED' : owned ? 'EQUIP' : `${item.cost} \u2B50`}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ marginTop: '0.75rem', fontSize: '0.7rem', color: '#888', textAlign: 'center' as const }}>
+              {nomadShopTab === 'horns' ? 'Press G to honk' : 'Press V to emote'} {'\u2022'} Other players will see/hear it
+            </div>
+
+            <button style={{ ...styles.cancelButton, width: '100%', marginTop: '0.75rem', borderColor: '#ff00ff33' }} onClick={() => setShowNomadShop(false)}>
               Close
             </button>
           </div>

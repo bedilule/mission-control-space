@@ -17,6 +17,7 @@ interface PlayerData {
   planetSizeLevel: number;
   personalPoints: number;
   totalEarned: number; // Sum of all points earned (not spent)
+  achievements: Record<string, string>; // achievement_id -> unlock timestamp
 }
 
 interface UseMultiplayerSyncOptions {
@@ -64,6 +65,10 @@ const defaultShipEffects: ShipEffects = {
   rocketLauncherEquipped: false,
   hasWarpDrive: false,
   hasMissionControlPortal: false,
+  ownedHorns: [],
+  equippedHorn: null,
+  ownedEmotes: [],
+  equippedEmote: null,
 };
 
 // How long before we consider a player offline even if is_online is true
@@ -91,6 +96,7 @@ const playerRowToData = (row: any, totalEarned: number = 0): PlayerData => {
     planetSizeLevel: row.planet_size_level,
     personalPoints: row.personal_points || 0,
     totalEarned,
+    achievements: (row.achievements as Record<string, string>) || {},
   };
 };
 

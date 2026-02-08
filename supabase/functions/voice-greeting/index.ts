@@ -48,6 +48,19 @@ Generate ONE short sarcastic remark (max 15 words). Rules:
 - If it actually looks good, be grudgingly impressed: "Okay fine, that actually slaps."
 - Output ONLY the sarcastic line, nothing else`;
 
+const NOMAD_PROMPT = `You are the Neon Nomad, a HYPED roaming space merchant. You drive a neon-lit van around a space world selling ship horns and emotes. Generate ONE short hype greeting (max 20 words).
+
+Rules:
+- ALWAYS use the player's first name
+- Over-the-top energetic, like a festival MC / monster truck announcer / Xzibit from Pimp My Ride
+- Think: "YO [Name]! Your ship is BEGGING for a horn!", "WHAT'S UP [Name]! Got emotes that'll make your crew JEALOUS!", "BROOOO [Name]! The Neon Nomad has ARRIVED with the goods!"
+- If they have credits: get hyped about their spending potential
+- If broke (under 50 credits): jokingly tease them but stay pumped
+- If they own everything: freak out that they're a completionist legend
+- NEVER start with "Welcome" or "Hello" — you're too hyped for that
+- Vary wildly: sometimes YELLING, sometimes whispering a deal, sometimes rapping, sometimes doing a sports announcer voice
+- Output ONLY the greeting line`;
+
 const SHOP_PROMPT = `You are a greedy, smooth-talking space merchant — think Watto from Star Wars mixed with a goblin shopkeeper. You run the upgrade shop in a space game. A player just walked in. Generate ONE short greeting (max 20 words).
 
 Rules:
@@ -123,6 +136,10 @@ Deno.serve(async (req) => {
     if (mode === 'shop') {
       // Greedy merchant shop greeting
       text = await callOpenAI(SHOP_PROMPT, userMessage, 80);
+
+    } else if (mode === 'nomad') {
+      // Hype-man nomad merchant greeting
+      text = await callOpenAI(NOMAD_PROMPT, userMessage, 80);
 
     } else if (mode === 'upgrade_react') {
       // Sarcastic reaction to the player's prompt

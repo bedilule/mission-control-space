@@ -155,6 +155,44 @@ wss.on('connection', (ws, req) => {
         return;
       }
 
+      // Horn broadcast (other players hear your horn)
+      if (msg.type === 'horn' && teamId) {
+        const teamPlayers = teams.get(teamId);
+        if (!teamPlayers) return;
+
+        const payload = JSON.stringify({
+          type: 'horn',
+          playerId: playerId,
+          hornType: msg.hornType,
+        });
+
+        for (const [otherPlayerId, otherWs] of teamPlayers) {
+          if (otherPlayerId !== playerId && otherWs.readyState === WebSocket.OPEN) {
+            otherWs.send(payload);
+          }
+        }
+        return;
+      }
+
+      // Emote broadcast (other players see your emote)
+      if (msg.type === 'emote' && teamId) {
+        const teamPlayers = teams.get(teamId);
+        if (!teamPlayers) return;
+
+        const payload = JSON.stringify({
+          type: 'emote',
+          playerId: playerId,
+          emoteType: msg.emoteType,
+        });
+
+        for (const [otherPlayerId, otherWs] of teamPlayers) {
+          if (otherPlayerId !== playerId && otherWs.readyState === WebSocket.OPEN) {
+            otherWs.send(payload);
+          }
+        }
+        return;
+      }
+
       // Planet destroy broadcast (explosion animation)
       if (msg.type === 'planet_destroy' && teamId) {
         const teamPlayers = teams.get(teamId);

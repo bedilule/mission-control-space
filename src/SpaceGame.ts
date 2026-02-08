@@ -96,6 +96,30 @@ const userPlanetSizeLevels: Map<string, number> = new Map();
 const USER_IDS = ['quentin', 'armel', 'alex', 'milya', 'hugues', 'testpilot'];
 const TEST_PLAYER_ID = 'testpilot';
 
+// Achievement definitions
+export interface AchievementDef {
+  id: string;
+  name: string;
+  icon: string;
+  description: string;
+  points: number;
+}
+
+export const ACHIEVEMENTS: AchievementDef[] = [
+  { id: 'whale_encounter', name: 'The Leviathan', icon: '🐋', description: 'Get within 300px of the space whale', points: 100 },
+  { id: 'explorer', name: 'Explorer', icon: '🧭', description: 'Visit all player zones', points: 100 },
+  { id: 'black_hole_3', name: 'Close Call', icon: '🕳️', description: '3 black hole escapes', points: 50 },
+  { id: 'black_hole_5', name: 'Gravity Dancer', icon: '🌀', description: '5 black hole escapes', points: 75 },
+  { id: 'black_hole_10', name: 'The Maw Knows', icon: '👁️', description: '10 black hole escapes', points: 150 },
+  { id: 'distance_50k', name: 'Voyager', icon: '🚀', description: 'Travel 50,000 pixels', points: 50 },
+  { id: 'distance_100k', name: 'Star Wanderer', icon: '⭐', description: 'Travel 100,000 pixels', points: 75 },
+  { id: 'distance_500k', name: 'Cosmic Drifter', icon: '🌌', description: 'Travel 500,000 pixels', points: 100 },
+  { id: 'distance_1m', name: 'Light Traveler', icon: '💫', description: 'Travel 1,000,000 pixels', points: 200 },
+  { id: 'tasks_5', name: 'Getting Started', icon: '✅', description: 'Complete 5 tasks in a session', points: 50 },
+  { id: 'tasks_25', name: 'Workhorse', icon: '🔥', description: 'Complete 25 tasks in a session', points: 100 },
+  { id: 'konami', name: '↑↑↓↓←→←→BA', icon: '🎮', description: 'Enter the Konami code', points: 50 },
+];
+
 // Expanded world to fit all zones
 const WORLD_SIZE = 10000;
 const ZONE_SIZE = 2000; // Zone radius
@@ -425,6 +449,39 @@ export class SpaceGame {
   private whaleEncounterTimer: number = 0;
   private whaleSoundPlayed: boolean = false;
 
+  // Persistent achievements
+  private unlockedAchievements: Set<string> = new Set();
+  private onAchievement: ((achievementId: string) => void) | null = null;
+
+  // Neon Nomad (roaming merchant)
+  private neonNomadImage: HTMLImageElement | null = null;
+  private neonNomad: {
+    x: number; y: number; waypointIdx: number; rotation: number; scale: number;
+  } = { x: 3000, y: 5000, waypointIdx: 0, rotation: 0, scale: 1 };
+  private nomadSparkles: { x: number; y: number; life: number; maxLife: number; color: string; size: number }[] = [];
+  private nearNeonNomad: boolean = false;
+  private nomadApproachFired: boolean = false;
+  private onNomadDock: (() => void) | null = null;
+  private onNomadApproach: (() => void) | null = null;
+  private onHornActivate: (() => void) | null = null;
+  private onEmoteActivate: (() => void) | null = null;
+  private hornCooldown: number = 0;
+  private emoteCooldown: number = 0;
+  private activeEmote: { type: string; timer: number } | null = null;
+  private remoteEmotes: Map<string, { type: string; timer: number }> = new Map();
+  private static readonly NOMAD_WAYPOINTS: { x: number; y: number }[] = [
+    { x: 8000, y: 5000 },  // Quentin zone (East)
+    { x: 7100, y: 2900 },  // Alex zone (Northeast)
+    { x: 5000, y: 2000 },  // Armel zone (North)
+    { x: 2900, y: 2900 },  // Milya zone (Northwest)
+    { x: 2000, y: 5000 },  // Hugues zone (West)
+    { x: 5000, y: 8080 },  // Mission Control
+    { x: 3000, y: 7000 },  // South-west drift
+    { x: 7000, y: 7000 },  // South-east drift
+  ];
+  private static readonly NOMAD_SPEED = 0.8;
+  private static readonly NOMAD_DOCKING_DISTANCE = 80;
+
   // Escort drones (permanent companions based on ship level)
   private escortDrones: EscortDrone[] = [];
   private readonly DRONE_UNLOCK_INTERVAL: number = 5; // Unlock 1 drone every 5 ship levels
@@ -613,6 +670,14 @@ export class SpaceGame {
     whaleImg.src = '/space-whale.png';
     whaleImg.onload = () => {
       this.spaceWhaleImage = whaleImg;
+    };
+
+    // Load Neon Nomad image
+    const nomadImg = new Image();
+    nomadImg.crossOrigin = 'anonymous';
+    nomadImg.src = '/neon-nomad.png';
+    nomadImg.onload = () => {
+      this.neonNomadImage = nomadImg;
     };
   }
 
@@ -1124,6 +1189,10 @@ export class SpaceGame {
     onFeatureToggle?: (planet: Planet) => void;
     onShopApproach?: () => void;
     onCollisionVoice?: () => void;
+    onNomadDock?: () => void;
+    onNomadApproach?: () => void;
+    onHornActivate?: () => void;
+    onEmoteActivate?: () => void;
   }) {
     this.onLand = callbacks.onLand || null;
     this.onTakeoff = callbacks.onTakeoff || null;
@@ -1138,6 +1207,24 @@ export class SpaceGame {
     this.onFeatureToggle = callbacks.onFeatureToggle || null;
     this.onShopApproach = callbacks.onShopApproach || null;
     this.onCollisionVoice = callbacks.onCollisionVoice || null;
+    this.onNomadDock = callbacks.onNomadDock || null;
+    this.onNomadApproach = callbacks.onNomadApproach || null;
+    this.onHornActivate = callbacks.onHornActivate || null;
+    this.onEmoteActivate = callbacks.onEmoteActivate || null;
+  }
+
+  public setAchievementCallback(callback: ((achievementId: string) => void) | null) {
+    this.onAchievement = callback;
+  }
+
+  public setAchievements(achievements: Record<string, string>) {
+    this.unlockedAchievements = new Set(Object.keys(achievements));
+  }
+
+  private tryUnlockAchievement(id: string) {
+    if (this.unlockedAchievements.has(id)) return;
+    this.unlockedAchievements.add(id);
+    this.onAchievement?.(id);
   }
 
   public setFeaturedPlanetIds(ids: Set<string>) {
@@ -1201,12 +1288,13 @@ export class SpaceGame {
         this.konamiActivated = true;
         this.konamiEffectTimer = 180; // 3 seconds at 60fps
         this.konamiBuffer = [];
+        this.tryUnlockAchievement('konami');
       }
 
       // Reset idle timer on any key
       this.idleTimer = 0;
 
-      if (['w', 'a', 's', 'd', 'z', 'q', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'c', 'n', 't', 'f'].includes(e.key.toLowerCase())) {
+      if (['w', 'a', 's', 'd', 'z', 'q', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'c', 'n', 't', 'f', 'g', 'v'].includes(e.key.toLowerCase())) {
         e.preventDefault();
       }
     });
@@ -1273,6 +1361,10 @@ export class SpaceGame {
       // Track session completions for passive achievements
       this.sessionCompletions++;
       this.completionGlowTimer = 90; // Brief glow for 1.5 seconds
+
+      // Task completion achievements
+      if (this.sessionCompletions >= 5) this.tryUnlockAchievement('tasks_5');
+      if (this.sessionCompletions >= 25) this.tryUnlockAchievement('tasks_25');
 
       // Milestone celebrations at 5, 10, 25, 50
       const milestones = [5, 10, 25, 50];
@@ -1666,6 +1758,11 @@ export class SpaceGame {
           this.wasInBlackHolePull = false;
           this.blackHoleCloseCallCount++;
 
+          // Black hole escape achievements
+          if (this.blackHoleCloseCallCount >= 3) this.tryUnlockAchievement('black_hole_3');
+          if (this.blackHoleCloseCallCount >= 5) this.tryUnlockAchievement('black_hole_5');
+          if (this.blackHoleCloseCallCount >= 10) this.tryUnlockAchievement('black_hole_10');
+
           // Trigger black hole whispers at milestones
           if (this.blackHoleCloseCallCount >= 10 && this.lastBlackHoleWhisperCount < 10) {
             this.lastBlackHoleWhisperCount = 10;
@@ -1760,6 +1857,7 @@ export class SpaceGame {
     this.updateIdleEffect();
     this.updatePassiveAchievements();
     this.updateSpaceWhale();
+    this.updateNeonNomad();
     if (this.konamiEffectTimer > 0) {
       this.konamiEffectTimer -= this.dt;
       if (this.konamiEffectTimer <= 0) {
@@ -5438,6 +5536,7 @@ export class SpaceGame {
       if (!this.explorerTriggered && this.visitedZones.size >= requiredZones.length) {
         this.explorerTriggered = true;
         this.explorerEffectTimer = 240; // 4 seconds
+        this.tryUnlockAchievement('explorer');
       }
     }
 
@@ -6170,6 +6269,9 @@ export class SpaceGame {
     // Draw space whale (deep background, behind everything)
     this.renderSpaceWhale();
 
+    // Draw Neon Nomad (roaming merchant, behind planets)
+    this.renderNeonNomad();
+
     // Draw shooting stars (behind everything, just above stars)
     this.renderShootingStars();
 
@@ -6220,6 +6322,9 @@ export class SpaceGame {
 
     // Draw other players' ships (behind local ship)
     this.renderOtherPlayers();
+
+    // Draw emote effects on ships (local + remote)
+    this.renderEmoteEffects();
 
     // Draw local ship
     this.drawShip();
@@ -7881,6 +7986,19 @@ export class SpaceGame {
       canvas.height * scale
     );
 
+    // Neon Nomad on minimap (pulsing magenta dot)
+    const nomadMx = mapX + this.neonNomad.x * scale;
+    const nomadMy = mapY + this.neonNomad.y * scale;
+    const nomadPulse = 0.5 + 0.5 * Math.sin(Date.now() * 0.004);
+    ctx.beginPath();
+    ctx.arc(nomadMx, nomadMy, 4 + nomadPulse, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255, 0, 255, ${0.3 + nomadPulse * 0.3})`;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(nomadMx, nomadMy, 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#ff00ff';
+    ctx.fill();
+
     // Label
     ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
     ctx.font = '9px Space Grotesk';
@@ -8730,12 +8848,12 @@ export class SpaceGame {
     this.prevDistX = ship.x;
     this.prevDistY = ship.y;
 
-    // Distance milestones (in pixels): 50k, 150k, 500k, 1M
+    // Distance milestones (in pixels): 50k, 100k, 500k, 1M
     const distMilestones = [
-      { dist: 50000, label: 'Voyager' },
-      { dist: 150000, label: 'Star Wanderer' },
-      { dist: 500000, label: 'Cosmic Drifter' },
-      { dist: 1000000, label: 'Light Traveler' },
+      { dist: 50000, label: 'Voyager', achievementId: 'distance_50k' },
+      { dist: 100000, label: 'Star Wanderer', achievementId: 'distance_100k' },
+      { dist: 500000, label: 'Cosmic Drifter', achievementId: 'distance_500k' },
+      { dist: 1000000, label: 'Light Traveler', achievementId: 'distance_1m' },
     ];
     for (const m of distMilestones) {
       if (this.totalDistanceTraveled >= m.dist && this.distanceMilestoneReached < m.dist) {
@@ -8743,6 +8861,7 @@ export class SpaceGame {
         this.distanceMilestoneTimer = 200;
         this.milestoneText = m.label;
         this.milestoneColor = '#88ccff';
+        this.tryUnlockAchievement(m.achievementId);
       }
     }
 
@@ -9039,6 +9158,7 @@ export class SpaceGame {
       if (dist < 300 && !this.whaleEncountered) {
         this.whaleEncountered = true;
         this.whaleEncounterTimer = 240;
+        this.tryUnlockAchievement('whale_encounter');
       }
 
       // Despawn when out of world bounds
@@ -9119,5 +9239,372 @@ export class SpaceGame {
       ctx.globalAlpha = 1;
       ctx.restore();
     }
+  }
+
+  // =============================================
+  // NEON NOMAD (Roaming Merchant)
+  // =============================================
+
+  private updateNeonNomad() {
+    const nomad = this.neonNomad;
+    const waypoints = SpaceGame.NOMAD_WAYPOINTS;
+    const target = waypoints[nomad.waypointIdx];
+
+    // Move toward current waypoint
+    const dx = target.x - nomad.x;
+    const dy = target.y - nomad.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist < 30) {
+      // Advance to next waypoint
+      nomad.waypointIdx = (nomad.waypointIdx + 1) % waypoints.length;
+    } else {
+      const speed = SpaceGame.NOMAD_SPEED * this.dt;
+      nomad.x += (dx / dist) * speed;
+      nomad.y += (dy / dist) * speed;
+
+      // Gentle sine-wave bob perpendicular to travel direction
+      const travelAngle = Math.atan2(dy, dx);
+      const bobAmount = Math.sin(Date.now() * 0.002) * 0.3;
+      nomad.x += Math.cos(travelAngle + Math.PI / 2) * bobAmount;
+      nomad.y += Math.sin(travelAngle + Math.PI / 2) * bobAmount;
+
+      // Smooth rotation toward travel direction
+      const targetRot = travelAngle;
+      let diff = targetRot - nomad.rotation;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      nomad.rotation += diff * 0.03;
+    }
+
+    // Emit neon sparkle particles behind the van
+    if (Math.random() < 0.3) {
+      const colors = ['#ff00ff', '#00ffff', '#ffa500', '#ffff00', '#4ade80'];
+      this.nomadSparkles.push({
+        x: nomad.x + (Math.random() - 0.5) * 30,
+        y: nomad.y + (Math.random() - 0.5) * 30,
+        life: 40 + Math.random() * 30,
+        maxLife: 40 + Math.random() * 30,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        size: 1.5 + Math.random() * 2,
+      });
+    }
+
+    // Update sparkles
+    for (let i = this.nomadSparkles.length - 1; i >= 0; i--) {
+      this.nomadSparkles[i].life -= this.dt;
+      if (this.nomadSparkles[i].life <= 0) {
+        this.nomadSparkles.splice(i, 1);
+      }
+    }
+
+    // Proximity check
+    const { ship } = this.state;
+    const shipDx = ship.x - nomad.x;
+    const shipDy = ship.y - nomad.y;
+    const shipDist = Math.sqrt(shipDx * shipDx + shipDy * shipDy);
+
+    // Jingle proximity (within 500px)
+    if (shipDist < 500) {
+      const proximity = 1 - shipDist / 500;
+      soundManager.updateNomadProximity(proximity);
+    } else {
+      soundManager.updateNomadProximity(0);
+    }
+
+    // Docking range
+    this.nearNeonNomad = shipDist < SpaceGame.NOMAD_DOCKING_DISTANCE;
+
+    // Approach callback (fire once)
+    if (shipDist < 300 && !this.nomadApproachFired) {
+      this.nomadApproachFired = true;
+      this.onNomadApproach?.();
+    } else if (shipDist > 400) {
+      this.nomadApproachFired = false;
+    }
+
+    // C key to open shop when near nomad
+    if (this.nearNeonNomad && this.keys.has('c') && !this.isLanding && !this.isLanded) {
+      this.keys.delete('c');
+      this.onNomadDock?.();
+    }
+
+    // G key to honk horn (2s cooldown = ~120 frames)
+    if (this.hornCooldown > 0) this.hornCooldown -= this.dt;
+    if (this.keys.has('g') && this.hornCooldown <= 0) {
+      this.keys.delete('g');
+      this.hornCooldown = 120;
+      this.onHornActivate?.();
+    }
+
+    // V key to trigger emote (3s cooldown = ~180 frames)
+    if (this.emoteCooldown > 0) this.emoteCooldown -= this.dt;
+    if (this.keys.has('v') && this.emoteCooldown <= 0) {
+      this.keys.delete('v');
+      this.emoteCooldown = 180;
+      this.onEmoteActivate?.();
+    }
+
+    // Update local active emote timer
+    if (this.activeEmote) {
+      this.activeEmote.timer -= this.dt;
+      if (this.activeEmote.timer <= 0) {
+        this.activeEmote = null;
+      }
+    }
+
+    // Update remote emote timers
+    for (const [playerId, emote] of this.remoteEmotes) {
+      emote.timer -= this.dt;
+      if (emote.timer <= 0) {
+        this.remoteEmotes.delete(playerId);
+      }
+    }
+  }
+
+  private renderNeonNomad() {
+    const { camera } = this.state;
+    const ctx = this.ctx;
+    const nomad = this.neonNomad;
+    const sx = nomad.x - camera.x;
+    const sy = nomad.y - camera.y;
+
+    // Off-screen check
+    if (sx < -200 || sx > this.canvas.width + 200 || sy < -200 || sy > this.canvas.height + 200) return;
+
+    ctx.save();
+
+    // Pulsing underglow
+    const pulse = 0.6 + 0.4 * Math.sin(Date.now() * 0.003);
+    const gradient = ctx.createRadialGradient(sx, sy, 5, sx, sy, 60);
+    gradient.addColorStop(0, `rgba(255, 0, 255, ${0.3 * pulse})`);
+    gradient.addColorStop(0.4, `rgba(0, 255, 255, ${0.15 * pulse})`);
+    gradient.addColorStop(0.7, `rgba(255, 165, 0, ${0.08 * pulse})`);
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 60, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Sparkle particles
+    for (const sparkle of this.nomadSparkles) {
+      const spx = sparkle.x - camera.x;
+      const spy = sparkle.y - camera.y;
+      const alpha = sparkle.life / sparkle.maxLife;
+      ctx.beginPath();
+      ctx.arc(spx, spy, sparkle.size * alpha, 0, Math.PI * 2);
+      ctx.fillStyle = sparkle.color;
+      ctx.globalAlpha = alpha * 0.7;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // Draw nomad van image or fallback
+    ctx.translate(sx, sy);
+    ctx.rotate(nomad.rotation + Math.PI / 2);
+    if (this.neonNomadImage) {
+      const size = 60;
+      ctx.drawImage(this.neonNomadImage, -size / 2, -size / 2, size, size);
+    } else {
+      // Fallback: colored diamond shape
+      ctx.fillStyle = '#ff00ff';
+      ctx.beginPath();
+      ctx.moveTo(0, -20);
+      ctx.lineTo(12, 0);
+      ctx.lineTo(0, 20);
+      ctx.lineTo(-12, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#00ffff';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+    // Label
+    ctx.font = 'bold 11px Orbitron';
+    ctx.textAlign = 'center';
+    ctx.shadowColor = '#ff00ff';
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = '#ff00ff';
+    ctx.fillText('NEON NOMAD', sx, sy - 40);
+    ctx.shadowBlur = 0;
+
+    // Dock prompt when in range
+    if (this.nearNeonNomad) {
+      ctx.font = 'bold 11px Space Grotesk';
+      ctx.fillStyle = '#00ffff';
+      ctx.fillText('[ C ] Browse wares', sx, sy + 45);
+    }
+
+    ctx.restore();
+  }
+
+  private renderEmoteEffects() {
+    const { camera } = this.state;
+    const ctx = this.ctx;
+    const now = Date.now();
+
+    // Local player emote
+    if (this.activeEmote) {
+      const { ship } = this.state;
+      const sx = ship.x - camera.x;
+      const sy = ship.y - camera.y;
+      this.drawEmoteEffect(ctx, sx, sy, this.activeEmote.type, this.activeEmote.timer / 120, now);
+    }
+
+    // Remote player emotes
+    for (const [playerId, emote] of this.remoteEmotes) {
+      const player = this.otherPlayers.find(p => p.id === playerId);
+      if (!player) continue;
+      const renderState = this.renderStates.get(playerId);
+      const px = (renderState?.renderX ?? player.x) - camera.x;
+      const py = (renderState?.renderY ?? player.y) - camera.y;
+      this.drawEmoteEffect(ctx, px, py, emote.type, emote.timer / 120, now);
+    }
+  }
+
+  private drawEmoteEffect(ctx: CanvasRenderingContext2D, x: number, y: number, type: string, progress: number, now: number) {
+    ctx.save();
+    const alpha = Math.min(1, progress * 3) * Math.min(1, progress);
+
+    switch (type) {
+      case 'neon_burst': {
+        const radius = (1 - progress) * 80 + 10;
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(255, 0, 255, ${alpha * 0.8})`;
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        // Sparkles
+        for (let i = 0; i < 8; i++) {
+          const angle = (i / 8) * Math.PI * 2 + now * 0.005;
+          const r = radius * 0.8;
+          ctx.beginPath();
+          ctx.arc(x + Math.cos(angle) * r, y + Math.sin(angle) * r, 2, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(0, 255, 255, ${alpha})`;
+          ctx.fill();
+        }
+        break;
+      }
+      case 'rainbow_spin': {
+        const arcRadius = 30;
+        const sweep = Math.PI * 1.5;
+        const startAngle = now * 0.008;
+        const colors = ['#ff0000', '#ff8800', '#ffff00', '#00ff00', '#0088ff', '#8800ff'];
+        for (let i = 0; i < colors.length; i++) {
+          const a = startAngle + (i / colors.length) * sweep;
+          ctx.beginPath();
+          ctx.arc(x, y, arcRadius, a, a + sweep / colors.length);
+          ctx.strokeStyle = colors[i];
+          ctx.globalAlpha = alpha * 0.8;
+          ctx.lineWidth = 4;
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+        break;
+      }
+      case 'holo_heart': {
+        const scale = 0.5 + progress * 0.5;
+        const heartY = y - 25 - (1 - progress) * 15;
+        ctx.translate(x, heartY);
+        ctx.scale(scale, scale);
+        ctx.beginPath();
+        ctx.moveTo(0, 5);
+        ctx.bezierCurveTo(-10, -5, -15, -12, 0, -20);
+        ctx.bezierCurveTo(15, -12, 10, -5, 0, 5);
+        ctx.fillStyle = `rgba(255, 100, 200, ${alpha * 0.7})`;
+        ctx.fill();
+        ctx.strokeStyle = `rgba(255, 150, 220, ${alpha})`;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        break;
+      }
+      case 'flash_colors': {
+        const colorIdx = Math.floor(now / 80) % 6;
+        const flashColors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff'];
+        ctx.beginPath();
+        ctx.arc(x, y, 25, 0, Math.PI * 2);
+        ctx.fillStyle = flashColors[colorIdx];
+        ctx.globalAlpha = alpha * 0.3;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        break;
+      }
+      case 'star_shower': {
+        for (let i = 0; i < 6; i++) {
+          const starX = x + (Math.sin(now * 0.003 + i * 1.2) * 25);
+          const starY = y - 20 + ((now * 0.05 + i * 20) % 50) - 25;
+          ctx.font = '10px serif';
+          ctx.globalAlpha = alpha * 0.8;
+          ctx.fillStyle = '#ffd700';
+          ctx.fillText('\u2605', starX, starY);
+        }
+        ctx.globalAlpha = 1;
+        break;
+      }
+      case 'glitch_effect': {
+        const offset = Math.sin(now * 0.02) * 4;
+        ctx.globalAlpha = alpha * 0.5;
+        ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+        ctx.fillRect(x - 15 + offset, y - 15, 30, 30);
+        ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';
+        ctx.fillRect(x - 15 - offset, y - 15, 30, 30);
+        ctx.fillStyle = 'rgba(0, 0, 255, 0.3)';
+        ctx.fillRect(x - 15, y - 15 + offset, 30, 30);
+        ctx.globalAlpha = 1;
+        break;
+      }
+      case 'fire_ring': {
+        for (let i = 0; i < 12; i++) {
+          const angle = (i / 12) * Math.PI * 2 + now * 0.004;
+          const r = 25;
+          const flicker = 0.6 + Math.random() * 0.4;
+          ctx.beginPath();
+          ctx.arc(x + Math.cos(angle) * r, y + Math.sin(angle) * r, 3 * flicker, 0, Math.PI * 2);
+          ctx.fillStyle = i % 2 === 0 ? `rgba(255, 100, 0, ${alpha * flicker})` : `rgba(255, 200, 0, ${alpha * flicker})`;
+          ctx.fill();
+        }
+        break;
+      }
+      case 'wave_emoji': {
+        const waveY = y - 30 - Math.sin(now * 0.005) * 5;
+        ctx.font = '18px serif';
+        ctx.globalAlpha = alpha;
+        ctx.textAlign = 'center';
+        ctx.fillText('\uD83D\uDC4B', x, waveY);
+        ctx.globalAlpha = 1;
+        break;
+      }
+    }
+
+    ctx.restore();
+  }
+
+  // Public methods for remote horn/emote from other players
+  public playRemoteHorn(playerId: string, hornType: string) {
+    const player = this.otherPlayers.find(p => p.id === playerId);
+    if (!player) return;
+
+    const renderState = this.renderStates.get(playerId);
+    const px = renderState?.renderX ?? player.x;
+    const py = renderState?.renderY ?? player.y;
+    const { ship } = this.state;
+    const dist = Math.sqrt((ship.x - px) ** 2 + (ship.y - py) ** 2);
+
+    // Only audible within 1500px
+    if (dist < 1500) {
+      const volume = 1 - dist / 1500;
+      soundManager.playHorn(hornType, volume);
+    }
+  }
+
+  public showRemoteEmote(playerId: string, emoteType: string) {
+    this.remoteEmotes.set(playerId, { type: emoteType, timer: 120 }); // ~2 seconds at 60fps
+  }
+
+  public setLocalEmote(emoteType: string) {
+    this.activeEmote = { type: emoteType, timer: 120 };
   }
 }
