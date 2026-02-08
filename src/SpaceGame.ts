@@ -455,7 +455,6 @@ export class SpaceGame {
 
   // Roaming merchant ship
   private neonNomadImage: HTMLImageElement | null = null;
-  private nomadVisible: boolean = true;
   private neonNomad: {
     x: number; y: number; rotation: number; scale: number;
   } = { x: 5000, y: 5000, rotation: 0, scale: 1 };
@@ -7986,20 +7985,18 @@ export class SpaceGame {
       canvas.height * scale
     );
 
-    // Neon Nomad on minimap (pulsing magenta dot) — only when visible on map
-    if (this.nomadVisible) {
-      const nomadMx = mapX + this.neonNomad.x * scale;
-      const nomadMy = mapY + this.neonNomad.y * scale;
-      const nomadPulse = 0.5 + 0.5 * Math.sin(Date.now() * 0.004);
-      ctx.beginPath();
-      ctx.arc(nomadMx, nomadMy, 4 + nomadPulse, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255, 0, 255, ${0.3 + nomadPulse * 0.3})`;
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(nomadMx, nomadMy, 2.5, 0, Math.PI * 2);
-      ctx.fillStyle = '#ff00ff';
-      ctx.fill();
-    }
+    // Neon Nomad on minimap (pulsing magenta dot)
+    const nomadMx = mapX + this.neonNomad.x * scale;
+    const nomadMy = mapY + this.neonNomad.y * scale;
+    const nomadPulse = 0.5 + 0.5 * Math.sin(Date.now() * 0.004);
+    ctx.beginPath();
+    ctx.arc(nomadMx, nomadMy, 4 + nomadPulse, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255, 0, 255, ${0.3 + nomadPulse * 0.3})`;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(nomadMx, nomadMy, 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#ff00ff';
+    ctx.fill();
 
     // Label
     ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
@@ -9163,11 +9160,11 @@ export class SpaceGame {
         this.tryUnlockAchievement('whale_encounter');
       }
 
-      // Despawn when out of world bounds
-      if (this.spaceWhale.x < -400 || this.spaceWhale.x > 10400 ||
-          this.spaceWhale.y < -400 || this.spaceWhale.y > 10400) {
-        this.spaceWhale.active = false;
-      }
+      // Wrap around map edges (toroidal)
+      if (this.spaceWhale.x < -200) this.spaceWhale.x += 10400;
+      else if (this.spaceWhale.x > 10200) this.spaceWhale.x -= 10400;
+      if (this.spaceWhale.y < -200) this.spaceWhale.y += 10400;
+      else if (this.spaceWhale.y > 10200) this.spaceWhale.y -= 10400;
     }
 
     // Achievement timer
@@ -9270,8 +9267,9 @@ export class SpaceGame {
       - 1800 * 0.0097 * Math.sin(t * 0.0097 + 1.1)
       - 600 * 0.0193 * Math.sin(t * 0.0193 + 0.7);
 
-    nomad.x = newX;
-    nomad.y = newY;
+    // Wrap around map edges (toroidal)
+    nomad.x = ((newX % 10000) + 10000) % 10000;
+    nomad.y = ((newY % 10000) + 10000) % 10000;
 
     // Rotation follows travel direction, smoothly interpolated
     const targetRot = Math.atan2(vy, vx);
@@ -9280,18 +9278,8 @@ export class SpaceGame {
     while (diff < -Math.PI) diff += Math.PI * 2;
     nomad.rotation += diff * 0.05;
 
-    // Visible when within map bounds (with margin)
-    const margin = 200;
-    this.nomadVisible = newX > -margin && newX < 10000 + margin && newY > -margin && newY < 10000 + margin;
-
-    // If merchant left the map while player was docked, undock them
-    if (this.landedOnNomad && !this.nomadVisible) {
-      this.landedOnNomad = false;
-      this.clearLandedState();
-    }
-
-    // Emit neon sparkle particles (only when visible)
-    if (this.nomadVisible && Math.random() < 0.4) {
+    // Emit neon sparkle particles
+    if (Math.random() < 0.4) {
       const colors = ['#ff00ff', '#00ffff', '#ffa500', '#ffff00', '#4ade80'];
       this.nomadSparkles.push({
         x: nomad.x + (Math.random() - 0.5) * 50,
@@ -9341,13 +9329,6 @@ export class SpaceGame {
       // Jingle at full proximity when landed
       soundManager.updateNomadProximity(1);
       return; // ESC to leave is handled by App.tsx closing the modal
-    }
-
-    // Skip proximity/docking when merchant is off-map
-    if (!this.nomadVisible) {
-      this.nearNeonNomad = false;
-      soundManager.updateNomadProximity(0);
-      return;
     }
 
     // Proximity check
@@ -9405,9 +9386,6 @@ export class SpaceGame {
   }
 
   private renderNeonNomad() {
-    // Don't render when merchant is off-map
-    if (!this.nomadVisible) return;
-
     const { camera } = this.state;
     const ctx = this.ctx;
     const nomad = this.neonNomad;
