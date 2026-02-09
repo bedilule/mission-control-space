@@ -4385,7 +4385,7 @@ function App() {
             gameRef.current?.startNewTaskSendAnimation(taskName, taskType, priority, assignedTo);
           }}
           onPositionReady={(position, planetId) => {
-            gameRef.current?.setSendTarget(position.x, position.y, planetId);
+            gameRef.current?.setSendTarget(position.x, position.y, `notion-${planetId}`);
           }}
         />
       )}
