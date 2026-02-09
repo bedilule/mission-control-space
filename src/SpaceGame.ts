@@ -1831,13 +1831,14 @@ export class SpaceGame {
       this.startWarpHomeAnimation();
     }
 
-    // Mission Control Portal - auto-teleport when ship enters portal
-    if (this.shipEffects.hasMissionControlPortal && !this.shipBeingSucked && !this.isLanded && !this.isPortalTeleporting && !this.isWarping) {
-      const portalPos = this.getPortalPosition();
-      if (portalPos) {
-        const dist = Math.sqrt((ship.x - portalPos.x) ** 2 + (ship.y - portalPos.y) ** 2);
+    // Mission Control Portal - auto-teleport when ship enters any player's portal
+    if (!this.shipBeingSucked && !this.isLanded && !this.isPortalTeleporting && !this.isWarping) {
+      const allPortals = this.getAllPortalPositions();
+      for (const portal of allPortals) {
+        const dist = Math.sqrt((ship.x - portal.x) ** 2 + (ship.y - portal.y) ** 2);
         if (dist < 40) { // Enter portal to teleport (smaller radius for actual entry)
           this.startPortalTeleportAnimation();
+          break;
         }
       }
     }
@@ -3514,12 +3515,9 @@ export class SpaceGame {
     }
   }
 
-  // Get the position of the Mission Control Portal (at the edge of map, beyond home planet)
-  private getPortalPosition(): { x: number; y: number } | null {
-    if (!this.shipEffects.hasMissionControlPortal) return null;
-
-    // Find the current user's home planet zone
-    const playerZone = ZONES.find(z => z.ownerId === this.currentUser);
+  // Get the position of a Mission Control Portal for a given player zone owner
+  private getPortalPositionForPlayer(ownerId: string): { x: number; y: number } | null {
+    const playerZone = ZONES.find(z => z.ownerId === ownerId);
     if (!playerZone) return null;
 
     // Calculate direction from map center to player zone (outward direction toward edge)
@@ -3534,6 +3532,41 @@ export class SpaceGame {
       x: playerZone.centerX + Math.cos(outwardAngle) * portalDistance,
       y: playerZone.centerY + Math.sin(outwardAngle) * portalDistance,
     };
+  }
+
+  // Get portal position for the current player (convenience wrapper)
+  private getPortalPosition(): { x: number; y: number } | null {
+    if (!this.shipEffects.hasMissionControlPortal) return null;
+    return this.getPortalPositionForPlayer(this.currentUser);
+  }
+
+  // Get all portal positions (local player + other players who own portals)
+  private getAllPortalPositions(): { x: number; y: number; ownerId: string; color: string }[] {
+    const portals: { x: number; y: number; ownerId: string; color: string }[] = [];
+
+    // Local player's portal
+    if (this.shipEffects.hasMissionControlPortal) {
+      const pos = this.getPortalPositionForPlayer(this.currentUser);
+      const zone = ZONES.find(z => z.ownerId === this.currentUser);
+      if (pos && zone) {
+        portals.push({ ...pos, ownerId: this.currentUser, color: zone.color });
+      }
+    }
+
+    // Other players' portals
+    for (const player of this.otherPlayers) {
+      if (player.shipEffects?.hasMissionControlPortal) {
+        const zone = ZONES.find(z => z.ownerId === player.username);
+        if (zone) {
+          const pos = this.getPortalPositionForPlayer(player.username);
+          if (pos) {
+            portals.push({ ...pos, ownerId: player.username, color: zone.color });
+          }
+        }
+      }
+    }
+
+    return portals;
   }
 
   // Start portal teleport animation (teleport ship to Mission Control)
@@ -3698,115 +3731,123 @@ export class SpaceGame {
     }
   }
 
-  // Render the Mission Control Portal visual (floating portal near home planet)
+  // Render all Mission Control Portals (local player + other players who own one)
   private renderPortal() {
-    if (!this.shipEffects.hasMissionControlPortal) {
-      return;
-    }
-
-    const portalPos = this.getPortalPosition();
-    if (!portalPos) {
-      return;
-    }
+    const allPortals = this.getAllPortalPositions();
+    if (allPortals.length === 0) return;
 
     const { ctx } = this;
     const { camera } = this.state;
 
-    // Convert world coordinates to screen coordinates
-    const x = portalPos.x - camera.x;
-    const y = portalPos.y - camera.y;
-
     // Update portal animation angle
     this.portalAngle += 0.025;
 
-    ctx.save();
+    for (const portal of allPortals) {
+      // Convert world coordinates to screen coordinates
+      const x = portal.x - camera.x;
+      const y = portal.y - camera.y;
 
-    // Large outer glow (pulsing) - bigger for visibility
-    const pulseIntensity = 0.8 + Math.sin(this.portalAngle * 2) * 0.2;
-    const glowRadius = 120 * pulseIntensity;
-    const outerGlow = ctx.createRadialGradient(x, y, 0, x, y, glowRadius);
-    outerGlow.addColorStop(0, 'rgba(50, 180, 255, 0.6)');
-    outerGlow.addColorStop(0.3, 'rgba(30, 140, 255, 0.4)');
-    outerGlow.addColorStop(0.6, 'rgba(20, 100, 220, 0.2)');
-    outerGlow.addColorStop(1, 'rgba(10, 60, 150, 0)');
-    ctx.fillStyle = outerGlow;
-    ctx.beginPath();
-    ctx.arc(x, y, glowRadius, 0, Math.PI * 2);
-    ctx.fill();
+      // Skip portals far off screen
+      if (x < -200 || x > this.canvas.width + 200 || y < -200 || y > this.canvas.height + 200) continue;
 
-    // Portal base - use image if loaded, otherwise fallback to solid color
-    const baseRadius = 50;
-    if (this.portalImage) {
-      // Draw the portal image centered and sized appropriately
-      const imgSize = baseRadius * 2.2;
+      const isLocalPlayer = portal.ownerId === this.currentUser;
+
       ctx.save();
-      ctx.translate(x, y);
-      ctx.rotate(this.portalAngle * 0.5); // Slow rotation
-      ctx.drawImage(this.portalImage, -imgSize / 2, -imgSize / 2, imgSize, imgSize);
+
+      // Large outer glow (pulsing) - bigger for visibility
+      const pulseIntensity = 0.8 + Math.sin(this.portalAngle * 2) * 0.2;
+      const glowRadius = 120 * pulseIntensity;
+      const outerGlow = ctx.createRadialGradient(x, y, 0, x, y, glowRadius);
+      outerGlow.addColorStop(0, 'rgba(50, 180, 255, 0.6)');
+      outerGlow.addColorStop(0.3, 'rgba(30, 140, 255, 0.4)');
+      outerGlow.addColorStop(0.6, 'rgba(20, 100, 220, 0.2)');
+      outerGlow.addColorStop(1, 'rgba(10, 60, 150, 0)');
+      ctx.fillStyle = outerGlow;
+      ctx.beginPath();
+      ctx.arc(x, y, glowRadius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Portal base - use image if loaded (for local player), otherwise fallback to solid color
+      const baseRadius = 50;
+      if (isLocalPlayer && this.portalImage) {
+        const imgSize = baseRadius * 2.2;
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(this.portalAngle * 0.5);
+        ctx.drawImage(this.portalImage, -imgSize / 2, -imgSize / 2, imgSize, imgSize);
+        ctx.restore();
+      } else {
+        const baseGradient = ctx.createRadialGradient(x - 15, y - 15, 0, x, y, baseRadius);
+        baseGradient.addColorStop(0, '#60a5fa');
+        baseGradient.addColorStop(0.5, '#3b82f6');
+        baseGradient.addColorStop(1, '#1e40af');
+        ctx.fillStyle = baseGradient;
+        ctx.beginPath();
+        ctx.arc(x, y, baseRadius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Swirling energy rings on top
+      for (let i = 0; i < 4; i++) {
+        const ringRadius = 30 + i * 15;
+        const ringAngle = this.portalAngle * (1.5 - i * 0.2);
+        const ringAlpha = 0.9 - i * 0.15;
+
+        ctx.beginPath();
+        ctx.ellipse(x, y, ringRadius, ringRadius * 0.4, ringAngle, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(${100 + i * 20}, ${180 + i * 20}, 255, ${ringAlpha})`;
+        ctx.lineWidth = 5 - i * 0.8;
+        ctx.stroke();
+      }
+
+      // Inner vortex spiral effect
+      for (let i = 0; i < 4; i++) {
+        const vortexRadius = 25 - i * 5;
+        const vortexAngle = -this.portalAngle * 3 + i * 0.7;
+        ctx.beginPath();
+        ctx.ellipse(x, y, vortexRadius, vortexRadius * 0.5, vortexAngle, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(200, 240, 255, ${0.8 - i * 0.15})`;
+        ctx.lineWidth = 3 - i * 0.5;
+        ctx.stroke();
+      }
+
+      // Bright white center core
+      const coreRadius = 20;
+      const coreGradient = ctx.createRadialGradient(x, y, 0, x, y, coreRadius);
+      coreGradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+      coreGradient.addColorStop(0.3, 'rgba(200, 230, 255, 0.9)');
+      coreGradient.addColorStop(0.7, 'rgba(150, 200, 255, 0.6)');
+      coreGradient.addColorStop(1, 'rgba(100, 150, 255, 0)');
+      ctx.fillStyle = coreGradient;
+      ctx.beginPath();
+      ctx.arc(x, y, coreRadius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Sparkle particles orbiting the portal
+      for (let i = 0; i < 10; i++) {
+        const sparkleAngle = this.portalAngle * 2.5 + (i / 10) * Math.PI * 2;
+        const sparkleRadius = 55 + Math.sin(this.portalAngle * 4 + i) * 15;
+        const sx = x + Math.cos(sparkleAngle) * sparkleRadius;
+        const sy = y + Math.sin(sparkleAngle) * sparkleRadius;
+        const sparkleSize = 3 + Math.sin(this.portalAngle * 5 + i * 2) * 2;
+
+        ctx.beginPath();
+        ctx.arc(sx, sy, sparkleSize, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(180, 230, 255, ${0.8 + Math.sin(this.portalAngle * 6 + i) * 0.2})`;
+        ctx.fill();
+      }
+
+      // Owner color ring at the base (so players can tell whose portal it is)
+      ctx.beginPath();
+      ctx.arc(x, y, baseRadius + 5, 0, Math.PI * 2);
+      ctx.strokeStyle = portal.color;
+      ctx.lineWidth = 3;
+      ctx.globalAlpha = 0.6 + Math.sin(this.portalAngle * 3) * 0.2;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
       ctx.restore();
-    } else {
-      // Fallback: solid blue base circle
-      const baseGradient = ctx.createRadialGradient(x - 15, y - 15, 0, x, y, baseRadius);
-      baseGradient.addColorStop(0, '#60a5fa');
-      baseGradient.addColorStop(0.5, '#3b82f6');
-      baseGradient.addColorStop(1, '#1e40af');
-      ctx.fillStyle = baseGradient;
-      ctx.beginPath();
-      ctx.arc(x, y, baseRadius, 0, Math.PI * 2);
-      ctx.fill();
     }
-
-    // Swirling energy rings on top
-    for (let i = 0; i < 4; i++) {
-      const ringRadius = 30 + i * 15;
-      const ringAngle = this.portalAngle * (1.5 - i * 0.2);
-      const ringAlpha = 0.9 - i * 0.15;
-
-      ctx.beginPath();
-      ctx.ellipse(x, y, ringRadius, ringRadius * 0.4, ringAngle, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(${100 + i * 20}, ${180 + i * 20}, 255, ${ringAlpha})`;
-      ctx.lineWidth = 5 - i * 0.8;
-      ctx.stroke();
-    }
-
-    // Inner vortex spiral effect
-    for (let i = 0; i < 4; i++) {
-      const vortexRadius = 25 - i * 5;
-      const vortexAngle = -this.portalAngle * 3 + i * 0.7;
-      ctx.beginPath();
-      ctx.ellipse(x, y, vortexRadius, vortexRadius * 0.5, vortexAngle, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(200, 240, 255, ${0.8 - i * 0.15})`;
-      ctx.lineWidth = 3 - i * 0.5;
-      ctx.stroke();
-    }
-
-    // Bright white center core
-    const coreRadius = 20;
-    const coreGradient = ctx.createRadialGradient(x, y, 0, x, y, coreRadius);
-    coreGradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
-    coreGradient.addColorStop(0.3, 'rgba(200, 230, 255, 0.9)');
-    coreGradient.addColorStop(0.7, 'rgba(150, 200, 255, 0.6)');
-    coreGradient.addColorStop(1, 'rgba(100, 150, 255, 0)');
-    ctx.fillStyle = coreGradient;
-    ctx.beginPath();
-    ctx.arc(x, y, coreRadius, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Sparkle particles orbiting the portal
-    for (let i = 0; i < 10; i++) {
-      const sparkleAngle = this.portalAngle * 2.5 + (i / 10) * Math.PI * 2;
-      const sparkleRadius = 55 + Math.sin(this.portalAngle * 4 + i) * 15;
-      const sx = x + Math.cos(sparkleAngle) * sparkleRadius;
-      const sy = y + Math.sin(sparkleAngle) * sparkleRadius;
-      const sparkleSize = 3 + Math.sin(this.portalAngle * 5 + i * 2) * 2;
-
-      ctx.beginPath();
-      ctx.arc(sx, sy, sparkleSize, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(180, 230, 255, ${0.8 + Math.sin(this.portalAngle * 6 + i) * 0.2})`;
-      ctx.fill();
-    }
-
-    ctx.restore();
   }
 
   // Render portal teleport animation effects
