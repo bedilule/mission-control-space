@@ -6965,11 +6965,11 @@ export class SpaceGame {
       ctx.restore();
     }
 
-    // Label (wrapped to 2 lines max)
+    // Label (wrapped to show full title)
     ctx.fillStyle = planet.completed ? '#4ade80' : '#fff';
     ctx.font = `${planet.completed ? 'bold ' : ''}12px Space Grotesk`;
     ctx.textAlign = 'center';
-    const nameLines = this.wrapText(planet.name, 120, 2);
+    const nameLines = this.wrapText(planet.name, 180, 5);
     const lineHeight = 14;
     let labelY = y + planet.radius + 25;
     for (const line of nameLines) {
@@ -7519,9 +7519,9 @@ export class SpaceGame {
     // Add space for achievement image
     if (achievementImage) boxHeight += achievementImageSize + 20;
 
-    // Pre-calculate name wrapping to determine box height
+    // Pre-calculate name wrapping to determine box height (show full title)
     ctx.font = 'bold 22px Space Grotesk';
-    const panelNameLines = this.wrapText(planet.name, boxWidth - 40, 2);
+    const panelNameLines = this.wrapText(planet.name, boxWidth - 40, 6);
     const panelLineHeight = 26;
     const nameOffset = (panelNameLines.length - 1) * panelLineHeight;
     boxHeight += nameOffset;
