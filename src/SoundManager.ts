@@ -146,6 +146,11 @@ const SOUND_CONFIGS: Record<string, SoundConfig> = {
     src: [`${SOUNDS_PATH}space-whale.mp3`],
     volume: 0.3,
   },
+  whaleSlap: {
+    src: [`${SOUNDS_PATH}collision.ogg`],
+    volume: 0.7,
+    rate: 0.5, // Low pitch for heavy, bassy tail slap
+  },
 
   // Neon Nomad
   nomadJingle: {
@@ -557,6 +562,13 @@ export class SoundManager {
   public playSpaceWhale() {
     if (!this.initialized || !this.prefs.sfxEnabled) return;
     this.play('spaceWhale');
+  }
+
+  public playWhaleSlap() {
+    if (!this.initialized || !this.prefs.sfxEnabled) return;
+    this.play('whaleSlap');
+    // Also play the whale call (angry whale)
+    setTimeout(() => this.play('spaceWhale'), 200);
   }
 
   // Impact sounds

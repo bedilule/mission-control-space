@@ -118,6 +118,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'tasks_5', name: 'Getting Started', icon: '✅', description: 'Complete 5 tasks in a session', points: 50 },
   { id: 'tasks_25', name: 'Workhorse', icon: '🔥', description: 'Complete 25 tasks in a session', points: 100 },
   { id: 'konami', name: '↑↑↓↓←→←→BA', icon: '🎮', description: 'Enter the Konami code', points: 50 },
+  { id: 'whale_slap', name: 'Bad Idea', icon: '🐋💥', description: 'Shoot the space whale. Find out.', points: 75 },
 ];
 
 // Expanded world to fit all zones
@@ -454,6 +455,10 @@ export class SpaceGame {
   private whaleEncountered: boolean = false;
   private whaleEncounterTimer: number = 0;
   private whaleSoundPlayed: boolean = false;
+  private whaleSlapCooldown: number = 0; // Prevent spam-triggering
+  private whaleSlapTextTimer: number = 0; // "The Leviathan is not amused" text
+  private whaleKnockbackTimer: number = 0; // While > 0, bypass speed clamp (whale yeet!)
+  private screenShake: { intensity: number; timer: number } = { intensity: 0, timer: 0 };
 
   // Persistent achievements
   private unlockedAchievements: Set<string> = new Set();
@@ -1645,11 +1650,15 @@ export class SpaceGame {
     ship.vx *= Math.pow(SHIP_FRICTION, this.dt);
     ship.vy *= Math.pow(SHIP_FRICTION, this.dt);
 
-    // Limit speed
-    const speed = Math.sqrt(ship.vx ** 2 + ship.vy ** 2);
-    if (speed > maxSpeed) {
-      ship.vx = (ship.vx / speed) * maxSpeed;
-      ship.vy = (ship.vy / speed) * maxSpeed;
+    // Limit speed (bypass during whale knockback)
+    if (this.whaleKnockbackTimer > 0) {
+      this.whaleKnockbackTimer -= this.dt;
+    } else {
+      const speed = Math.sqrt(ship.vx ** 2 + ship.vy ** 2);
+      if (speed > maxSpeed) {
+        ship.vx = (ship.vx / speed) * maxSpeed;
+        ship.vy = (ship.vy / speed) * maxSpeed;
+      }
     }
 
     // Update position
@@ -4240,46 +4249,54 @@ export class SpaceGame {
 
       let bulletRemoved = false;
 
+      // Check collision with space whale (tail slap!)
+      if (this.checkWhaleProjectileHit(p.x, p.y)) {
+        this.projectiles.splice(i, 1);
+        bulletRemoved = true;
+      }
+
       // Check collision with ALL planets
-      for (const planet of this.state.planets) {
-        const dx = p.x - planet.x;
-        const dy = p.y - planet.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
+      if (!bulletRemoved) {
+        for (const planet of this.state.planets) {
+          const dx = p.x - planet.x;
+          const dy = p.y - planet.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
 
-        if (dist < planet.radius) {
-          if (this.canDamagePlanet(planet)) {
-            // Hit damageable planet - apply damage and remove bullet
-            this.damagePlanet(planet, p.damage, p.x, p.y);
-            this.projectiles.splice(i, 1);
-            bulletRemoved = true;
-            break;
-          } else {
-            // Hit shielded planet - bounce off
-            const nx = dx / dist;
-            const ny = dy / dist;
+          if (dist < planet.radius) {
+            if (this.canDamagePlanet(planet)) {
+              // Hit damageable planet - apply damage and remove bullet
+              this.damagePlanet(planet, p.damage, p.x, p.y);
+              this.projectiles.splice(i, 1);
+              bulletRemoved = true;
+              break;
+            } else {
+              // Hit shielded planet - bounce off
+              const nx = dx / dist;
+              const ny = dy / dist;
 
-            // Push bullet out of planet
-            p.x = planet.x + nx * (planet.radius + 2);
-            p.y = planet.y + ny * (planet.radius + 2);
+              // Push bullet out of planet
+              p.x = planet.x + nx * (planet.radius + 2);
+              p.y = planet.y + ny * (planet.radius + 2);
 
-            // Reflect velocity (like ship bounce)
-            const dot = p.vx * nx + p.vy * ny;
-            p.vx -= 2 * dot * nx * 0.8;
-            p.vy -= 2 * dot * ny * 0.8;
+              // Reflect velocity (like ship bounce)
+              const dot = p.vx * nx + p.vy * ny;
+              p.vx -= 2 * dot * nx * 0.8;
+              p.vy -= 2 * dot * ny * 0.8;
 
-            // Emit shield particles
-            this.emitShieldParticles(
-              planet.x + nx * planet.radius,
-              planet.y + ny * planet.radius,
-              nx, ny, planet.color
-            );
+              // Emit shield particles
+              this.emitShieldParticles(
+                planet.x + nx * planet.radius,
+                planet.y + ny * planet.radius,
+                nx, ny, planet.color
+              );
 
-            // Play bounce sound
-            soundManager.playCollision();
+              // Play bounce sound
+              soundManager.playCollision();
 
-            // Reduce bullet life on bounce
-            p.life = Math.min(p.life, 20);
-            break;
+              // Reduce bullet life on bounce
+              p.life = Math.min(p.life, 20);
+              break;
+            }
           }
         }
       }
@@ -4645,8 +4662,15 @@ export class SpaceGame {
 
       let removed = false;
 
+      // Check collision with space whale (tail slap!)
+      if (this.checkWhaleProjectileHit(p.x, p.y)) {
+        this.emitPlasmaExplosion(p.x, p.y);
+        this.plasmaProjectiles.splice(i, 1);
+        removed = true;
+      }
+
       // Check collision with planets
-      for (const planet of this.state.planets) {
+      if (!removed) for (const planet of this.state.planets) {
         const dx = p.x - planet.x;
         const dy = p.y - planet.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
@@ -4861,8 +4885,15 @@ export class SpaceGame {
 
       let removed = false;
 
+      // Check collision with space whale (tail slap!)
+      if (this.checkWhaleProjectileHit(r.x, r.y)) {
+        this.emitRocketExplosion(r.x, r.y);
+        this.rockets.splice(i, 1);
+        removed = true;
+      }
+
       // Check collision with planets
-      for (const planet of this.state.planets) {
+      if (!removed) for (const planet of this.state.planets) {
         const dx = r.x - planet.x;
         const dy = r.y - planet.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
@@ -5574,6 +5605,15 @@ export class SpaceGame {
     const camLerp = 1 - Math.pow(1 - 0.06, this.dt);
     camera.x += (targetCamX - camera.x) * camLerp;
     camera.y += (targetCamY - camera.y) * camLerp;
+
+    // Screen shake
+    if (this.screenShake.timer > 0) {
+      this.screenShake.timer -= this.dt;
+      const shakeProgress = this.screenShake.timer / 30; // Fade out over duration
+      const magnitude = this.screenShake.intensity * shakeProgress;
+      camera.x += (Math.random() - 0.5) * magnitude;
+      camera.y += (Math.random() - 0.5) * magnitude;
+    }
   }
 
   private updateParticles() {
@@ -9296,6 +9336,119 @@ export class SpaceGame {
     if (this.whaleEncounterTimer > 0) {
       this.whaleEncounterTimer -= this.dt;
     }
+
+    // Whale slap cooldown
+    if (this.whaleSlapCooldown > 0) {
+      this.whaleSlapCooldown -= this.dt;
+    }
+    if (this.whaleSlapTextTimer > 0) {
+      this.whaleSlapTextTimer -= this.dt;
+    }
+  }
+
+  // Check if a projectile at (px, py) hits the whale. Uses a rotated ellipse matching the whale's elongated body.
+  private checkWhaleProjectileHit(px: number, py: number): boolean {
+    if (this.spaceWhale.alpha < 0.1 || this.whaleSlapCooldown > 0) return false;
+
+    // Transform projectile position into whale's local space (rotated by whale's heading)
+    const dx = px - this.spaceWhale.x;
+    const dy = py - this.spaceWhale.y;
+    const cos = Math.cos(-this.spaceWhale.rotation);
+    const sin = Math.sin(-this.spaceWhale.rotation);
+    const localX = dx * cos - dy * sin;
+    const localY = dx * sin + dy * cos;
+
+    // Ellipse hitbox: whale image is 1344x768, rendered at scale 0.4 → ~538x307
+    // Semi-axes: ~270px along body (X), ~154px perpendicular (Y)
+    const a = 270; // Half-length along body
+    const b = 154; // Half-height perpendicular
+    const ellipseDist = (localX * localX) / (a * a) + (localY * localY) / (b * b);
+
+    if (ellipseDist < 1) {
+      this.triggerWhaleTailSlap(px, py);
+      return true;
+    }
+    return false;
+  }
+
+  // The whale fights back! Yeets the ship toward the black hole
+  private triggerWhaleTailSlap(hitX: number, hitY: number) {
+    const { ship } = this.state;
+
+    // Cooldown: 3 seconds at 60fps
+    this.whaleSlapCooldown = 180;
+    this.whaleSlapTextTimer = 180;
+
+    // Direction: toward the black hole! (5150, 4750)
+    const bhX = CENTER_X + 150;
+    const bhY = CENTER_Y - 250;
+    const toBhDx = bhX - ship.x;
+    const toBhDy = bhY - ship.y;
+    const toBhDist = Math.sqrt(toBhDx * toBhDx + toBhDy * toBhDy) || 1;
+
+    // If player is already very close to the black hole, yeet them away from the whale instead
+    const useBlackHoleDir = toBhDist > 500;
+    let nx: number, ny: number;
+    if (useBlackHoleDir) {
+      nx = toBhDx / toBhDist;
+      ny = toBhDy / toBhDist;
+    } else {
+      // Fallback: away from whale
+      const awayDx = ship.x - this.spaceWhale.x;
+      const awayDy = ship.y - this.spaceWhale.y;
+      const awayDist = Math.sqrt(awayDx * awayDx + awayDy * awayDy) || 1;
+      nx = awayDx / awayDist;
+      ny = awayDy / awayDist;
+    }
+
+    // Massive yeet — speed 90 with friction 0.992 covers ~10,000px before decaying to normal
+    // Bypass speed clamp for ~5 seconds (300 frames) so friction does the slowing
+    const knockbackSpeed = 90;
+    ship.vx = nx * knockbackSpeed;
+    ship.vy = ny * knockbackSpeed;
+    this.whaleKnockbackTimer = 300;
+
+    // Screen shake (big one)
+    this.screenShake = { intensity: 35, timer: 40 };
+
+    // Sound
+    soundManager.playWhaleSlap();
+
+    // Achievement
+    this.tryUnlockAchievement('whale_slap');
+
+    // Emit a big burst of whale-colored particles at the impact point
+    const colors = ['#64c8ff', '#88ddff', '#44aaff', '#aaeeff', '#ffffff', '#00ccff'];
+    for (let i = 0; i < 30; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 8 + 3;
+      this.state.particles.push({
+        x: hitX + (Math.random() - 0.5) * 30,
+        y: hitY + (Math.random() - 0.5) * 30,
+        vx: Math.cos(angle) * speed + nx * 4,
+        vy: Math.sin(angle) * speed + ny * 4,
+        life: 30 + Math.random() * 25,
+        maxLife: 55,
+        size: Math.random() * 6 + 2,
+        color: colors[Math.floor(Math.random() * colors.length)],
+      });
+    }
+
+    // Emit particles at the ship's NEW position (arrival splash)
+    for (let i = 0; i < 15; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 5 + 2;
+      this.state.particles.push({
+        x: ship.x + (Math.random() - 0.5) * 40,
+        y: ship.y + (Math.random() - 0.5) * 40,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 20 + Math.random() * 15,
+        maxLife: 35,
+        size: Math.random() * 4 + 2,
+        color: '#ffcc44',
+      });
+    }
   }
 
   private renderSpaceWhale() {
@@ -9357,6 +9510,36 @@ export class SpaceGame {
         ctx.font = '11px "Space Grotesk"';
         ctx.fillStyle = '#aaccdd';
         ctx.fillText('A rare encounter', this.canvas.width / 2, this.canvas.height * 0.2 + 22);
+      }
+
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+
+    // Whale tail-slap warning text
+    if (this.whaleSlapTextTimer > 0) {
+      const progress = 1 - (this.whaleSlapTextTimer / 180);
+      ctx.save();
+
+      // Quick fade in, hold, then fade out
+      const fadeIn = Math.min(1, progress * 6);
+      const fadeOut = Math.max(0, 1 - (progress - 0.5) * 2);
+      const alpha = fadeIn * fadeOut;
+
+      // Shake the text slightly for impact feel
+      const textShake = this.whaleSlapTextTimer > 150 ? (Math.random() - 0.5) * 4 : 0;
+
+      ctx.globalAlpha = alpha * 0.9;
+      ctx.font = '18px Orbitron';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#ff6644';
+      ctx.fillText('The Leviathan is not amused.', this.canvas.width / 2 + textShake, this.canvas.height * 0.25);
+
+      if (progress > 0.1 && progress < 0.7) {
+        ctx.globalAlpha = alpha * 0.5;
+        ctx.font = '12px "Space Grotesk"';
+        ctx.fillStyle = '#ffaa88';
+        ctx.fillText('Don\'t shoot the whale.', this.canvas.width / 2, this.canvas.height * 0.25 + 26);
       }
 
       ctx.globalAlpha = 1;
