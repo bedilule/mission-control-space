@@ -305,6 +305,7 @@ export class SpaceGame {
   private sendRocketFlame: number = 0;
   private sendPendingPlanet: Planet | null = null; // Updated planet data to add after animation
   private sendRealPlanetId: string | null = null; // Real planet ID from API (to suppress in sync)
+  private sendKnownPlanetIds: Set<string> = new Set(); // Notion planet IDs that existed before animation
   private sendTrailPoints: { x: number; y: number; size: number; alpha: number }[] = [];
 
   // Upgrading animation state (orbiting satellites/robots)
@@ -1135,6 +1136,14 @@ export class SpaceGame {
       } else if (isSendingTempTask && this.sendRealPlanetId && planet.id === this.sendRealPlanetId) {
         // Real planet matched by ID from API — suppress until animation finishes
         this.sendPendingPlanet = planet;
+      } else if (isSendingTempTask && !this.sendRealPlanetId && !this.sendKnownPlanetIds.has(planet.id)) {
+        // API hasn't returned yet but a new planet appeared — likely ours, suppress it
+        // Also set the real ID + target so the animation knows where to go
+        this.sendRealPlanetId = planet.id;
+        this.sendPendingPlanet = planet;
+        if (!this.sendTargetReady) {
+          this.setSendTarget(planet.x, planet.y, planet.id);
+        }
       } else {
         this.state.planets.push(planet);
 
@@ -2519,6 +2528,11 @@ export class SpaceGame {
 
     this.state.planets.push(tempPlanet);
 
+    // Snapshot existing notion planet IDs so we can identify new ones during animation
+    this.sendKnownPlanetIds = new Set(
+      this.state.planets.filter(p => p.id.startsWith('notion-')).map(p => p.id)
+    );
+
     // Start send animation — flies in random direction until real planet arrives via sync
     this.startSendAnimation(tempPlanet);
 
@@ -2751,6 +2765,7 @@ export class SpaceGame {
     if (!planet) {
       this.isSending = false;
       this.sendRealPlanetId = null;
+      this.sendKnownPlanetIds.clear();
       return;
     }
 
@@ -2766,6 +2781,7 @@ export class SpaceGame {
         // Arrived! Replace with updated planet at new position
         this.isSending = false;
         this.sendRealPlanetId = null;
+        this.sendKnownPlanetIds.clear();
         this.sendTrailPoints = [];
         this.state.planets = this.state.planets.filter(p => p.id !== this.sendPlanetId);
 
