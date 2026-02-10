@@ -174,6 +174,11 @@ const SOUND_CONFIGS: Record<string, SoundConfig> = {
   nomadLaser8: { src: [`${SOUNDS_PATH}Weapons/laser8.mp3`], volume: 0.3 },
   nomadLaser9: { src: [`${SOUNDS_PATH}Weapons/laser9.mp3`], volume: 0.3 },
   nomadRocket: { src: [`${SOUNDS_PATH}Weapons/rocket_01.ogg`], volume: 0.4 },
+  nomadBossTheme: {
+    src: [`${SOUNDS_PATH}Premium_Package_2026-02-10T040449.mp3`],
+    volume: 0.5,
+    loop: true,
+  },
 
   // Horns
   horn_air: {
@@ -603,6 +608,33 @@ export class SoundManager {
     this.play('nomadRocket');
   }
 
+  private nomadBossThemeId: number | null = null;
+  private nomadBossThemePlaying = false;
+
+  public playNomadBossTheme() {
+    if (!this.initialized || !this.prefs.sfxEnabled) return;
+    const sound = this.sounds.get('nomadBossTheme');
+    if (!sound) return;
+    this.nomadBossThemePlaying = true;
+    // Mute the nomad jingle while boss theme plays
+    const jingle = this.sounds.get('nomadJingle');
+    if (jingle && this.nomadJingleId !== null) {
+      jingle.volume(0, this.nomadJingleId);
+    }
+    this.nomadBossThemeId = sound.play();
+  }
+
+  public stopNomadBossTheme() {
+    this.nomadBossThemePlaying = false;
+    const sound = this.sounds.get('nomadBossTheme');
+    if (sound && this.nomadBossThemeId !== null) {
+      sound.fade(sound.volume(), 0, 500, this.nomadBossThemeId);
+      const id = this.nomadBossThemeId;
+      setTimeout(() => sound.stop(id), 500);
+      this.nomadBossThemeId = null;
+    }
+  }
+
   // Impact sounds
   public playCollision() {
     this.play('collision');
@@ -922,6 +954,12 @@ export class SoundManager {
   public updateNomadProximity(proximity: number, landed: boolean = false) {
     const sound = this.sounds.get('nomadJingle');
     if (!sound || this.nomadJingleId === null) return;
+
+    // Mute jingle entirely while boss theme is playing
+    if (this.nomadBossThemePlaying) {
+      sound.volume(0, this.nomadJingleId);
+      return;
+    }
 
     const maxVolume = landed ? 0.06 : 0.25;
     const volume = Math.pow(proximity, 2) * maxVolume;

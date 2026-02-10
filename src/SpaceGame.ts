@@ -9536,7 +9536,6 @@ export class SpaceGame {
         this.nomadFight.damageFlashTimer = 8;
         this.screenShake = { intensity: 4, timer: 6 };
         soundManager.playNomadBossHit();
-        this.onNomadHit?.();
 
         // Hit particles
         const colors = ['#ff00ff', '#00ffff', '#ffa500', '#ffffff'];
@@ -9590,9 +9589,8 @@ export class SpaceGame {
       deathMessage: '',
     };
     this.nomadProjectiles = [];
-    // Override nomad music to full volume
-    soundManager.updateNomadProximity(1, false);
-    // Pre-generate battle voice lines
+    // Play boss theme immediately and trigger intro voice
+    soundManager.playNomadBossTheme();
     this.onNomadFightStart?.();
   }
 
@@ -9863,8 +9861,6 @@ export class SpaceGame {
       });
     }
 
-    // Keep nomad music loud during fight
-    soundManager.updateNomadProximity(1, false);
   }
 
   private updateNomadProjectiles() {
@@ -10098,6 +10094,7 @@ export class SpaceGame {
     this.nomadFightCooldown = victory ? 300 : 600;
     this.nomadFight = null;
     this.nomadProjectiles = [];
+    soundManager.stopNomadBossTheme();
     this.onNomadFightEnd?.();
   }
 

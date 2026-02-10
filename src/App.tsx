@@ -3003,14 +3003,10 @@ function App() {
           broadcastEmote(effects.equippedEmote);
         }
       },
-      onNomadFightStart: () => {
-        voiceService.pregenNomadBattleVoices();
-      },
-      onNomadHit: () => {
-        voiceService.playNomadBattleVoice();
-      },
+      onNomadFightStart: () => {},
+      onNomadHit: () => {},
       onNomadFightEnd: () => {
-        voiceService.clearNomadBattleVoices();
+        soundManager.stopNomadBossTheme();
       },
     };
   });

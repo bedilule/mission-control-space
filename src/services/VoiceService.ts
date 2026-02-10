@@ -99,11 +99,8 @@ class VoiceService {
   private speaking = false;
   private enabled = true;
 
-  // Nomad boss fight voice cache
-  private nomadBattleVoiceCache: Blob[] = [];
+  // Nomad boss fight
   private nomadBattleGenerating = false;
-  private nomadBattleCooldown = 0;
-  private nomadBattleLastTime = 0;
 
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;
@@ -461,71 +458,23 @@ class VoiceService {
 
   // ── Nomad Boss Fight Voice ──
 
-  /** Call at fight start — pre-generates a batch of voice lines */
-  async pregenNomadBattleVoices(): Promise<void> {
-    if (!this.enabled || this.nomadBattleGenerating) return;
+  /** Say one intro line when fight starts, returns a promise that resolves when done speaking */
+  async playNomadFightIntro(): Promise<void> {
+    if (!this.enabled || this.speaking || this.nomadBattleGenerating) return;
     this.nomadBattleGenerating = true;
-    this.nomadBattleVoiceCache = [];
-    this.nomadBattleCooldown = 0;
-    this.nomadBattleLastTime = Date.now();
 
-    // Pick random subset: 3 hit lines + 2 battle lines + 1 enrage line = 6 total
-    const pick = <T>(arr: T[], n: number): T[] => {
-      const shuffled = [...arr].sort(() => Math.random() - 0.5);
-      return shuffled.slice(0, n);
-    };
-    const lines = [
-      ...pick(NOMAD_HIT_LINES, 3),
-      ...pick(NOMAD_BATTLE_LINES, 2),
-      ...pick(NOMAD_ENRAGE_LINES, 1),
-    ];
+    // Pick one random line from all battle lines
+    const allLines = [...NOMAD_HIT_LINES, ...NOMAD_BATTLE_LINES];
+    const line = allLines[Math.floor(Math.random() * allLines.length)];
 
-    console.log('[Voice] Pre-generating nomad battle voices:', lines);
-
-    // Generate all in parallel
-    const promises = lines.map(async (text) => {
-      try {
-        const res = await fetch(
-          `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_NOMAD_VOICE}?output_format=mp3_22050_32`,
-          {
-            method: 'POST',
-            headers: { 'xi-api-key': ELEVENLABS_KEY, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text, model_id: 'eleven_flash_v2_5' }),
-          }
-        );
-        if (res.ok) return await res.blob();
-        return null;
-      } catch {
-        return null;
-      }
-    });
-
-    const results = await Promise.all(promises);
-    this.nomadBattleVoiceCache = results.filter((b): b is Blob => b !== null);
-    this.nomadBattleGenerating = false;
-    console.log(`[Voice] Nomad battle voices ready: ${this.nomadBattleVoiceCache.length}/${lines.length}`);
-  }
-
-  /** Play a random cached battle voice line (with cooldown to avoid spam) */
-  async playNomadBattleVoice(): Promise<void> {
-    if (!this.enabled || this.speaking) return;
-    if (this.nomadBattleVoiceCache.length === 0) return;
-
-    // Cooldown: at least 6 seconds between lines
-    const now = Date.now();
-    if (now - this.nomadBattleLastTime < 6000) return;
-    this.nomadBattleLastTime = now;
-
-    // Pop a random line from cache (don't repeat)
-    const idx = Math.floor(Math.random() * this.nomadBattleVoiceCache.length);
-    const blob = this.nomadBattleVoiceCache.splice(idx, 1)[0];
-    await this.playBlob(blob, 0.6);
-  }
-
-  /** Clear voice cache when fight ends */
-  clearNomadBattleVoices(): void {
-    this.nomadBattleVoiceCache = [];
-    this.nomadBattleGenerating = false;
+    console.log(`[Voice] Nomad fight intro: "${line}"`);
+    try {
+      await this.tts(line, ELEVENLABS_NOMAD_VOICE);
+    } catch (e) {
+      console.error('[Voice] Nomad fight intro failed:', e);
+    } finally {
+      this.nomadBattleGenerating = false;
+    }
   }
 
   private async tts(text: string, voice: string = ELEVENLABS_VOICE): Promise<void> {
