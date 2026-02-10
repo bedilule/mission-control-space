@@ -1104,11 +1104,29 @@ Deno.serve(async (req) => {
         // Write quick prompt to Notion (fire and forget)
         writeQuickPromptToNotion(normalizedTaskId, quickPrompt);
 
-        // Trigger deep analysis if Auto Analyze is checked
-        if (payload.auto_analyze && createdPlanets.length > 0) {
-          const firstPlanetId = taskPlanets[0].id;
-          const triggered = await triggerDeepAnalysis(payload, firstPlanetId);
-          console.log(`Deep analysis trigger for "${payload.name}": ${triggered ? 'success' : 'failed'}`);
+        // Trigger deep analysis if Auto Analyze is checked (on create OR update)
+        if (payload.auto_analyze) {
+          // Check if this planet already has a deep analysis to avoid re-triggering
+          const { data: analysisCheck } = await supabase
+            .from('notion_planets')
+            .select('deep_analysis')
+            .eq('id', taskPlanets[0].id)
+            .single();
+
+          if (!analysisCheck?.deep_analysis) {
+            const firstPlanetId = taskPlanets[0].id;
+            const triggered = await triggerDeepAnalysis(payload, firstPlanetId);
+            // Set analysis_status to 'pending' on all planets for this task
+            if (triggered) {
+              await supabase
+                .from('notion_planets')
+                .update({ analysis_status: 'pending' })
+                .eq('notion_task_id', normalizedTaskId);
+            }
+            console.log(`Deep analysis trigger for "${payload.name}": ${triggered ? 'success' : 'failed'}`);
+          } else {
+            console.log(`Deep analysis already exists for "${payload.name}", skipping trigger`);
+          }
         }
       }
     }

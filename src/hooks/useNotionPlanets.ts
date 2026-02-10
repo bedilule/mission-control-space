@@ -35,6 +35,7 @@ const rowToNotionPlanet = (row: any): NotionPlanet => ({
   seen_by: row.seen_by || {},
   quick_prompt: row.quick_prompt || null,
   deep_analysis: row.deep_analysis || null,
+  analysis_status: row.analysis_status || 'idle',
 });
 
 // Convert NotionPlanet to game Planet
@@ -86,6 +87,7 @@ export const notionPlanetToGamePlanet = (np: NotionPlanet, currentUser?: string)
     createdAt: np.created_at,
     quickPrompt: np.quick_prompt,
     deepAnalysis: np.deep_analysis,
+    analysisStatus: np.analysis_status,
   };
 };
 

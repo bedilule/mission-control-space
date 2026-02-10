@@ -158,3 +158,14 @@ jobs:
             echo "Warning: Callback returned non-200 status"
             exit 1
           fi
+
+      - name: Mark analysis failed on error
+        if: failure()
+        run: |
+          curl -s -X PATCH \
+            "https://qdizfhhsqolvuddoxugj.supabase.co/rest/v1/notion_planets?id=eq.${{ inputs.notion_planet_id }}" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            -d '{"analysis_status": "failed"}' || true

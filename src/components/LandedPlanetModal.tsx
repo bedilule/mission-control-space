@@ -233,6 +233,7 @@ export function LandedPlanetModal({
         .landed-date-input { position: absolute; opacity: 0; pointer-events: none; width: 0; height: 0; }
         .landed-modal input { border-radius: 10px; }
         .landed-dropdown-item:hover { background: rgba(255,255,255,0.08) !important; }
+        @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
       <div
         className="landed-modal"
@@ -462,7 +463,7 @@ export function LandedPlanetModal({
         </div>
 
         {/* Copy Prompt Buttons */}
-        {(planet.quickPrompt || planet.deepAnalysis) && (
+        {(planet.quickPrompt || planet.deepAnalysis || planet.analysisStatus === 'pending') && (
           <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
             {planet.quickPrompt && (
               <button
@@ -495,7 +496,7 @@ export function LandedPlanetModal({
                 {copiedPrompt === 'quick' ? 'Copied!' : 'Quick Prompt'}
               </button>
             )}
-            {planet.deepAnalysis && (
+            {planet.deepAnalysis ? (
               <button
                 style={{
                   flex: 1,
@@ -526,7 +527,58 @@ export function LandedPlanetModal({
                 </svg>
                 {copiedPrompt === 'deep' ? 'Copied!' : 'Deep Analysis'}
               </button>
-            )}
+            ) : planet.analysisStatus === 'pending' ? (
+              <div
+                style={{
+                  flex: 1,
+                  padding: '10px 14px',
+                  background: 'rgba(168, 85, 247, 0.04)',
+                  border: '1px solid rgba(168, 85, 247, 0.12)',
+                  borderRadius: 10,
+                  color: '#a855f7',
+                  fontSize: '0.8rem',
+                  fontFamily: 'Space Grotesk, sans-serif',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                }}
+              >
+                <div style={{
+                  width: 14,
+                  height: 14,
+                  border: '2px solid rgba(168, 85, 247, 0.3)',
+                  borderTopColor: '#a855f7',
+                  borderRadius: '50%',
+                  animation: 'spin 0.8s linear infinite',
+                }} />
+                Analyzing...
+              </div>
+            ) : planet.analysisStatus === 'failed' ? (
+              <div
+                style={{
+                  flex: 1,
+                  padding: '10px 14px',
+                  background: 'rgba(239, 68, 68, 0.06)',
+                  border: '1px solid rgba(239, 68, 68, 0.15)',
+                  borderRadius: 10,
+                  color: '#ef4444',
+                  fontSize: '0.8rem',
+                  fontFamily: 'Space Grotesk, sans-serif',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="15" y1="9" x2="9" y2="15" />
+                  <line x1="9" y1="9" x2="15" y2="15" />
+                </svg>
+                Analysis Failed
+              </div>
+            ) : null}
           </div>
         )}
 

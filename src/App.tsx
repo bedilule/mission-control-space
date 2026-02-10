@@ -2509,7 +2509,7 @@ function App() {
   useEffect(() => {
     if (!landedPlanet || landedPlanet.type !== 'notion') return;
     const updated = notionGamePlanets.find(p => p.id === landedPlanet.id);
-    if (updated && (updated.quickPrompt !== landedPlanet.quickPrompt || updated.deepAnalysis !== landedPlanet.deepAnalysis)) {
+    if (updated && (updated.quickPrompt !== landedPlanet.quickPrompt || updated.deepAnalysis !== landedPlanet.deepAnalysis || updated.analysisStatus !== landedPlanet.analysisStatus)) {
       setLandedPlanet(updated);
     }
   }, [notionGamePlanets, landedPlanet]);

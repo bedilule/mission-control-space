@@ -29,11 +29,22 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Save analysis to notion_planets table
-    const { error: updateError } = await supabase
+    // Save analysis to notion_planets table and mark status as complete
+    // First get the notion_task_id from the planet so we can update ALL planets for this task
+    const { data: planetRow } = await supabase
       .from('notion_planets')
-      .update({ deep_analysis: analysis })
-      .eq('id', notion_planet_id);
+      .select('notion_task_id')
+      .eq('id', notion_planet_id)
+      .single();
+
+    const taskId = planetRow?.notion_task_id;
+
+    // Update all planets for this Notion task (multi-assignee support)
+    const query = taskId
+      ? supabase.from('notion_planets').update({ deep_analysis: analysis, analysis_status: 'complete' }).eq('notion_task_id', taskId)
+      : supabase.from('notion_planets').update({ deep_analysis: analysis, analysis_status: 'complete' }).eq('id', notion_planet_id);
+
+    const { error: updateError } = await query;
 
     if (updateError) {
       console.error('Failed to update notion_planets:', updateError);
