@@ -114,6 +114,7 @@ const LANDING_SPEED_COSTS = [50, 100, 175, 275, 400]; // Cost per level (Total: 
 
 // Planet size upgrades: 5 levels with increasing costs
 const PLANET_SIZE_COSTS = [75, 150, 250, 375, 525]; // Cost per level (Total: 1,375)
+const HEALTH_COSTS = [50, 100, 180, 300, 450, 650, 900, 1200, 1600, 2100]; // Cost per level (Total: 7,530) - each level +25 HP
 
 const GLOW_EFFECTS = [
   { id: 'glow_orange', name: 'Orange', icon: '🟠', cost: 50, value: '#ff8800' },
@@ -262,6 +263,7 @@ interface ShipEffects {
   equippedHorn: string | null;
   ownedEmotes: string[];
   equippedEmote: string | null;
+  healthBonus: number; // 0-5 levels, each gives +25 HP in boss fights
 }
 
 interface UserShip {
@@ -3293,6 +3295,25 @@ function App() {
     soundManager.playShopPurchaseVoice(`landing-${currentLevel + 1}`);
   };
 
+  // Buy health upgrade (more HP in boss fights)
+  const buyHealthUpgrade = () => {
+    const currentShip = getCurrentUserShip();
+    const currentEffects = getEffectsWithDefaults(currentShip.effects);
+    const currentLevel = currentEffects.healthBonus;
+
+    if (currentLevel >= 10) return;
+    const cost = HEALTH_COSTS[currentLevel];
+    if (personalPoints < cost) return;
+
+    const userId = state.currentUser || 'default';
+    const newEffects = { ...currentEffects, healthBonus: currentLevel + 1 };
+
+    setPersonalPoints(prev => prev - cost);
+    updateRemotePersonalPoints(-cost, `Health upgrade (level ${currentLevel + 1})`);
+    updateUserShipEffects(userId, currentShip, newEffects);
+    soundManager.playShipUpgrade();
+  };
+
   // Buy or switch glow
   const handleGlow = (glowId: string) => {
     const glow = GLOW_EFFECTS.find(g => g.id === glowId);
@@ -3626,6 +3647,7 @@ function App() {
     equippedHorn: effects?.equippedHorn ?? null,
     ownedEmotes: effects?.ownedEmotes ?? [],
     equippedEmote: effects?.equippedEmote ?? null,
+    healthBonus: effects?.healthBonus ?? 0,
   });
 
   // Helper to update ship effects
@@ -5286,6 +5308,49 @@ function App() {
                             disabled={!canBuy}
                           >
                             +15% ({nextCost} ⭐)
+                          </button>
+                        ) : (
+                          <span style={styles.effectMaxed}>MAX</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Health Upgrade with dots */}
+                {(() => {
+                  const currentLevel = getEffectsWithDefaults(getCurrentUserShip().effects).healthBonus;
+                  const nextCost = currentLevel < 10 ? HEALTH_COSTS[currentLevel] : null;
+                  const canBuy = nextCost !== null && personalPoints >= nextCost;
+                  return (
+                    <div style={styles.effectLane}>
+                      <div style={styles.effectLaneLabel}>
+                        <span style={styles.effectLaneIcon}>❤️</span>
+                        <span>Health</span>
+                      </div>
+                      <div style={styles.effectLaneContent}>
+                        <div style={styles.speedDots}>
+                          {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(i => (
+                            <div
+                              key={i}
+                              style={{
+                                ...styles.speedDot,
+                                background: i < currentLevel ? '#ff4444' : 'rgba(255,255,255,0.15)',
+                              }}
+                            />
+                          ))}
+                        </div>
+                        <span style={styles.effectLaneValue}>{100 + currentLevel * 25} HP</span>
+                        {nextCost !== null ? (
+                          <button
+                            style={{
+                              ...styles.effectBuyButton,
+                              opacity: canBuy ? 1 : 0.5,
+                            }}
+                            onClick={buyHealthUpgrade}
+                            disabled={!canBuy}
+                          >
+                            +25 HP ({nextCost} ⭐)
                           </button>
                         ) : (
                           <span style={styles.effectMaxed}>MAX</span>

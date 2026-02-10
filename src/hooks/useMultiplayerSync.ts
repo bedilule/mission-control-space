@@ -69,6 +69,7 @@ const defaultShipEffects: ShipEffects = {
   equippedHorn: null,
   ownedEmotes: [],
   equippedEmote: null,
+  healthBonus: 0,
 };
 
 // How long before we consider a player offline even if is_online is true

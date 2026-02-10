@@ -145,6 +145,7 @@ const defaultShipEffects: ShipEffects = {
   equippedHorn: null,
   ownedEmotes: [],
   equippedEmote: null,
+  healthBonus: 0,
 };
 
 export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlayerPositionsReturn {

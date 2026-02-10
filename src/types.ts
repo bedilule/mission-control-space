@@ -190,6 +190,7 @@ export interface ShipEffects {
   equippedHorn: string | null;
   ownedEmotes: string[];
   equippedEmote: string | null;
+  healthBonus: number;
 }
 
 export interface MultiplayerTeam {

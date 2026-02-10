@@ -53,6 +53,7 @@ interface ShipEffects {
   rocketLauncherEquipped: boolean;
   hasWarpDrive: boolean;
   hasMissionControlPortal: boolean;
+  healthBonus: number;
 }
 
 interface UpgradeSatellite {
@@ -211,7 +212,7 @@ export class SpaceGame {
   private rocketLauncherImage: HTMLImageElement | null = null; // Rocket Launcher weapon image
   private portalImage: HTMLImageElement | null = null; // Mission Control Portal image
   private shipLevel: number = 1;
-  private shipEffects: ShipEffects = { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, landingSpeedBonus: 0, ownedGlows: [], ownedTrails: [], hasDestroyCanon: false, destroyCanonEquipped: false, hasSpaceRifle: false, spaceRifleEquipped: false, hasPlasmaCanon: false, plasmaCanonEquipped: false, hasRocketLauncher: false, rocketLauncherEquipped: false, hasWarpDrive: false, hasMissionControlPortal: false };
+  private shipEffects: ShipEffects = { glowColor: null, trailType: 'default', sizeBonus: 0, speedBonus: 0, landingSpeedBonus: 0, ownedGlows: [], ownedTrails: [], hasDestroyCanon: false, destroyCanonEquipped: false, hasSpaceRifle: false, spaceRifleEquipped: false, hasPlasmaCanon: false, plasmaCanonEquipped: false, hasRocketLauncher: false, rocketLauncherEquipped: false, hasWarpDrive: false, hasMissionControlPortal: false, healthBonus: 0 };
   private blackHole: BlackHole;
   private shipBeingSucked: boolean = false;
   private suckProgress: number = 0;
@@ -9568,11 +9569,15 @@ export class SpaceGame {
     return false;
   }
 
+  private getPlayerMaxHP(): number {
+    return 100 + (this.shipEffects.healthBonus || 0) * 25;
+  }
+
   private startNomadFight() {
     this.nomadFight = {
       active: true,
       nomadHP: 2000,
-      playerHP: 100,
+      playerHP: this.getPlayerMaxHP(),
       attackTimer: 90, // brief grace period
       patternIndex: -1,
       spiralAngle: 0,
@@ -10217,7 +10222,7 @@ export class SpaceGame {
 
     // ── Player HP bar (RIGHT side, fills right→left) ──
     const pBarX = (w + centerGap) / 2;
-    const pHpRatio = Math.max(0, fight.playerHP / 100);
+    const pHpRatio = Math.max(0, fight.playerHP / this.getPlayerMaxHP());
 
     // Name label
     ctx.font = 'bold 11px Orbitron';
