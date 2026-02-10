@@ -68,9 +68,42 @@ function buildUserMessage(ctx: GreetingContext): string {
   return parts.join(' ');
 }
 
+// Pre-written nomad battle voice lines (short, punchy, latino pimp-my-ride merchant)
+const NOMAD_HIT_LINES = [
+  'Ay! Watch the paint job, loco!',
+  'You scratching my ride, pendejo!',
+  'Oye! That one actually hurt!',
+  'Is that all you got, gringo?',
+  'My abuela hits harder than that!',
+  'You gonna pay for that, ese!',
+  'Ay caramba! Not the chrome!',
+  'You dented my bumper, idiota!',
+];
+
+const NOMAD_BATTLE_LINES = [
+  'Nobody shoots the Nomad and lives, amigo!',
+  'You picked the wrong merchant, hermano!',
+  'Time to pimp YOUR wreck, gringo!',
+  'This is MY neighborhood, ese!',
+  'You should have just bought something!',
+  'The Nomad always gets the last ride!',
+];
+
+const NOMAD_ENRAGE_LINES = [
+  'Now you made me angry, pendejo!',
+  'Ay dios mio, you are DEAD!',
+  'No more mister nice Nomad!',
+];
+
 class VoiceService {
   private speaking = false;
   private enabled = true;
+
+  // Nomad boss fight voice cache
+  private nomadBattleVoiceCache: Blob[] = [];
+  private nomadBattleGenerating = false;
+  private nomadBattleCooldown = 0;
+  private nomadBattleLastTime = 0;
 
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;
@@ -424,6 +457,75 @@ class VoiceService {
 
     const data = await res.json();
     return data.text || `Welcome back, ${ctx.playerName}.`;
+  }
+
+  // ── Nomad Boss Fight Voice ──
+
+  /** Call at fight start — pre-generates a batch of voice lines */
+  async pregenNomadBattleVoices(): Promise<void> {
+    if (!this.enabled || this.nomadBattleGenerating) return;
+    this.nomadBattleGenerating = true;
+    this.nomadBattleVoiceCache = [];
+    this.nomadBattleCooldown = 0;
+    this.nomadBattleLastTime = Date.now();
+
+    // Pick random subset: 3 hit lines + 2 battle lines + 1 enrage line = 6 total
+    const pick = <T>(arr: T[], n: number): T[] => {
+      const shuffled = [...arr].sort(() => Math.random() - 0.5);
+      return shuffled.slice(0, n);
+    };
+    const lines = [
+      ...pick(NOMAD_HIT_LINES, 3),
+      ...pick(NOMAD_BATTLE_LINES, 2),
+      ...pick(NOMAD_ENRAGE_LINES, 1),
+    ];
+
+    console.log('[Voice] Pre-generating nomad battle voices:', lines);
+
+    // Generate all in parallel
+    const promises = lines.map(async (text) => {
+      try {
+        const res = await fetch(
+          `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_NOMAD_VOICE}?output_format=mp3_22050_32`,
+          {
+            method: 'POST',
+            headers: { 'xi-api-key': ELEVENLABS_KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, model_id: 'eleven_flash_v2_5' }),
+          }
+        );
+        if (res.ok) return await res.blob();
+        return null;
+      } catch {
+        return null;
+      }
+    });
+
+    const results = await Promise.all(promises);
+    this.nomadBattleVoiceCache = results.filter((b): b is Blob => b !== null);
+    this.nomadBattleGenerating = false;
+    console.log(`[Voice] Nomad battle voices ready: ${this.nomadBattleVoiceCache.length}/${lines.length}`);
+  }
+
+  /** Play a random cached battle voice line (with cooldown to avoid spam) */
+  async playNomadBattleVoice(): Promise<void> {
+    if (!this.enabled || this.speaking) return;
+    if (this.nomadBattleVoiceCache.length === 0) return;
+
+    // Cooldown: at least 6 seconds between lines
+    const now = Date.now();
+    if (now - this.nomadBattleLastTime < 6000) return;
+    this.nomadBattleLastTime = now;
+
+    // Pop a random line from cache (don't repeat)
+    const idx = Math.floor(Math.random() * this.nomadBattleVoiceCache.length);
+    const blob = this.nomadBattleVoiceCache.splice(idx, 1)[0];
+    await this.playBlob(blob, 0.6);
+  }
+
+  /** Clear voice cache when fight ends */
+  clearNomadBattleVoices(): void {
+    this.nomadBattleVoiceCache = [];
+    this.nomadBattleGenerating = false;
   }
 
   private async tts(text: string, voice: string = ELEVENLABS_VOICE): Promise<void> {

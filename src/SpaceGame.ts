@@ -513,6 +513,9 @@ export class SpaceGame {
   private nomadProjectiles: { x: number; y: number; vx: number; vy: number; life: number; maxLife: number; damage: number; size: number; color: string }[] = [];
   private nomadFightCooldown: number = 0;
   private onNomadBossVictory: (() => void) | null = null;
+  private onNomadFightStart: (() => void) | null = null;
+  private onNomadHit: (() => void) | null = null;
+  private onNomadFightEnd: (() => void) | null = null;
   private nomadVictoryText: { text: string; x: number; y: number; timer: number } | null = null;
 
   // Escort drones (permanent companions based on ship level)
@@ -1229,6 +1232,9 @@ export class SpaceGame {
     onHornActivate?: () => void;
     onEmoteActivate?: () => void;
     onNomadBossVictory?: () => void;
+    onNomadFightStart?: () => void;
+    onNomadHit?: () => void;
+    onNomadFightEnd?: () => void;
   }) {
     this.onLand = callbacks.onLand || null;
     this.onTakeoff = callbacks.onTakeoff || null;
@@ -1248,6 +1254,9 @@ export class SpaceGame {
     this.onHornActivate = callbacks.onHornActivate || null;
     this.onEmoteActivate = callbacks.onEmoteActivate || null;
     this.onNomadBossVictory = callbacks.onNomadBossVictory || null;
+    this.onNomadFightStart = callbacks.onNomadFightStart || null;
+    this.onNomadHit = callbacks.onNomadHit || null;
+    this.onNomadFightEnd = callbacks.onNomadFightEnd || null;
   }
 
   public setAchievementCallback(callback: ((achievementId: string) => void) | null) {
@@ -9527,6 +9536,7 @@ export class SpaceGame {
         this.nomadFight.damageFlashTimer = 8;
         this.screenShake = { intensity: 4, timer: 6 };
         soundManager.playNomadBossHit();
+        this.onNomadHit?.();
 
         // Hit particles
         const colors = ['#ff00ff', '#00ffff', '#ffa500', '#ffffff'];
@@ -9582,6 +9592,8 @@ export class SpaceGame {
     this.nomadProjectiles = [];
     // Override nomad music to full volume
     soundManager.updateNomadProximity(1, false);
+    // Pre-generate battle voice lines
+    this.onNomadFightStart?.();
   }
 
   private updateNomadFight() {
@@ -9758,6 +9770,7 @@ export class SpaceGame {
             life: 120, maxLife: 120, damage: 8, size: 4,
             color: '#ff00ff',
           });
+          soundManager.playNomadShoot();
         }
         break;
       case 1: // Spiral: continuous rotating fire for 60 frames
@@ -9771,6 +9784,7 @@ export class SpaceGame {
             life: 100, maxLife: 100, damage: 5, size: 3,
             color: '#00ffff',
           });
+          soundManager.playNomadShoot();
         }
         break;
       case 2: // Radial burst: 16 bullets in all directions
@@ -9786,6 +9800,7 @@ export class SpaceGame {
               color: '#ffa500',
             });
           }
+          soundManager.playNomadShoot();
         }
         break;
       case 3: // Spread fan: 7 bullets in 90° arc toward player
@@ -9801,6 +9816,7 @@ export class SpaceGame {
               color: '#ff6b9d',
             });
           }
+          soundManager.playNomadShoot();
         }
         break;
       case 4: // Random spray: 20 bullets in random directions over 40 frames
@@ -9816,6 +9832,7 @@ export class SpaceGame {
             size: 3 + Math.random() * 2,
             color: Math.random() < 0.5 ? '#ff00ff' : '#00ffff',
           });
+          soundManager.playNomadShoot();
         }
         break;
       case 5: // Rockets: 3 homing rockets, 20-frame interval
@@ -9828,6 +9845,7 @@ export class SpaceGame {
             life: 180, maxLife: 180, damage: 15, size: 6,
             color: '#ff6600',
           });
+          soundManager.playNomadRocket();
         }
         break;
     }
@@ -10080,6 +10098,7 @@ export class SpaceGame {
     this.nomadFightCooldown = victory ? 300 : 600;
     this.nomadFight = null;
     this.nomadProjectiles = [];
+    this.onNomadFightEnd?.();
   }
 
   private renderNomadProjectiles() {

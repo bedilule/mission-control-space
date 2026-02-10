@@ -163,6 +163,17 @@ const SOUND_CONFIGS: Record<string, SoundConfig> = {
     volume: 0.4,
     rate: 1.5, // Sharper hit sound
   },
+  // Nomad weapon sounds
+  nomadLaser1: { src: [`${SOUNDS_PATH}Weapons/laser1.mp3`], volume: 0.3 },
+  nomadLaser2: { src: [`${SOUNDS_PATH}Weapons/laser2.mp3`], volume: 0.3 },
+  nomadLaser3: { src: [`${SOUNDS_PATH}Weapons/laser3.mp3`], volume: 0.3 },
+  nomadLaser4: { src: [`${SOUNDS_PATH}Weapons/laser4.mp3`], volume: 0.3 },
+  nomadLaser5: { src: [`${SOUNDS_PATH}Weapons/laser5.mp3`], volume: 0.3 },
+  nomadLaser6: { src: [`${SOUNDS_PATH}Weapons/laser6.mp3`], volume: 0.3 },
+  nomadLaser7: { src: [`${SOUNDS_PATH}Weapons/laser7.mp3`], volume: 0.3 },
+  nomadLaser8: { src: [`${SOUNDS_PATH}Weapons/laser8.mp3`], volume: 0.3 },
+  nomadLaser9: { src: [`${SOUNDS_PATH}Weapons/laser9.mp3`], volume: 0.3 },
+  nomadRocket: { src: [`${SOUNDS_PATH}Weapons/rocket_01.ogg`], volume: 0.4 },
 
   // Horns
   horn_air: {
@@ -579,6 +590,17 @@ export class SoundManager {
   public playNomadBossHit() {
     if (!this.initialized || !this.prefs.sfxEnabled) return;
     this.play('nomadBossHit');
+  }
+
+  public playNomadShoot() {
+    if (!this.initialized || !this.prefs.sfxEnabled) return;
+    const idx = Math.floor(Math.random() * 9) + 1;
+    this.play(`nomadLaser${idx}`);
+  }
+
+  public playNomadRocket() {
+    if (!this.initialized || !this.prefs.sfxEnabled) return;
+    this.play('nomadRocket');
   }
 
   // Impact sounds
