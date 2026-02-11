@@ -117,6 +117,31 @@ const SOUND_CONFIGS: Record<string, SoundConfig> = {
     volume: 0.25,
     rate: 2.5, // Higher pitch for laser effect
   },
+  rocketFire: {
+    src: [`${SOUNDS_PATH}Weapons/Rocket_00.mp3`],
+    volume: 0.5,
+  },
+  plasmaFire: {
+    src: [`${SOUNDS_PATH}Weapons/plasma_canon.mp3`],
+    volume: 0.5,
+  },
+  nukeLaunch: {
+    src: [`${SOUNDS_PATH}Weapons/nuke.mp3`],
+    volume: 0.7,
+  },
+  nukeFlying: {
+    src: [`${SOUNDS_PATH}Weapons/flying_nuke.mp3`],
+    volume: 0.6,
+  },
+  nukeExplosion: {
+    src: [`${SOUNDS_PATH}Weapons/nuke_explosion.mp3`],
+    volume: 0.8,
+  },
+  nukeThrust: {
+    src: [`${SOUNDS_PATH}thrust.ogg`],
+    volume: 0.3,
+    loop: true,
+  },
 
   // Black hole
   blackHoleAmbient: {
@@ -638,6 +663,45 @@ export class SoundManager {
   // Impact sounds
   public playCollision() {
     this.play('collision');
+  }
+
+  public playRocketFire() {
+    this.play('rocketFire');
+  }
+
+  public playPlasmaFire() {
+    this.play('plasmaFire');
+  }
+
+  public playNukeLaunch() {
+    this.play('nukeLaunch');
+  }
+
+  public stopNukeLaunch() {
+    const sound = this.sounds.get('nukeLaunch');
+    if (sound) sound.stop();
+  }
+
+  public playNukeFlying() {
+    this.play('nukeFlying');
+  }
+
+  public stopNukeFlying() {
+    const sound = this.sounds.get('nukeFlying');
+    if (sound) sound.stop();
+  }
+
+  public playNukeExplosion() {
+    this.play('nukeExplosion');
+  }
+
+  public playNukeThrust() {
+    this.play('nukeThrust');
+  }
+
+  public stopNukeThrust() {
+    const sound = this.sounds.get('nukeThrust');
+    if (sound) sound.stop();
   }
 
   // Success sounds

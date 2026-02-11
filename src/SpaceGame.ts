@@ -1527,6 +1527,13 @@ export class SpaceGame {
     }
   }
 
+  public resetCompletedPlanets() {
+    for (const planet of this.state.planets) {
+      planet.completed = false;
+    }
+    this.state.completedCount = 0;
+  }
+
   public upgradeShip() {
     this.shipLevel = Math.min(10, this.shipLevel + 1);
   }

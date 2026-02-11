@@ -529,6 +529,7 @@ function App() {
   const gameRef = useRef<SpaceGame | null>(null);
   const onDockRef = useRef<(planet: Planet) => void>(() => {});
   const achievementHandlerRef = useRef<(id: string) => void>(() => {});
+  const nukeCompleteRef = useRef<() => void>(() => {});
   const markSeenRef = useRef<(planetId: string, username: string) => void>(() => {});
   const nomadBossVictoryRef = useRef<() => void>(() => {});
   const landingCallbacksRef = useRef<{
@@ -2483,6 +2484,30 @@ function App() {
     markSeenRef.current = markNotionPlanetSeen;
   }, [markNotionPlanetSeen]);
 
+  // Nuke complete: clear all completed planets
+  const handleNukeComplete = useCallback(async () => {
+    console.log('[Nuke] Detonation complete — clearing all completed planets');
+    try {
+      // Reset in Supabase
+      if (team?.id) {
+        await supabase
+          .from('teams')
+          .update({ completed_planets: [] })
+          .eq('id', team.id);
+      }
+      // Reset local state
+      setState(prev => ({ ...prev, completedPlanets: [] }));
+      // Reset in game engine
+      gameRef.current?.resetCompletedPlanets();
+    } catch (err) {
+      console.error('[Nuke] Failed to clear completed planets:', err);
+    }
+  }, [team?.id]);
+
+  useEffect(() => {
+    nukeCompleteRef.current = handleNukeComplete;
+  }, [handleNukeComplete]);
+
   // Nomad boss victory: award +1000 personal points
   const handleNomadBossVictory = useCallback(async () => {
     console.log('[NomadBoss] Victory! Awarding +1000 points');
@@ -4170,6 +4195,11 @@ function App() {
     // Set up planet destroy broadcast callback (game → WS)
     game.setPlanetDestroyBroadcastCallback((planetId, fromRifle) => {
       broadcastPlanetDestroy(planetId, fromRifle);
+    });
+
+    // Set up nuke complete callback — clears all completed planets
+    game.setNukeCompleteCallback(() => {
+      nukeCompleteRef.current();
     });
 
     // Set up achievement callback (game → Supabase)
