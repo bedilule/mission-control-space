@@ -575,7 +575,7 @@ export class SpaceGame {
 
   // The Hatchery (roaming companion merchant)
   private hatcheryImage: HTMLImageElement | null = null;
-  private hatchery: { x: number; y: number; rotation: number; scale: number } = { x: 3000, y: 7000, rotation: 0, scale: 1 };
+  private hatchery: { x: number; y: number; rotation: number; scale: number } = { x: 9700, y: 9700, rotation: 0, scale: 1 };
   private hatcherySparkles: { x: number; y: number; life: number; maxLife: number; color: string; size: number }[] = [];
   private nearHatchery: boolean = false;
   private hatcheryApproachFired: boolean = false;
@@ -9115,16 +9115,9 @@ export class SpaceGame {
     ctx.fillStyle = '#ff00ff';
     ctx.fill();
 
-    // The Hatchery on minimap (pulsing green dot)
-    const hatchMx = mapX + this.hatchery.x * scale;
-    const hatchMy = mapY + this.hatchery.y * scale;
-    const hatchPulse = 0.5 + 0.5 * Math.sin(Date.now() * 0.004 + 2);
+    // The Hatchery — tiny green dot, no label
     ctx.beginPath();
-    ctx.arc(hatchMx, hatchMy, 4 + hatchPulse, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(68, 255, 136, ${0.3 + hatchPulse * 0.3})`;
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(hatchMx, hatchMy, 2.5, 0, Math.PI * 2);
+    ctx.arc(mapX + this.hatchery.x * scale, mapY + this.hatchery.y * scale, 1.5, 0, Math.PI * 2);
     ctx.fillStyle = '#44ff88';
     ctx.fill();
 
@@ -11635,31 +11628,8 @@ export class SpaceGame {
     const hatch = this.hatchery;
     const { ship } = this.state;
 
-    const t = Date.now() / 1000;
-    const newX = 5000
-      + 3500 * Math.sin(t * 0.0038 + 4.5)
-      + 1600 * Math.sin(t * 0.0089 + 2.1)
-      + 500 * Math.sin(t * 0.0211 + 0.9);
-    const newY = 5000
-      + 3500 * Math.cos(t * 0.0043 + 1.8)
-      + 1600 * Math.cos(t * 0.0103 + 3.7)
-      + 500 * Math.cos(t * 0.0167 + 5.3);
-
-    const vx = 3500 * 0.0038 * Math.cos(t * 0.0038 + 4.5)
-      + 1600 * 0.0089 * Math.cos(t * 0.0089 + 2.1)
-      + 500 * 0.0211 * Math.cos(t * 0.0211 + 0.9);
-    const vy = -3500 * 0.0043 * Math.sin(t * 0.0043 + 1.8)
-      - 1600 * 0.0103 * Math.sin(t * 0.0103 + 3.7)
-      - 500 * 0.0167 * Math.sin(t * 0.0167 + 5.3);
-
-    hatch.x = ((newX % 10000) + 10000) % 10000;
-    hatch.y = ((newY % 10000) + 10000) % 10000;
-
-    const targetRot = Math.atan2(vy, vx);
-    let diff = targetRot - hatch.rotation;
-    while (diff > Math.PI) diff -= Math.PI * 2;
-    while (diff < -Math.PI) diff += Math.PI * 2;
-    hatch.rotation += diff * 0.05;
+    // Fixed position — head facing up
+    hatch.rotation = -Math.PI / 2;
 
     if (Math.random() < 0.35) {
       const colors = ['#44ff88', '#22ddaa', '#88ffcc', '#66ffaa', '#aaffdd'];
