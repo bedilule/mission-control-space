@@ -176,6 +176,22 @@ const SOUND_CONFIGS: Record<string, SoundConfig> = {
     volume: 0.7,
     rate: 0.5, // Low pitch for heavy, bassy tail slap
   },
+  steveIrwinCrikey: {
+    src: [`${SOUNDS_PATH}steve-irwin-crikey.mp3`],
+    volume: 0.8,
+  },
+  steveIrwinSettleDown: {
+    src: [`${SOUNDS_PATH}steve-irwin-settle-down.wav`],
+    volume: 0.8,
+  },
+  steveIrwinBeauty: {
+    src: [`${SOUNDS_PATH}steve-irwin-beautiful-girl.wav`],
+    volume: 0.8,
+  },
+  steveIrwinFangs: {
+    src: [`${SOUNDS_PATH}steve-irwin-fangs.wav`],
+    volume: 0.8,
+  },
 
   // Neon Nomad
   nomadJingle: {
@@ -615,6 +631,20 @@ export class SoundManager {
     this.play('whaleSlap');
     // Also play the whale call (angry whale)
     setTimeout(() => this.play('spaceWhale'), 200);
+  }
+
+  private static readonly STEVE_IRWIN_CLIPS = [
+    'steveIrwinCrikey',
+    'steveIrwinSettleDown',
+    'steveIrwinBeauty',
+    'steveIrwinFangs',
+  ] as const;
+
+  public playSteveIrwin() {
+    if (!this.initialized || !this.prefs.sfxEnabled) return;
+    const clips = SoundManager.STEVE_IRWIN_CLIPS;
+    const clip = clips[Math.floor(Math.random() * clips.length)];
+    this.play(clip);
   }
 
   public playNomadBossHit() {

@@ -504,6 +504,12 @@ export class SpaceGame {
   private whaleSlapCooldown: number = 0; // Prevent spam-triggering
   private whaleSlapTextTimer: number = 0; // "The Leviathan is not amused" text
   private whaleKnockbackTimer: number = 0; // While > 0, bypass speed clamp (whale yeet!)
+  // Steve Irwin popup (shown when shooting the whale) — cycles through images
+  private steveIrwinImages: HTMLImageElement[] = [];
+  private steveIrwinImageIndex: number = 0; // Cycles through all images
+  private steveIrwinPopupTimer: number = 0; // While > 0, show popup and freeze ship
+  private steveIrwinFreezeVx: number = 0; // Store velocity to restore after freeze
+  private steveIrwinFreezeVy: number = 0;
   private screenShake: { intensity: number; timer: number } = { intensity: 0, timer: 0 };
 
   // Persistent achievements
@@ -770,6 +776,24 @@ export class SpaceGame {
     whaleImg.onload = () => {
       this.spaceWhaleImage = whaleImg;
     };
+
+    // Load Steve Irwin images (whale protection program) — escalating sequence
+    const steveFiles = [
+      '/steve/seriously1.png',
+      '/steve/seriously_2.png',
+      '/steve/mate_no.png',
+      '/steve/not_cool.png',
+      '/steve/didntdieforthis.png',
+      '/steve/joking.png',
+    ];
+    for (const src of steveFiles) {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = src;
+      img.onload = () => {
+        this.steveIrwinImages.push(img);
+      };
+    }
 
     // Load Neon Nomad image
     const nomadImg = new Image();
@@ -1762,6 +1786,19 @@ export class SpaceGame {
 
     // Handle remote send animations from other players
     this.updateRemoteSendAnimations();
+
+    // Steve Irwin popup freeze — block all ship input while popup is showing
+    if (this.steveIrwinPopupTimer > 0) {
+      ship.thrusting = false;
+      // Still update everything else (camera, particles, whale, etc.)
+      this.updateSpaceWhale();
+      this.updateParticles();
+      this.updateCamera();
+      this.updateRemoteProjectiles();
+      this.updateRemoteDestroyAnimations();
+      this.updateRemoteSendAnimations();
+      return;
+    }
 
     // Handle rotation
     if (this.keys.has(this.layoutKeys.left) || this.keys.has('arrowleft')) {
@@ -7485,6 +7522,9 @@ export class SpaceGame {
     if (this.isPortalTeleporting) {
       this.renderPortalAnimation();
     }
+
+    // Steve Irwin popup ON TOP of absolutely everything
+    this.renderSteveIrwinPopup();
   }
 
   // Get the current zone color blend based on ship position
@@ -10435,6 +10475,19 @@ export class SpaceGame {
     if (this.whaleSlapTextTimer > 0) {
       this.whaleSlapTextTimer -= this.dt;
     }
+
+    // Steve Irwin popup timer — freeze ship while showing
+    if (this.steveIrwinPopupTimer > 0) {
+      this.steveIrwinPopupTimer -= this.dt;
+      // Keep ship frozen
+      this.state.ship.vx = 0;
+      this.state.ship.vy = 0;
+      // When popup ends, restore some velocity (gentle nudge away)
+      if (this.steveIrwinPopupTimer <= 0) {
+        this.state.ship.vx = this.steveIrwinFreezeVx * 0.3;
+        this.state.ship.vy = this.steveIrwinFreezeVy * 0.3;
+      }
+    }
   }
 
   // Check if a projectile at (px, py) hits the whale. Uses a rotated ellipse matching the whale's elongated body.
@@ -10462,53 +10515,35 @@ export class SpaceGame {
     return false;
   }
 
-  // The whale fights back! Yeets the ship toward the black hole
+  // Steve Irwin disapproves of shooting whales
   private triggerWhaleTailSlap(hitX: number, hitY: number) {
     const { ship } = this.state;
 
-    // Cooldown: 3 seconds at 60fps
-    this.whaleSlapCooldown = 180;
-    this.whaleSlapTextTimer = 180;
+    // Cooldown: 5 seconds at 60fps
+    this.whaleSlapCooldown = 300;
 
-    // Direction: toward the black hole! (5150, 4750)
-    const bhX = CENTER_X + 150;
-    const bhY = CENTER_Y - 250;
-    const toBhDx = bhX - ship.x;
-    const toBhDy = bhY - ship.y;
-    const toBhDist = Math.sqrt(toBhDx * toBhDx + toBhDy * toBhDy) || 1;
+    // Freeze the ship — store velocity, zero it out
+    this.steveIrwinFreezeVx = ship.vx;
+    this.steveIrwinFreezeVy = ship.vy;
+    ship.vx = 0;
+    ship.vy = 0;
 
-    // If player is already very close to the black hole, yeet them away from the whale instead
-    const useBlackHoleDir = toBhDist > 500;
-    let nx: number, ny: number;
-    if (useBlackHoleDir) {
-      nx = toBhDx / toBhDist;
-      ny = toBhDy / toBhDist;
-    } else {
-      // Fallback: away from whale
-      const awayDx = ship.x - this.spaceWhale.x;
-      const awayDy = ship.y - this.spaceWhale.y;
-      const awayDist = Math.sqrt(awayDx * awayDx + awayDy * awayDy) || 1;
-      nx = awayDx / awayDist;
-      ny = awayDy / awayDist;
+    // Show Steve Irwin popup for ~3 seconds (180 frames), cycle to next image
+    this.steveIrwinPopupTimer = 180;
+    if (this.steveIrwinImages.length > 0) {
+      this.steveIrwinImageIndex = (this.steveIrwinImageIndex + 1) % this.steveIrwinImages.length;
     }
 
-    // Massive yeet — speed 90 with friction 0.992 covers ~10,000px before decaying to normal
-    // Bypass speed clamp for ~5 seconds (300 frames) so friction does the slowing
-    const knockbackSpeed = 90;
-    ship.vx = nx * knockbackSpeed;
-    ship.vy = ny * knockbackSpeed;
-    this.whaleKnockbackTimer = 300;
+    // Mild screen shake
+    this.screenShake = { intensity: 12, timer: 15 };
 
-    // Screen shake (big one)
-    this.screenShake = { intensity: 35, timer: 40 };
-
-    // Sound
-    soundManager.playWhaleSlap();
+    // Play Steve Irwin voice clip (random)
+    soundManager.playSteveIrwin();
 
     // Achievement
     this.tryUnlockAchievement('whale_slap');
 
-    // Emit a big burst of whale-colored particles at the impact point
+    // Emit a burst of whale-colored particles at the impact point
     const colors = ['#64c8ff', '#88ddff', '#44aaff', '#aaeeff', '#ffffff', '#00ccff'];
     for (let i = 0; i < 30; i++) {
       const angle = Math.random() * Math.PI * 2;
@@ -10516,8 +10551,8 @@ export class SpaceGame {
       this.state.particles.push({
         x: hitX + (Math.random() - 0.5) * 30,
         y: hitY + (Math.random() - 0.5) * 30,
-        vx: Math.cos(angle) * speed + nx * 4,
-        vy: Math.sin(angle) * speed + ny * 4,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
         life: 30 + Math.random() * 25,
         maxLife: 55,
         size: Math.random() * 6 + 2,
@@ -10525,21 +10560,6 @@ export class SpaceGame {
       });
     }
 
-    // Emit particles at the ship's NEW position (arrival splash)
-    for (let i = 0; i < 15; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const speed = Math.random() * 5 + 2;
-      this.state.particles.push({
-        x: ship.x + (Math.random() - 0.5) * 40,
-        y: ship.y + (Math.random() - 0.5) * 40,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        life: 20 + Math.random() * 15,
-        maxLife: 35,
-        size: Math.random() * 4 + 2,
-        color: '#ffcc44',
-      });
-    }
   }
 
   // ─── NOMAD BOSS FIGHT ────────────────────────────────────────
@@ -11457,35 +11477,70 @@ export class SpaceGame {
       ctx.restore();
     }
 
-    // Whale tail-slap warning text
-    if (this.whaleSlapTextTimer > 0) {
-      const progress = 1 - (this.whaleSlapTextTimer / 180);
-      ctx.save();
+  }
 
-      // Quick fade in, hold, then fade out
-      const fadeIn = Math.min(1, progress * 6);
-      const fadeOut = Math.max(0, 1 - (progress - 0.5) * 2);
-      const alpha = fadeIn * fadeOut;
+  // Steve Irwin popup — rendered ON TOP of everything when you shoot the whale
+  private renderSteveIrwinPopup() {
+    if (this.steveIrwinPopupTimer <= 0 || this.steveIrwinImages.length === 0) return;
 
-      // Shake the text slightly for impact feel
-      const textShake = this.whaleSlapTextTimer > 150 ? (Math.random() - 0.5) * 4 : 0;
+    const img = this.steveIrwinImages[this.steveIrwinImageIndex % this.steveIrwinImages.length];
+    if (!img) return;
 
-      ctx.globalAlpha = alpha * 0.9;
-      ctx.font = '18px Orbitron';
-      ctx.textAlign = 'center';
-      ctx.fillStyle = '#ff6644';
-      ctx.fillText('The Leviathan is not amused.', this.canvas.width / 2 + textShake, this.canvas.height * 0.25);
+    const ctx = this.ctx;
+    const totalFrames = 180;
+    const progress = 1 - (this.steveIrwinPopupTimer / totalFrames);
 
-      if (progress > 0.1 && progress < 0.7) {
-        ctx.globalAlpha = alpha * 0.5;
-        ctx.font = '12px "Space Grotesk"';
-        ctx.fillStyle = '#ffaa88';
-        ctx.fillText('Don\'t shoot the whale.', this.canvas.width / 2, this.canvas.height * 0.25 + 26);
-      }
+    ctx.save();
 
-      ctx.globalAlpha = 1;
-      ctx.restore();
+    // Simple fade: quick in, hold, quick out — single clean transition
+    let alpha: number;
+    if (progress < 0.08) {
+      alpha = progress / 0.08; // Fade in over first 8%
+    } else if (progress > 0.85) {
+      alpha = (1 - progress) / 0.15; // Fade out over last 15%
+    } else {
+      alpha = 1; // Fully visible in between
     }
+
+    // Window dimensions — compact card style matching game UI
+    const padding = 12;
+    const imgSize = 280;
+    const aspect = img.width / img.height;
+    const imgW = aspect > 1 ? imgSize : imgSize * aspect;
+    const imgH = aspect > 1 ? imgSize / aspect : imgSize;
+    const boxW = imgW + padding * 2;
+    const boxH = imgH + padding * 2;
+    const boxX = (this.canvas.width - boxW) / 2;
+    const boxY = (this.canvas.height - boxH) / 2;
+
+    // Entrance slide: slight upward drift
+    const slideY = progress < 0.1 ? (1 - progress / 0.1) * 15 : 0;
+
+    ctx.globalAlpha = alpha;
+
+    // Window background
+    ctx.fillStyle = 'rgba(10, 10, 20, 0.95)';
+    ctx.beginPath();
+    ctx.roundRect(boxX, boxY + slideY, boxW, boxH, 12);
+    ctx.fill();
+
+    // Border glow (whale-blue)
+    ctx.strokeStyle = '#64c8ff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Clip image to rounded rect
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(boxX + padding, boxY + padding + slideY, imgW, imgH, 6);
+    ctx.clip();
+
+    // Draw Steve Irwin image
+    ctx.drawImage(img, boxX + padding, boxY + padding + slideY, imgW, imgH);
+    ctx.restore();
+
+    ctx.globalAlpha = 1;
+    ctx.restore();
   }
 
   // =============================================
