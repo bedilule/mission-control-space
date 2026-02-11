@@ -1570,6 +1570,11 @@ export class SpaceGame {
     this.state.completedCount = 0;
   }
 
+  // Remove specific planets by ID (used by nuke to remove destroyed planets)
+  public removePlanetsById(ids: Set<string>) {
+    this.state.planets = this.state.planets.filter(p => !ids.has(p.id));
+  }
+
   public upgradeShip() {
     this.shipLevel = Math.min(10, this.shipLevel + 1);
   }

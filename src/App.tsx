@@ -2488,25 +2488,50 @@ function App() {
     markSeenRef.current = markNotionPlanetSeen;
   }, [markNotionPlanetSeen]);
 
-  // Nuke complete: clear all completed planets
+  // Nuke complete: destroy all completed Notion planets (same as destroy cannon flow)
   const handleNukeComplete = useCallback(async () => {
-    console.log('[Nuke] Detonation complete — clearing all completed planets');
-    try {
-      // Reset in Supabase
-      if (team?.id) {
-        await supabase
-          .from('teams')
-          .update({ completed_planets: [] })
-          .eq('id', team.id);
-      }
-      // Reset local state
-      setState(prev => ({ ...prev, completedPlanets: [] }));
-      // Reset in game engine
-      gameRef.current?.resetCompletedPlanets();
-    } catch (err) {
-      console.error('[Nuke] Failed to clear completed planets:', err);
+    const currentUser = state.currentUser?.toLowerCase();
+    if (!currentUser) return;
+
+    // Find all completed Notion planets belonging to the current user
+    const completedNotionPlanets = notionPlanetsRef.current.filter(p =>
+      p.completed && p.id.startsWith('notion-') && p.ownerId?.toLowerCase() === currentUser
+    );
+
+    if (completedNotionPlanets.length === 0) {
+      console.log('[Nuke] No completed planets to destroy');
+      return;
     }
-  }, [team?.id]);
+
+    console.log(`[Nuke] Destroying ${completedNotionPlanets.length} completed planets`);
+
+    // Remove planets from game engine immediately (visual)
+    const destroyedIds = new Set(completedNotionPlanets.map(p => p.id));
+    gameRef.current?.removePlanetsById(destroyedIds);
+
+    // Remove from completedPlanets list
+    setState(prev => ({
+      ...prev,
+      completedPlanets: prev.completedPlanets.filter(id => !destroyedIds.has(id) && !destroyedIds.has(`notion-${id}`)),
+    }));
+
+    // Destroy each planet via the edge function (same as handleDestroyPlanet)
+    for (const planet of completedNotionPlanets) {
+      const actualId = planet.id.replace('notion-', '');
+      try {
+        const { data, error } = await supabase.functions.invoke('notion-update-status', {
+          body: { planet_id: actualId, action: 'destroy' },
+        });
+        if (error) {
+          console.error(`[Nuke] Failed to destroy planet ${actualId}:`, error);
+        } else {
+          console.log(`[Nuke] Destroyed planet: ${data?.planet_name}`);
+        }
+      } catch (err) {
+        console.error(`[Nuke] Error destroying planet ${actualId}:`, err);
+      }
+    }
+  }, [state.currentUser]);
 
   useEffect(() => {
     nukeCompleteRef.current = handleNukeComplete;
