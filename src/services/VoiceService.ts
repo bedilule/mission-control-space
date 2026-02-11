@@ -106,6 +106,14 @@ const NOMAD_TAUNT_LINES = [
   'Don\'t worry amigo, everyone loses to the Nomad!',
 ];
 
+const NOMAD_VICTORY_LINES = [
+  'Alright alright, you got me fair and square, gringo! Take my stuff!',
+  'Ay caramba! Nobody has beaten the Nomad in years! Here, you earned this, amigo!',
+  'Okay okay, I surrender, hermano! Don\'t tell anyone about this!',
+  'You fight like a crazy man, loco! The Nomad respects that. Take this gift!',
+  'Fine, you win! But next time, I\'m bringing my cousin! He\'s bigger than me!',
+];
+
 class VoiceService {
   private speaking = false;
   private enabled = true;
@@ -479,6 +487,19 @@ class VoiceService {
       await this.tts(line, ELEVENLABS_NOMAD_VOICE);
     } catch (e) {
       console.error('[Voice] Nomad taunt failed:', e);
+    }
+  }
+
+  /** Nomad says a funny line after surrendering (player wins) */
+  async playNomadVictoryLine(): Promise<void> {
+    if (!this.enabled || this.speaking) return;
+
+    const line = NOMAD_VICTORY_LINES[Math.floor(Math.random() * NOMAD_VICTORY_LINES.length)];
+    console.log(`[Voice] Nomad victory line: "${line}"`);
+    try {
+      await this.tts(line, ELEVENLABS_NOMAD_VOICE);
+    } catch (e) {
+      console.error('[Voice] Nomad victory line failed:', e);
     }
   }
 

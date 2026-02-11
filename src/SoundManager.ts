@@ -690,6 +690,30 @@ export class SoundManager {
     }
   }
 
+  // Nomad loot crate sounds
+  public playLootCrateCollect() {
+    if (!this.initialized || !this.prefs.sfxEnabled) return;
+    // Sparkle burst when picking up the crate
+    this.play('sparkle');
+    // Layered power-up chime
+    setTimeout(() => this.play('powerUp'), 150);
+  }
+
+  public playLootCrateOpen() {
+    if (!this.initialized || !this.prefs.sfxEnabled) return;
+    // Docking chime repurposed as "chest open" reveal
+    this.play('docking');
+    setTimeout(() => this.play('sparkle'), 200);
+  }
+
+  public playLootCrateReward() {
+    if (!this.initialized || !this.prefs.sfxEnabled) return;
+    // Ship upgrade fanfare for reward collection
+    this.play('shipUpgrade');
+    setTimeout(() => this.play('sparkle'), 100);
+    setTimeout(() => this.play('powerUp'), 300);
+  }
+
   // Impact sounds
   public playCollision() {
     this.play('collision');

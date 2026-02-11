@@ -562,15 +562,23 @@ export class SpaceGame {
     playerDamageFlashTimer: number;
     contactDamageCooldown: number;
     deathMessage: string;
+    surrendered: boolean;
+    surrenderTimer: number;
+    surrenderMessage: string;
+    lootCrate: { x: number; y: number; spawnTimer: number; bobTimer: number; glowPulse: number; collected: boolean } | null;
+    nearCrate: boolean;
+    hardMode: boolean;
   } | null = null;
   private nomadProjectiles: { x: number; y: number; vx: number; vy: number; life: number; maxLife: number; damage: number; size: number; color: string }[] = [];
   private nomadFightCooldown: number = 0;
   private onNomadBossVictory: (() => void) | null = null;
+  private onNomadLootCollected: (() => void) | null = null;
   private onNomadFightStart: (() => void) | null = null;
   private onNomadHit: (() => void) | null = null;
   private onNomadFightEnd: (() => void) | null = null;
   private onNomadDefeatTaunt: (() => void) | null = null;
   private nomadVictoryText: { text: string; x: number; y: number; timer: number } | null = null;
+  private nomadSurrenderText: { text: string; x: number; y: number; timer: number } | null = null;
 
   // Companions (purchasable from The Hatchery)
   private companions: Companion[] = [];
@@ -1347,6 +1355,7 @@ export class SpaceGame {
     onHornActivate?: () => void;
     onEmoteActivate?: () => void;
     onNomadBossVictory?: () => void;
+    onNomadLootCollected?: () => void;
     onNomadFightStart?: () => void;
     onNomadHit?: () => void;
     onNomadFightEnd?: () => void;
@@ -1372,6 +1381,7 @@ export class SpaceGame {
     this.onHornActivate = callbacks.onHornActivate || null;
     this.onEmoteActivate = callbacks.onEmoteActivate || null;
     this.onNomadBossVictory = callbacks.onNomadBossVictory || null;
+    this.onNomadLootCollected = callbacks.onNomadLootCollected || null;
     this.onNomadFightStart = callbacks.onNomadFightStart || null;
     this.onNomadHit = callbacks.onNomadHit || null;
     this.onNomadFightEnd = callbacks.onNomadFightEnd || null;
@@ -4460,7 +4470,7 @@ export class SpaceGame {
       }
 
       // Check collision with Neon Nomad (boss fight!)
-      if (!bulletRemoved && this.checkNomadProjectileHit(p.x, p.y)) {
+      if (!bulletRemoved && this.checkNomadProjectileHit(p.x, p.y, p.damage)) {
         this.projectiles.splice(i, 1);
         bulletRemoved = true;
       }
@@ -4886,7 +4896,7 @@ export class SpaceGame {
       }
 
       // Check collision with Neon Nomad (boss fight!)
-      if (!removed && this.checkNomadProjectileHit(p.x, p.y)) {
+      if (!removed && this.checkNomadProjectileHit(p.x, p.y, p.damage)) {
         this.emitPlasmaExplosion(p.x, p.y);
         this.plasmaProjectiles.splice(i, 1);
         removed = true;
@@ -5134,7 +5144,7 @@ export class SpaceGame {
       }
 
       // Check collision with Neon Nomad (boss fight!)
-      if (!removed && this.checkNomadProjectileHit(r.x, r.y)) {
+      if (!removed && this.checkNomadProjectileHit(r.x, r.y, r.damage)) {
         this.emitRocketExplosion(r.x, r.y);
         this.rockets.splice(i, 1);
         removed = true;
@@ -7379,6 +7389,7 @@ export class SpaceGame {
 
     // Draw Neon Nomad (roaming merchant, behind planets)
     this.renderNeonNomad();
+    this.renderNomadLootCrate();
 
     // Draw The Hatchery (companion merchant, behind planets)
     this.renderHatchery();
@@ -10587,7 +10598,7 @@ export class SpaceGame {
 
   // ─── NOMAD BOSS FIGHT ────────────────────────────────────────
 
-  private checkNomadProjectileHit(px: number, py: number): boolean {
+  private checkNomadProjectileHit(px: number, py: number, damage: number = 15): boolean {
     if (this.nomadFightCooldown > 0) return false;
     const dx = px - this.neonNomad.x;
     const dy = py - this.neonNomad.y;
@@ -10596,8 +10607,13 @@ export class SpaceGame {
 
     if (dist < hitRadius) {
       if (this.nomadFight?.active) {
+        // If already surrendered, keep HP at 1 and ignore further damage
+        if (this.nomadFight.surrendered) {
+          this.nomadFight.nomadHP = 1;
+          return true;
+        }
+
         // Deal damage to nomad during fight
-        const damage = 15;
         this.nomadFight.nomadHP -= damage;
         this.nomadFight.damageFlashTimer = 8;
         this.screenShake = { intensity: 4, timer: 6 };
@@ -10619,8 +10635,10 @@ export class SpaceGame {
           });
         }
 
-        if (this.nomadFight.nomadHP <= 0) {
-          this.triggerNomadVictory();
+        // Clamp at 1 HP and surrender instead of dying
+        if (this.nomadFight.nomadHP <= 1) {
+          this.nomadFight.nomadHP = 1;
+          this.triggerNomadSurrender();
         }
       } else {
         // Start fight
@@ -10636,18 +10654,20 @@ export class SpaceGame {
   }
 
   private startNomadFight() {
+    // Hard mode activates after first victory (nomad_slayer achievement unlocked)
+    const isHard = this.unlockedAchievements.has('nomad_slayer');
     this.nomadFight = {
       active: true,
-      nomadHP: 2000,
+      nomadHP: isHard ? 4000 : 2000,
       playerHP: this.getPlayerMaxHP(),
-      attackTimer: 90, // brief grace period
+      attackTimer: isHard ? 50 : 90, // shorter grace period in hard mode
       patternIndex: -1,
       spiralAngle: 0,
       phaseTimer: 0,
       nomadVx: 0,
       nomadVy: 0,
       enraged: false,
-      introTimer: 120, // 2 sec cinematic pause
+      introTimer: isHard ? 60 : 120, // shorter intro in hard mode
       defeatTimer: 0,
       victoryTimer: 0,
       strafeTimer: 0,
@@ -10657,6 +10677,12 @@ export class SpaceGame {
       playerDamageFlashTimer: 0,
       contactDamageCooldown: 0,
       deathMessage: '',
+      surrendered: false,
+      surrenderTimer: 0,
+      surrenderMessage: '',
+      lootCrate: null,
+      nearCrate: false,
+      hardMode: isHard,
     };
     this.nomadProjectiles = [];
     // Play boss theme immediately and trigger intro voice
@@ -10718,8 +10744,25 @@ export class SpaceGame {
       return;
     }
 
-    // Check enrage (30% of 2000 = 600)
-    fight.enraged = fight.nomadHP <= 600;
+    // ── Surrender phase: nomad stops attacking, drops loot crate ──
+    if (fight.surrendered) {
+      // Count down surrender timer, then spawn crate
+      if (fight.surrenderTimer > 0) {
+        fight.surrenderTimer -= this.dt;
+        if (fight.surrenderTimer <= 0 && !fight.lootCrate) {
+          this.spawnNomadLootCrate();
+        }
+      }
+      // Update loot crate (bobbing, proximity, collection)
+      if (fight.lootCrate && !fight.lootCrate.collected) {
+        this.updateNomadLootCrate();
+      }
+      return; // Skip all chase/attack logic
+    }
+
+    // Check enrage (30% of max HP)
+    const maxHP = fight.hardMode ? 4000 : 2000;
+    fight.enraged = fight.nomadHP <= maxHP * 0.3;
 
     // ── Movement: chase player (shortest path across world wrap) ──
     let dx = ship.x - nomad.x;
@@ -10738,12 +10781,15 @@ export class SpaceGame {
     while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
     nomad.rotation += angleDiff * 0.04 * this.dt;
 
-    const chaseSpeed = fight.enraged ? 13 : 10.5;
+    // Hard mode: significantly faster movement
+    const baseChase = fight.hardMode ? 14 : 10.5;
+    const enragedChase = fight.hardMode ? 18 : 13;
+    const chaseSpeed = fight.enraged ? enragedChase : baseChase;
 
-    // Strafe logic: perpendicular dash every 180 frames
+    // Strafe logic: perpendicular dash every 180 frames (more frequent in hard mode)
     fight.strafeTimer -= this.dt;
     if (fight.strafeTimer <= 0) {
-      fight.strafeTimer = 150 + Math.random() * 60;
+      fight.strafeTimer = fight.hardMode ? 90 + Math.random() * 40 : 150 + Math.random() * 60;
       fight.strafeDir = Math.random() < 0.5 ? 1 : -1;
     }
     const strafing = fight.strafeTimer > 120; // strafe for first 30 frames of cycle
@@ -10769,8 +10815,8 @@ export class SpaceGame {
     if (fight.contactDamageCooldown > 0) fight.contactDamageCooldown -= this.dt;
     const contactRadius = SpaceGame.NOMAD_RENDER_SIZE / 2 + 15;
     if (dist < contactRadius && fight.contactDamageCooldown <= 0) {
-      fight.playerHP -= 12;
-      fight.contactDamageCooldown = 30; // ~0.5s cooldown
+      fight.playerHP -= fight.hardMode ? 20 : 12;
+      fight.contactDamageCooldown = fight.hardMode ? 20 : 30; // faster ram cycle in hard mode
       fight.playerDamageFlashTimer = 6;
       this.screenShake = { intensity: 10, timer: 10 };
       soundManager.playCollision();
@@ -10813,13 +10859,18 @@ export class SpaceGame {
       fight.phaseTimer = 0;
       fight.spiralAngle = 0;
 
-      const baseCooldown = fight.enraged ? 70 : 110;
-      fight.attackTimer = baseCooldown + Math.random() * 30;
+      // Hard mode: much shorter cooldowns between attack patterns
+      const baseCooldown = fight.hardMode
+        ? (fight.enraged ? 35 : 60)
+        : (fight.enraged ? 70 : 110);
+      fight.attackTimer = baseCooldown + Math.random() * (fight.hardMode ? 15 : 30);
     }
 
     fight.phaseTimer += this.dt;
     const angleToPlayer = Math.atan2(dy, dx); // uses wrapped dx/dy
-    const bulletSpeedMult = fight.enraged ? 1.3 : 1;
+    // Hard mode: faster bullets across the board
+    const hardMult = fight.hardMode ? 1.3 : 1;
+    const bulletSpeedMult = (fight.enraged ? 1.3 : 1) * hardMult;
 
     // Spawn offset: bullets come from the front of the nomad
     const spawnDist = SpaceGame.NOMAD_RENDER_SIZE / 2;
@@ -10827,68 +10878,88 @@ export class SpaceGame {
     const spawnY = nomad.y + Math.sin(nomad.rotation) * spawnDist;
 
     switch (fight.patternIndex) {
-      case 0: // Burst fire: 5 aimed shots, 8-frame interval
-        if (fight.phaseTimer % 8 < this.dt && fight.phaseTimer < 40) {
+      case 0: { // Burst fire: aimed shots, 8-frame interval (more shots in hard mode)
+        const burstDuration = fight.hardMode ? 64 : 40; // 8 vs 5 shots
+        if (fight.phaseTimer % 8 < this.dt && fight.phaseTimer < burstDuration) {
           const speed = 8 * bulletSpeedMult;
           const spread = (Math.random() - 0.5) * 0.15;
           this.nomadProjectiles.push({
             x: spawnX, y: spawnY,
             vx: Math.cos(angleToPlayer + spread) * speed,
             vy: Math.sin(angleToPlayer + spread) * speed,
-            life: 120, maxLife: 120, damage: 8, size: 4,
+            life: 120, maxLife: 120, damage: fight.hardMode ? 12 : 8, size: 4,
             color: '#ff00ff',
           });
           soundManager.playNomadShoot();
         }
         break;
-      case 1: // Spiral: continuous rotating fire for 60 frames
-        if (fight.phaseTimer < 60 && fight.phaseTimer % 3 < this.dt) {
-          fight.spiralAngle += 0.35;
+      }
+      case 1: { // Spiral: continuous rotating fire (longer + tighter in hard mode)
+        const spiralDuration = fight.hardMode ? 90 : 60;
+        const spiralInterval = fight.hardMode ? 2 : 3;
+        if (fight.phaseTimer < spiralDuration && fight.phaseTimer % spiralInterval < this.dt) {
+          fight.spiralAngle += fight.hardMode ? 0.28 : 0.35;
           const speed = 6 * bulletSpeedMult;
           this.nomadProjectiles.push({
             x: spawnX, y: spawnY,
             vx: Math.cos(fight.spiralAngle) * speed,
             vy: Math.sin(fight.spiralAngle) * speed,
-            life: 100, maxLife: 100, damage: 5, size: 3,
+            life: 100, maxLife: 100, damage: fight.hardMode ? 8 : 5, size: 3,
             color: '#00ffff',
           });
+          // Hard mode: dual spiral (second arm offset by PI)
+          if (fight.hardMode) {
+            this.nomadProjectiles.push({
+              x: spawnX, y: spawnY,
+              vx: Math.cos(fight.spiralAngle + Math.PI) * speed,
+              vy: Math.sin(fight.spiralAngle + Math.PI) * speed,
+              life: 100, maxLife: 100, damage: 8, size: 3,
+              color: '#ff00ff',
+            });
+          }
           soundManager.playNomadShoot();
         }
         break;
-      case 2: // Radial burst: 16 bullets in all directions
+      }
+      case 2: { // Radial burst: bullets in all directions (more bullets in hard mode)
+        const radialCount = fight.hardMode ? 24 : 16;
         if (fight.phaseTimer < 2) {
-          for (let i = 0; i < 16; i++) {
-            const a = (i / 16) * Math.PI * 2;
+          for (let i = 0; i < radialCount; i++) {
+            const a = (i / radialCount) * Math.PI * 2;
             const speed = 7 * bulletSpeedMult;
             this.nomadProjectiles.push({
               x: nomad.x, y: nomad.y,
               vx: Math.cos(a) * speed,
               vy: Math.sin(a) * speed,
-              life: 100, maxLife: 100, damage: 6, size: 4,
+              life: 100, maxLife: 100, damage: fight.hardMode ? 10 : 6, size: 4,
               color: '#ffa500',
             });
           }
           soundManager.playNomadShoot();
         }
         break;
-      case 3: // Spread fan: 7 bullets in 90° arc toward player
+      }
+      case 3: { // Spread fan: bullets in arc toward player (wider + more in hard mode)
+        const fanCount = fight.hardMode ? 11 : 7;
+        const fanArc = fight.hardMode ? Math.PI * 0.6 : Math.PI / 2; // 108° vs 90°
         if (fight.phaseTimer < 2) {
-          for (let i = 0; i < 7; i++) {
-            const fanAngle = angleToPlayer - Math.PI / 4 + (i / 6) * (Math.PI / 2);
+          for (let i = 0; i < fanCount; i++) {
+            const fanAngle = angleToPlayer - fanArc / 2 + (i / (fanCount - 1)) * fanArc;
             const speed = 9 * bulletSpeedMult;
             this.nomadProjectiles.push({
               x: spawnX, y: spawnY,
               vx: Math.cos(fanAngle) * speed,
               vy: Math.sin(fanAngle) * speed,
-              life: 90, maxLife: 90, damage: 7, size: 4,
+              life: 90, maxLife: 90, damage: fight.hardMode ? 10 : 7, size: 4,
               color: '#ff6b9d',
             });
           }
           soundManager.playNomadShoot();
         }
         break;
-      case 4: // Random spray: 20 bullets in random directions over 40 frames
-        if (fight.phaseTimer < 40 && fight.phaseTimer % 2 < this.dt) {
+      }
+      case 4: // Random spray: bullets in random directions (more + faster in hard mode)
+        if (fight.phaseTimer < (fight.hardMode ? 50 : 40) && fight.phaseTimer % 2 < this.dt) {
           const a = Math.random() * Math.PI * 2;
           const speed = (5 + Math.random() * 5) * bulletSpeedMult;
           this.nomadProjectiles.push({
@@ -10896,39 +10967,66 @@ export class SpaceGame {
             vx: Math.cos(a) * speed,
             vy: Math.sin(a) * speed,
             life: 100, maxLife: 100,
-            damage: 4 + Math.floor(Math.random() * 5),
+            damage: fight.hardMode ? 7 + Math.floor(Math.random() * 6) : 4 + Math.floor(Math.random() * 5),
             size: 3 + Math.random() * 2,
             color: Math.random() < 0.5 ? '#ff00ff' : '#00ffff',
           });
+          // Hard mode: double projectile per tick
+          if (fight.hardMode) {
+            const a2 = Math.random() * Math.PI * 2;
+            this.nomadProjectiles.push({
+              x: spawnX, y: spawnY,
+              vx: Math.cos(a2) * speed * 0.8,
+              vy: Math.sin(a2) * speed * 0.8,
+              life: 100, maxLife: 100, damage: 6, size: 3,
+              color: '#ff3333',
+            });
+          }
           soundManager.playNomadShoot();
         }
         break;
-      case 5: // Rockets: 3 homing rockets, 20-frame interval
-        if (fight.phaseTimer % 20 < this.dt && fight.phaseTimer < 60) {
+      case 5: { // Rockets: homing rockets (more + faster in hard mode)
+        const rocketInterval = fight.hardMode ? 14 : 20;
+        const rocketDuration = fight.hardMode ? 84 : 60; // 6 vs 3 rockets
+        if (fight.phaseTimer % rocketInterval < this.dt && fight.phaseTimer < rocketDuration) {
           const speed = 5 * bulletSpeedMult;
           this.nomadProjectiles.push({
             x: spawnX, y: spawnY,
             vx: Math.cos(angleToPlayer) * speed,
             vy: Math.sin(angleToPlayer) * speed,
-            life: 180, maxLife: 180, damage: 15, size: 6,
+            life: fight.hardMode ? 240 : 180, maxLife: fight.hardMode ? 240 : 180,
+            damage: fight.hardMode ? 22 : 15, size: 6,
             color: '#ff6600',
           });
           soundManager.playNomadRocket();
         }
         break;
+      }
     }
 
-    // Enraged: fire extra overlapping pattern
-    if (fight.enraged && fight.phaseTimer % 12 < this.dt) {
+    // Enraged: fire extra overlapping pattern (much more in hard mode)
+    const enrageInterval = fight.hardMode ? 6 : 12;
+    if (fight.enraged && fight.phaseTimer % enrageInterval < this.dt) {
       const a = angleToPlayer + (Math.random() - 0.5) * 0.5;
       const speed = 7 * bulletSpeedMult;
       this.nomadProjectiles.push({
         x: spawnX, y: spawnY,
         vx: Math.cos(a) * speed,
         vy: Math.sin(a) * speed,
-        life: 90, maxLife: 90, damage: 6, size: 3,
+        life: 90, maxLife: 90, damage: fight.hardMode ? 10 : 6, size: 3,
         color: '#ff3333',
       });
+      // Hard mode: second enraged shot at slight offset
+      if (fight.hardMode) {
+        const a2 = angleToPlayer + (Math.random() - 0.5) * 0.8;
+        this.nomadProjectiles.push({
+          x: spawnX, y: spawnY,
+          vx: Math.cos(a2) * speed * 0.9,
+          vy: Math.sin(a2) * speed * 0.9,
+          life: 90, maxLife: 90, damage: 8, size: 3,
+          color: '#ff0066',
+        });
+      }
     }
 
   }
@@ -11035,6 +11133,170 @@ export class SpaceGame {
     'DON\'T SHOOT THE MERCHANT, LOCO',
   ];
 
+  private static readonly NOMAD_SURRENDER_MESSAGES = [
+    'OKAY OKAY, YOU GOT ME... TAKE THIS!',
+    'MERCY! HERE, A GIFT!',
+    'ALRIGHT ESE, YOU WIN THIS ROUND!',
+    'AY CARAMBA, TAKE MY STUFF!',
+    'I YIELD, GRINGO! CHECK THIS OUT!',
+    'FINE FINE, HERE\'S YOUR PRIZE, LOCO!',
+    'YOU\'RE TOUGHER THAN YOU LOOK, AMIGO!',
+    'THE NOMAD KNOWS WHEN HE\'S BEAT!',
+  ];
+
+  private triggerNomadSurrender() {
+    if (!this.nomadFight || this.nomadFight.surrendered) return;
+    const nomad = this.neonNomad;
+
+    this.nomadFight.surrendered = true;
+    this.nomadFight.surrenderTimer = 180; // 3 seconds until crate spawns
+    this.nomadFight.nomadHP = 1;
+
+    // Pick random surrender line
+    const msgs = SpaceGame.NOMAD_SURRENDER_MESSAGES;
+    this.nomadFight.surrenderMessage = msgs[Math.floor(Math.random() * msgs.length)];
+
+    // Show floating surrender text above Nomad
+    this.nomadSurrenderText = {
+      text: this.nomadFight.surrenderMessage,
+      x: nomad.x,
+      y: nomad.y,
+      timer: 240, // 4 seconds visible
+    };
+
+    // Clear all projectiles — nomad stops attacking
+    this.nomadProjectiles = [];
+
+    // Fade boss music
+    soundManager.stopNomadBossTheme(3000);
+  }
+
+  private spawnNomadLootCrate() {
+    if (!this.nomadFight) return;
+    const nomad = this.neonNomad;
+    const { ship } = this.state;
+
+    // Spawn crate 80px from Nomad toward player
+    const dx = ship.x - nomad.x;
+    const dy = ship.y - nomad.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    const crateX = nomad.x + (dx / dist) * 80;
+    const crateY = nomad.y + (dy / dist) * 80;
+
+    this.nomadFight.lootCrate = {
+      x: crateX,
+      y: crateY,
+      spawnTimer: 0,
+      bobTimer: 0,
+      glowPulse: 0,
+      collected: false,
+    };
+
+    // Screen shake on spawn
+    this.screenShake = { intensity: 8, timer: 10 };
+  }
+
+  private updateNomadLootCrate() {
+    if (!this.nomadFight?.lootCrate) return;
+    const crate = this.nomadFight.lootCrate;
+    const { ship } = this.state;
+
+    crate.bobTimer += this.dt;
+    crate.glowPulse += this.dt;
+
+    // Gold sparkle particles around crate
+    if (Math.random() < 0.4) {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 20 + Math.random() * 15;
+      this.state.particles.push({
+        x: crate.x + Math.cos(angle) * radius,
+        y: crate.y + Math.sin(angle) * radius,
+        vx: (Math.random() - 0.5) * 0.5,
+        vy: -Math.random() * 1.5 - 0.5,
+        life: 20 + Math.random() * 15,
+        maxLife: 35,
+        size: Math.random() * 2.5 + 1,
+        color: Math.random() < 0.5 ? '#ffd700' : '#ffaa00',
+      });
+    }
+
+    // Check proximity to player
+    const dx = ship.x - crate.x;
+    const dy = ship.y - crate.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    this.nomadFight.nearCrate = dist < 60;
+
+    // SPACEBAR collection
+    if (this.nomadFight.nearCrate && this.keys.has(' ')) {
+      this.keys.delete(' ');
+      this.collectNomadLootCrate();
+    }
+  }
+
+  private collectNomadLootCrate() {
+    if (!this.nomadFight?.lootCrate) return;
+    const crate = this.nomadFight.lootCrate;
+    crate.collected = true;
+
+    // Crate pickup sound
+    soundManager.playLootCrateCollect();
+
+    // Burst of gold particles
+    for (let i = 0; i < 30; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 6 + 2;
+      this.state.particles.push({
+        x: crate.x,
+        y: crate.y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 25 + Math.random() * 20,
+        maxLife: 45,
+        size: Math.random() * 4 + 2,
+        color: ['#ffd700', '#ffaa00', '#fff700', '#ffffff'][Math.floor(Math.random() * 4)],
+      });
+    }
+
+    // Screen shake
+    this.screenShake = { intensity: 12, timer: 15 };
+
+    // Fire callback to open reward modal in App.tsx
+    this.onNomadLootCollected?.();
+  }
+
+  public endNomadFightAfterLoot() {
+    if (!this.nomadFight) return;
+    const nomad = this.neonNomad;
+
+    // Show "+1000 PTS" floating text
+    this.nomadVictoryText = {
+      text: '+1000 PTS',
+      x: nomad.x,
+      y: nomad.y,
+      timer: 180,
+    };
+
+    // Victory particles
+    const colors = ['#ff00ff', '#00ffff', '#ffa500', '#ffff00', '#4ade80', '#ff6b9d', '#8b5cf6'];
+    for (let i = 0; i < 40; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 6 + 2;
+      this.state.particles.push({
+        x: nomad.x + (Math.random() - 0.5) * 40,
+        y: nomad.y + (Math.random() - 0.5) * 40,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 30 + Math.random() * 25,
+        maxLife: 55,
+        size: Math.random() * 5 + 2,
+        color: colors[Math.floor(Math.random() * colors.length)],
+      });
+    }
+
+    // Normal cleanup
+    this.endNomadFight(true);
+  }
+
   private triggerNomadDefeat() {
     if (!this.nomadFight) return;
     const { ship } = this.state;
@@ -11095,46 +11357,12 @@ export class SpaceGame {
     soundManager.stopNomadBossTheme(5000);
   }
 
+  // Legacy method — no longer called directly (surrender flow replaces instant victory)
+  // Kept for reference; rewards now handled via loot crate → modal flow
   private triggerNomadVictory() {
     if (!this.nomadFight) return;
-    const nomad = this.neonNomad;
-
-    this.nomadFight.victoryTimer = 240; // 4 sec celebration
-    this.nomadFight.nomadHP = 0;
-
-    // Massive neon explosion
-    const colors = ['#ff00ff', '#00ffff', '#ffa500', '#ffff00', '#4ade80', '#ff6b9d', '#8b5cf6'];
-    for (let i = 0; i < 60; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const speed = Math.random() * 8 + 3;
-      this.state.particles.push({
-        x: nomad.x + (Math.random() - 0.5) * 40,
-        y: nomad.y + (Math.random() - 0.5) * 40,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        life: 35 + Math.random() * 30,
-        maxLife: 65,
-        size: Math.random() * 6 + 2,
-        color: colors[Math.floor(Math.random() * colors.length)],
-      });
-    }
-
-    // Floating "+1000 PTS" text
-    this.nomadVictoryText = {
-      text: '+1000 PTS',
-      x: nomad.x,
-      y: nomad.y,
-      timer: 180,
-    };
-
-    // Screen shake
-    this.screenShake = { intensity: 20, timer: 25 };
-
-    // Fire callback for points
-    this.onNomadBossVictory?.();
-
-    // Achievement
-    this.tryUnlockAchievement('nomad_slayer');
+    // Redirect to surrender flow
+    this.triggerNomadSurrender();
   }
 
   private endNomadFight(victory: boolean) {
@@ -11242,11 +11470,15 @@ export class SpaceGame {
     ctx.font = 'bold 10px Orbitron';
     ctx.textAlign = 'center';
     ctx.fillStyle = '#ffa500';
-    ctx.fillText(fight.enraged ? '!! ENRAGED !!' : 'FIGHT!', w / 2, panelY + 12);
+    const hudLabel = fight.surrendered ? 'SURRENDERED!'
+      : fight.enraged ? (fight.hardMode ? '!! FURIOUS !!' : '!! ENRAGED !!')
+      : (fight.hardMode ? 'REMATCH!' : 'FIGHT!');
+    ctx.fillText(hudLabel, w / 2, panelY + 12);
 
     // ── Nomad HP bar (LEFT side, fills left→right) ──
     const nomadBarX = (w - centerGap) / 2 - barW;
-    const hpRatio = Math.max(0, fight.nomadHP / 2000);
+    const nomadMaxHP = fight.hardMode ? 4000 : 2000;
+    const hpRatio = Math.max(0, fight.nomadHP / nomadMaxHP);
 
     // Name label
     ctx.font = 'bold 11px Orbitron';
@@ -11278,7 +11510,7 @@ export class SpaceGame {
     ctx.font = 'bold 9px Orbitron';
     ctx.textAlign = 'center';
     ctx.fillStyle = '#fff';
-    ctx.fillText(`${Math.max(0, Math.ceil(fight.nomadHP))} / 2000`, nomadBarX + barW / 2, hudY + barH / 2 + 3);
+    ctx.fillText(`${Math.max(0, Math.ceil(fight.nomadHP))} / ${nomadMaxHP}`, nomadBarX + barW / 2, hudY + barH / 2 + 3);
 
     // Enrage pulsing border
     if (fight.enraged) {
@@ -11405,6 +11637,35 @@ export class SpaceGame {
 
         ctx.globalAlpha = 1;
       }
+    }
+
+    // ── Surrender floating text ──
+    if (this.nomadSurrenderText && this.nomadSurrenderText.timer > 0) {
+      this.nomadSurrenderText.timer -= this.dt;
+      const st = this.nomadSurrenderText;
+      const nomad = this.neonNomad;
+      // Track nomad position (follow him)
+      st.x = nomad.x;
+      st.y = nomad.y;
+      const progress = 1 - st.timer / 240;
+      const fadeIn = Math.min(1, progress * 6);
+      const fadeOut = Math.max(0, 1 - (progress - 0.7) * 3.3);
+      const sx = st.x - this.state.camera.x;
+      const sy = st.y - this.state.camera.y - SpaceGame.NOMAD_RENDER_SIZE / 2 - 30;
+
+      ctx.globalAlpha = fadeIn * fadeOut;
+      // Auto-size font based on message length
+      const fontSize = st.text.length > 30 ? 14 : st.text.length > 20 ? 16 : 18;
+      ctx.font = `bold ${fontSize}px Orbitron`;
+      ctx.textAlign = 'center';
+      ctx.shadowColor = '#ffa500';
+      ctx.shadowBlur = 10;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(st.text, sx, sy);
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1;
+
+      if (st.timer <= 0) this.nomadSurrenderText = null;
     }
 
     // ── Victory floating text ──
@@ -11754,6 +12015,81 @@ export class SpaceGame {
     }
   }
 
+  private renderNomadLootCrate() {
+    if (!this.nomadFight?.lootCrate || this.nomadFight.lootCrate.collected) return;
+    const crate = this.nomadFight.lootCrate;
+    const { camera } = this.state;
+    const ctx = this.ctx;
+
+    const sx = crate.x - camera.x;
+    const sy = crate.y - camera.y;
+
+    // Off-screen check
+    if (sx < -100 || sx > this.canvas.width + 100 || sy < -100 || sy > this.canvas.height + 100) return;
+
+    ctx.save();
+
+    // Bob up and down
+    const bob = Math.sin(crate.bobTimer * 0.08) * 5;
+    // Glow pulse
+    const glow = 0.5 + 0.5 * Math.sin(crate.glowPulse * 0.06);
+
+    // Gold outer glow
+    const glowGrad = ctx.createRadialGradient(sx, sy + bob, 5, sx, sy + bob, 40);
+    glowGrad.addColorStop(0, `rgba(255, 215, 0, ${0.4 * glow})`);
+    glowGrad.addColorStop(0.6, `rgba(255, 170, 0, ${0.15 * glow})`);
+    glowGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = glowGrad;
+    ctx.beginPath();
+    ctx.arc(sx, sy + bob, 40, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Crate body (box shape)
+    const crateSize = 24;
+    const cx = sx - crateSize / 2;
+    const cy = sy + bob - crateSize / 2;
+
+    // Main box
+    ctx.fillStyle = '#8B6914';
+    ctx.fillRect(cx, cy, crateSize, crateSize);
+
+    // Gold border
+    ctx.strokeStyle = '#ffd700';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(cx, cy, crateSize, crateSize);
+
+    // Cross straps
+    ctx.strokeStyle = '#ffd700';
+    ctx.lineWidth = 2;
+    // Horizontal strap
+    ctx.beginPath();
+    ctx.moveTo(cx, sy + bob);
+    ctx.lineTo(cx + crateSize, sy + bob);
+    ctx.stroke();
+    // Vertical strap
+    ctx.beginPath();
+    ctx.moveTo(sx, cy);
+    ctx.lineTo(sx, cy + crateSize);
+    ctx.stroke();
+
+    // Shine highlight
+    ctx.fillStyle = `rgba(255, 255, 200, ${0.3 + glow * 0.2})`;
+    ctx.fillRect(cx + 2, cy + 2, crateSize / 3, crateSize / 3);
+
+    // "[ SPACE ]" prompt when near
+    if (this.nomadFight.nearCrate) {
+      ctx.font = 'bold 12px Space Grotesk';
+      ctx.textAlign = 'center';
+      ctx.shadowColor = '#ffd700';
+      ctx.shadowBlur = 6;
+      ctx.fillStyle = '#ffd700';
+      ctx.fillText('[ SPACE ]', sx, sy + bob + crateSize / 2 + 22);
+      ctx.shadowBlur = 0;
+    }
+
+    ctx.restore();
+  }
+
   private renderNeonNomad() {
     const { camera } = this.state;
     const ctx = this.ctx;
@@ -11809,8 +12145,12 @@ export class SpaceGame {
     const now = Date.now();
     const beatBPM = 40; // slow lowrider bounce
     const beatPhase = (now / 1000) * (beatBPM / 60) * Math.PI * 2;
-    const bounce = this.nomadFight?.active ? 0 : Math.abs(Math.sin(beatPhase)) * 4; // no bounce during fight
-    const tilt = this.nomadFight?.active ? 0 : Math.sin(beatPhase * 0.5) * 0.04;
+    const isSurrendered = this.nomadFight?.surrendered;
+    // Surrendered: slow droopy bob; fighting: no bounce; idle: full lowrider bounce
+    const bounce = isSurrendered ? Math.abs(Math.sin(beatPhase * 0.3)) * 2
+      : this.nomadFight?.active ? 0 : Math.abs(Math.sin(beatPhase)) * 4;
+    const tilt = isSurrendered ? Math.sin(beatPhase * 0.2) * 0.06
+      : this.nomadFight?.active ? 0 : Math.sin(beatPhase * 0.5) * 0.04;
     const scaleBreath = this.nomadFight?.active ? 1 : 1 + Math.abs(Math.sin(beatPhase)) * 0.03;
 
     ctx.translate(sx, sy - bounce);

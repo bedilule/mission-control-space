@@ -627,6 +627,7 @@ function App() {
   const [showShop, setShowShop] = useState(false);
   const [showNomadShop, setShowNomadShop] = useState(false);
   const [showHatcheryShop, setShowHatcheryShop] = useState(false);
+  const [showNomadRewardModal, setShowNomadRewardModal] = useState(false);
   const [nomadShopTab, setNomadShopTab] = useState<'horns' | 'emotes'>('horns');
   const [showControlHub, setShowControlHub] = useState(false);
   const [shopTab, setShopTab] = useState<'stats' | 'cosmetics' | 'weapons' | 'utility'>('stats');
@@ -2511,37 +2512,50 @@ function App() {
     nukeCompleteRef.current = handleNukeComplete;
   }, [handleNukeComplete]);
 
-  // Nomad boss victory: award +1000 personal points + Mini Nomad egg
-  const handleNomadBossVictory = useCallback(async () => {
-    console.log('[NomadBoss] Victory! Awarding +1000 points + Nomad egg');
+  // Nomad boss loot crate collected: open reward modal
+  const handleNomadRewardCollect = useCallback(async () => {
+    console.log('[NomadBoss] Loot collected! Awarding +1000 points + Nomad egg + achievement');
+    setShowNomadRewardModal(false);
+
+    // Reward collection sound
+    soundManager.playLootCrateReward();
+
+    // Award 1000 points
     await updateRemotePersonalPoints(1000, 'Defeated the Neon Nomad');
 
     // Award Mini Nomad egg (boss drop — free!)
-    if (!state.currentUser) return;
-    const userId = state.currentUser;
-    const currentShip = getCurrentUserShip();
-    const currentEffects = getEffectsWithDefaults(currentShip.effects);
+    if (state.currentUser) {
+      const userId = state.currentUser;
+      const currentShip = getCurrentUserShip();
+      const currentEffects = getEffectsWithDefaults(currentShip.effects);
 
-    // Skip if already owned or already incubating
-    if (currentEffects.ownedCompanions.includes('mini_nomad')) return;
-    if (currentEffects.companionEggs.some(e => e.companionId === 'mini_nomad')) return;
+      // Skip egg if already owned or already incubating
+      if (!currentEffects.ownedCompanions.includes('mini_nomad') &&
+          !currentEffects.companionEggs.some(e => e.companionId === 'mini_nomad')) {
+        const newEgg: CompanionEgg = {
+          companionId: 'mini_nomad',
+          planetsNeeded: 10,
+          planetsCompleted: 0,
+          purchasedAt: Date.now(),
+        };
+        const newEggs = [...currentEffects.companionEggs, newEgg];
+        const newEffects = { ...currentEffects, companionEggs: newEggs };
+        updateUserShipEffects(userId, currentShip, newEffects);
+        gameRef.current?.setCompanionEggs(newEggs);
+      }
+    }
 
-    const newEgg: CompanionEgg = {
-      companionId: 'mini_nomad',
-      planetsNeeded: 10,
-      planetsCompleted: 0,
-      purchasedAt: Date.now(),
-    };
-    const newEggs = [...currentEffects.companionEggs, newEgg];
-    const newEffects = { ...currentEffects, companionEggs: newEggs };
-    updateUserShipEffects(userId, currentShip, newEffects);
-    gameRef.current?.setCompanionEggs(newEggs);
+    // Unlock nomad_slayer achievement passively
+    achievementHandlerRef.current('nomad_slayer');
+
+    // End the fight with victory particles
+    gameRef.current?.endNomadFightAfterLoot();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [updateRemotePersonalPoints, state.currentUser, getCurrentUserShip]);
 
   useEffect(() => {
-    nomadBossVictoryRef.current = handleNomadBossVictory;
-  }, [handleNomadBossVictory]);
+    nomadBossVictoryRef.current = handleNomadRewardCollect;
+  }, [handleNomadRewardCollect]);
 
   // Stable callback that uses the ref
   const stableOnDock = useCallback((planet: Planet) => {
@@ -3173,11 +3187,18 @@ function App() {
   // Keyboard shortcuts: Escape to close modals, T to open quick task
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // SPACEBAR or Escape to dismiss Nomad reward modal (triggers collect)
+      if (showNomadRewardModal && (e.key === ' ' || e.key === 'Escape')) {
+        e.preventDefault();
+        handleNomadRewardCollect();
+        return;
+      }
+
       // Escape to close modals
       if (e.key === 'Escape' && !isUpgrading) {
         const isGameLanded = gameRef.current?.isPlayerLanded();
         const hasOpenModal = editingGoal || showSettings || showGameSettings || showTerraform ||
-          viewingPlanetOwner || showShop || showNomadShop || showHatcheryShop || showControlHub || showPlanetCreator || landedPlanet || isGameLanded || showQuickTaskModal || showReassignModal || showEditModal || featuredViewPlanet || showAchievements || showTaskSearch || showPlayerHub;
+          viewingPlanetOwner || showShop || showNomadShop || showHatcheryShop || showControlHub || showPlanetCreator || landedPlanet || isGameLanded || showQuickTaskModal || showReassignModal || showEditModal || featuredViewPlanet || showAchievements || showTaskSearch || showPlayerHub || showNomadRewardModal;
 
         if (hasOpenModal) {
           e.preventDefault();
@@ -3202,6 +3223,7 @@ function App() {
           setShowAchievements(false);
           setShowTaskSearch(false);
           setShowPlayerHub(false);
+          setShowNomadRewardModal(false);
           // Also clear SpaceGame's internal landed state
           gameRef.current?.setSuppressLandedPanel(false);
           gameRef.current?.clearLandedState();
@@ -3215,7 +3237,7 @@ function App() {
         const isGameLanded = gameRef.current?.isPlayerLanded();
         const hasOpenModal = editingGoal || showSettings || showGameSettings || showTerraform ||
           viewingPlanetOwner || showShop || showControlHub || showPlanetCreator || landedPlanet || isGameLanded || showQuickTaskModal ||
-          showWelcome || showUserSelect || showLeaderboard || showPointsHistory || showReassignModal || showEditModal || featuredViewPlanet || showAchievements || showTaskSearch;
+          showWelcome || showUserSelect || showLeaderboard || showPointsHistory || showReassignModal || showEditModal || featuredViewPlanet || showAchievements || showTaskSearch || showNomadRewardModal;
 
         if (!isTyping && !hasOpenModal && !isUpgrading) {
           e.preventDefault();
@@ -3230,7 +3252,7 @@ function App() {
         const isGameLanded = gameRef.current?.isPlayerLanded();
         const hasOpenModal = editingGoal || showSettings || showGameSettings || showTerraform ||
           viewingPlanetOwner || showShop || showControlHub || showPlanetCreator || landedPlanet || isGameLanded || showQuickTaskModal ||
-          showWelcome || showUserSelect || showLeaderboard || showPointsHistory || showReassignModal || showEditModal || featuredViewPlanet || showAchievements || showTaskSearch;
+          showWelcome || showUserSelect || showLeaderboard || showPointsHistory || showReassignModal || showEditModal || featuredViewPlanet || showAchievements || showTaskSearch || showNomadRewardModal;
 
         if (!isTyping && !hasOpenModal && !isUpgrading) {
           e.preventDefault();
@@ -3241,7 +3263,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showTerraform, viewingPlanetOwner, showShop, showNomadShop, showHatcheryShop, showControlHub, showPlanetCreator, showSettings, showGameSettings, editingGoal, landedPlanet, isUpgrading, showQuickTaskModal, showWelcome, showUserSelect, showLeaderboard, showPointsHistory, showReassignModal, showEditModal, featuredViewPlanet, showAchievements, showTaskSearch]);
+  }, [showTerraform, viewingPlanetOwner, showShop, showNomadShop, showHatcheryShop, showControlHub, showPlanetCreator, showSettings, showGameSettings, editingGoal, landedPlanet, isUpgrading, showQuickTaskModal, showWelcome, showUserSelect, showLeaderboard, showPointsHistory, showReassignModal, showEditModal, featuredViewPlanet, showAchievements, showTaskSearch, showNomadRewardModal, handleNomadRewardCollect]);
 
   // Buy visual upgrade from shop (AI-generated changes to ship appearance)
   const buyVisualUpgrade = async () => {
@@ -4221,6 +4243,7 @@ function App() {
       onHornActivate: () => landingCallbacksRef.current.onHornActivate(),
       onEmoteActivate: () => landingCallbacksRef.current.onEmoteActivate(),
       onNomadBossVictory: () => nomadBossVictoryRef.current(),
+      onNomadLootCollected: () => { setShowNomadRewardModal(true); soundManager.playLootCrateOpen(); voiceService.playNomadVictoryLine(); },
       onNomadFightStart: () => landingCallbacksRef.current.onNomadFightStart(),
       onNomadHit: () => landingCallbacksRef.current.onNomadHit(),
       onNomadFightEnd: () => landingCallbacksRef.current.onNomadFightEnd(),
@@ -7840,6 +7863,91 @@ function App() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Nomad Loot Reward Modal */}
+      {showNomadRewardModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 10000, backdropFilter: 'blur(4px)',
+        }} onClick={handleNomadRewardCollect}>
+          <div style={{
+            background: 'linear-gradient(180deg, #1a1a2e 0%, #0a0a12 100%)',
+            border: '2px solid #ffd700',
+            borderRadius: 16,
+            padding: '32px 40px',
+            minWidth: 340,
+            maxWidth: 400,
+            textAlign: 'center',
+            boxShadow: '0 0 40px rgba(255,215,0,0.3), 0 0 80px rgba(255,165,0,0.15)',
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{
+              fontFamily: 'Orbitron', fontSize: 24, fontWeight: 700,
+              color: '#ffd700', marginBottom: 24,
+              textShadow: '0 0 12px rgba(255,215,0,0.5)',
+            }}>
+              NOMAD'S LOOT
+            </div>
+
+            {/* Reward rows */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 28 }}>
+              {/* +1000 Points */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 14,
+                background: 'rgba(255,215,0,0.08)', border: '1px solid rgba(255,215,0,0.2)',
+                borderRadius: 10, padding: '12px 16px',
+              }}>
+                <span style={{ fontSize: 28 }}>&#11088;</span>
+                <div style={{ textAlign: 'left' }}>
+                  <div style={{ fontFamily: 'Orbitron', fontSize: 16, fontWeight: 700, color: '#ffd700' }}>
+                    +1,000 Points
+                  </div>
+                  <div style={{ fontSize: 11, color: '#888', fontFamily: 'Space Grotesk' }}>
+                    Victory bonus
+                  </div>
+                </div>
+              </div>
+
+              {/* Mini Nomad Egg */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 14,
+                background: 'rgba(0,255,255,0.06)', border: '1px solid rgba(0,255,255,0.2)',
+                borderRadius: 10, padding: '12px 16px',
+              }}>
+                <span style={{ fontSize: 28 }}>&#128126;</span>
+                <div style={{ textAlign: 'left' }}>
+                  <div style={{ fontFamily: 'Orbitron', fontSize: 16, fontWeight: 700, color: '#00ffff' }}>
+                    Mini Nomad Egg
+                  </div>
+                  <div style={{ fontSize: 11, color: '#888', fontFamily: 'Space Grotesk' }}>
+                    Hatch after 10 planets
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Collect button */}
+            <button
+              onClick={handleNomadRewardCollect}
+              style={{
+                fontFamily: 'Orbitron', fontSize: 14, fontWeight: 700,
+                padding: '12px 32px',
+                background: 'linear-gradient(180deg, #ffd700 0%, #ff8c00 100%)',
+                border: 'none', borderRadius: 8,
+                color: '#000', cursor: 'pointer',
+                boxShadow: '0 0 20px rgba(255,215,0,0.4)',
+                width: '100%',
+              }}
+            >
+              COLLECT
+            </button>
+
+            <div style={{ marginTop: 12, fontSize: 10, color: '#666', fontFamily: 'Space Grotesk' }}>
+              Press SPACE or click to collect
+            </div>
           </div>
         </div>
       )}
