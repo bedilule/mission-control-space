@@ -171,6 +171,8 @@ const COMPANION_ITEMS = [
   { id: 'flame_wisp', name: 'Flame Wisp', icon: '\u{1F525}', cost: 1000, planetsToHatch: 12, glowColor: '#cc2200' },
   { id: 'baby_black_hole', name: 'Baby Black Hole', icon: '\u{1F573}\uFE0F', cost: 1500, planetsToHatch: 15, glowColor: '#ffffff' },
   { id: 'golden_scarab', name: 'Golden Scarab', icon: '\u{1FAB2}', cost: 2000, planetsToHatch: 15, glowColor: '#ccaa00' },
+  // Boss drops (not purchasable — earned from boss fights)
+  { id: 'mini_nomad', name: 'Mini Nomad', icon: '\u{1F47E}', cost: 0, planetsToHatch: 10, glowColor: '#00ffff', isBossDrop: true },
   // Legendaries
   { id: 'cosmic_dragon', name: 'Cosmic Dragon', icon: '\u{1F432}', cost: 5000, planetsToHatch: 25, isLegendary: true, glowColor: '#cc0000' },
   { id: 'phoenix_eternal', name: 'Phoenix Eternal', icon: '\u{1F985}', cost: 7500, planetsToHatch: 35, isLegendary: true, glowColor: '#ff8800' },
@@ -2509,11 +2511,33 @@ function App() {
     nukeCompleteRef.current = handleNukeComplete;
   }, [handleNukeComplete]);
 
-  // Nomad boss victory: award +1000 personal points
+  // Nomad boss victory: award +1000 personal points + Mini Nomad egg
   const handleNomadBossVictory = useCallback(async () => {
-    console.log('[NomadBoss] Victory! Awarding +1000 points');
+    console.log('[NomadBoss] Victory! Awarding +1000 points + Nomad egg');
     await updateRemotePersonalPoints(1000, 'Defeated the Neon Nomad');
-  }, [updateRemotePersonalPoints]);
+
+    // Award Mini Nomad egg (boss drop — free!)
+    if (!state.currentUser) return;
+    const userId = state.currentUser;
+    const currentShip = getCurrentUserShip();
+    const currentEffects = getEffectsWithDefaults(currentShip.effects);
+
+    // Skip if already owned or already incubating
+    if (currentEffects.ownedCompanions.includes('mini_nomad')) return;
+    if (currentEffects.companionEggs.some(e => e.companionId === 'mini_nomad')) return;
+
+    const newEgg: CompanionEgg = {
+      companionId: 'mini_nomad',
+      planetsNeeded: 10,
+      planetsCompleted: 0,
+      purchasedAt: Date.now(),
+    };
+    const newEggs = [...currentEffects.companionEggs, newEgg];
+    const newEffects = { ...currentEffects, companionEggs: newEggs };
+    updateUserShipEffects(userId, currentShip, newEffects);
+    gameRef.current?.setCompanionEggs(newEggs);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [updateRemotePersonalPoints, state.currentUser, getCurrentUserShip]);
 
   useEffect(() => {
     nomadBossVictoryRef.current = handleNomadBossVictory;
@@ -5020,7 +5044,7 @@ function App() {
           isOpen={showQuickTaskModal}
           onClose={() => setShowQuickTaskModal(false)}
           currentUser={state.currentUser || 'unknown'}
-          teamMembers={USERS.map(u => ({
+          teamMembers={USERS.filter(u => !isTestPlayer(u.id) || isTestPlayer(state.currentUser || '')).map(u => ({
             id: u.id,
             name: u.name,
             color: u.color,
@@ -6381,8 +6405,9 @@ function App() {
       {showHatcheryShop && (() => {
         const currentShip = getCurrentUserShip();
         const effects = getEffectsWithDefaults(currentShip.effects);
-        const regularItems = COMPANION_ITEMS.filter(i => !(i as any).isLegendary);
+        const regularItems = COMPANION_ITEMS.filter(i => !(i as any).isLegendary && !(i as any).isBossDrop);
         const legendaryItems = COMPANION_ITEMS.filter(i => (i as any).isLegendary);
+        const bossDropItems = COMPANION_ITEMS.filter(i => (i as any).isBossDrop);
 
         const renderItem = (item: typeof COMPANION_ITEMS[0]) => {
           const owned = effects.ownedCompanions.includes(item.id);
@@ -6390,40 +6415,47 @@ function App() {
           const egg = effects.companionEggs.find(e => e.companionId === item.id);
           const canAfford = personalPoints >= item.cost;
           const isLeg = (item as any).isLegendary;
+          const isBossDrop = (item as any).isBossDrop;
 
           // Three states: egg incubating, hatched/owned, not bought
           const isEgg = !!egg;
+          const isLocked = isBossDrop && !owned && !isEgg;
+          const imgSrc = item.id === 'mini_nomad' ? '/neon-nomad.png' : `/companions/${item.id}.png`;
 
           return (
             <div
               key={item.id}
               onClick={() => {
-                if (isEgg) return; // Egg incubating, not clickable
+                if (isEgg || isLocked) return;
                 buyCompanion(item.id, item.cost, item.planetsToHatch);
               }}
               style={{
                 display: 'flex', alignItems: 'center', gap: '10px',
                 padding: '8px 12px', borderRadius: 8,
-                cursor: isEgg ? 'default' : (!owned && !canAfford ? 'not-allowed' : 'pointer'),
-                background: isEgg
-                  ? 'rgba(255, 200, 50, 0.06)'
+                cursor: isEgg || isLocked ? 'default' : (!owned && !canAfford ? 'not-allowed' : 'pointer'),
+                background: isLocked
+                  ? 'rgba(255, 255, 255, 0.02)'
+                  : isEgg ? 'rgba(255, 200, 50, 0.06)'
                   : equipped ? 'rgba(68, 255, 136, 0.1)'
+                  : isBossDrop ? 'rgba(255, 0, 255, 0.06)'
                   : isLeg ? 'rgba(255, 215, 0, 0.04)' : 'rgba(255,255,255,0.03)',
-                border: isEgg
-                  ? '1px solid rgba(255, 200, 50, 0.3)'
+                border: isLocked
+                  ? '1px solid #222'
+                  : isEgg ? '1px solid rgba(255, 200, 50, 0.3)'
                   : equipped ? '1px solid rgba(68, 255, 136, 0.4)'
+                  : isBossDrop ? '1px solid rgba(255, 0, 255, 0.25)'
                   : isLeg ? '1px solid rgba(255, 215, 0, 0.2)' : '1px solid #222',
-                opacity: !owned && !isEgg && !canAfford ? 0.5 : 1,
+                opacity: isLocked ? 0.4 : (!owned && !isEgg && !isBossDrop && !canAfford ? 0.5 : 1),
                 transition: 'border-color 0.2s',
               }}
             >
               {isEgg ? (
                 <img src="/companions/egg.png" alt="Egg" style={{ width: 28, height: 28, flexShrink: 0, objectFit: 'contain', borderRadius: '50%' }} />
               ) : (
-                <img src={`/companions/${item.id}.png`} alt={item.name} style={{ width: 28, height: 28, flexShrink: 0, objectFit: 'contain', borderRadius: '50%' }} />
+                <img src={imgSrc} alt={item.name} style={{ width: 28, height: 28, flexShrink: 0, objectFit: 'contain', borderRadius: '50%', filter: isLocked ? 'grayscale(1) brightness(0.5)' : undefined }} />
               )}
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column' as const, gap: 2 }}>
-                <span style={{ fontSize: '0.85rem', fontWeight: 500, color: equipped ? '#44ff88' : isEgg ? '#ffcc44' : owned ? '#ccc' : isLeg ? '#ffd700' : '#aaa' }}>{item.name}</span>
+                <span style={{ fontSize: '0.85rem', fontWeight: 500, color: isLocked ? '#555' : equipped ? '#44ff88' : isEgg ? '#ffcc44' : owned ? '#ccc' : isBossDrop ? '#ff00ff' : isLeg ? '#ffd700' : '#aaa' }}>{item.name}</span>
                 {isEgg && egg && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <div style={{ flex: 1, height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 2, overflow: 'hidden' }}>
@@ -6435,12 +6467,14 @@ function App() {
               </div>
               <span style={{
                 fontSize: '0.75rem', fontWeight: 600, whiteSpace: 'nowrap',
-                color: isEgg ? '#ffcc44'
+                color: isLocked ? '#444'
+                  : isEgg ? '#ffcc44'
                   : equipped ? '#44ff88'
                   : owned ? '#888'
                   : canAfford ? (isLeg ? '#ffd700' : '#ffd700') : '#555',
               }}>
-                {isEgg ? `\u{1F95A} ${egg!.planetsCompleted}/${egg!.planetsNeeded}`
+                {isLocked ? '\u{1F512} DEFEAT THE NOMAD'
+                  : isEgg ? `\u{1F95A} ${egg!.planetsCompleted}/${egg!.planetsNeeded}`
                   : equipped ? 'ACTIVE'
                   : owned ? 'EQUIP'
                   : `${item.cost.toLocaleString()} \u2B50 (${item.planetsToHatch}\u{1FA90})`}
@@ -6466,6 +6500,14 @@ function App() {
                   <div style={{ flex: 1, height: 1, background: 'linear-gradient(90deg, transparent, #ffd700, transparent)' }} />
                 </div>
                 {legendaryItems.map(renderItem)}
+
+                {/* Boss drops divider */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '8px 0 4px', padding: '0 4px' }}>
+                  <div style={{ flex: 1, height: 1, background: 'linear-gradient(90deg, transparent, #ff00ff, transparent)' }} />
+                  <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#ff00ff', letterSpacing: 2, fontFamily: 'Orbitron, sans-serif' }}>BOSS DROPS</span>
+                  <div style={{ flex: 1, height: 1, background: 'linear-gradient(90deg, transparent, #ff00ff, transparent)' }} />
+                </div>
+                {bossDropItems.map(renderItem)}
               </div>
 
               <button style={{ ...styles.cancelButton, width: '100%', marginTop: '0.75rem' }} onClick={() => { setShowHatcheryShop(false); gameRef.current?.clearLandedState(); }}>

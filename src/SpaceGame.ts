@@ -112,6 +112,8 @@ const COMPANION_DEFS: CompanionDef[] = [
   { id: 'flame_wisp', name: 'Flame Wisp', color: '#ff4422', glowColor: '#cc2200', size: 9, cost: 1000, icon: '\u{1F525}', planetsToHatch: 12 },
   { id: 'baby_black_hole', name: 'Baby Black Hole', color: '#222233', glowColor: '#ffffff', size: 12, cost: 1500, icon: '\u{1F573}\uFE0F', planetsToHatch: 15 },
   { id: 'golden_scarab', name: 'Golden Scarab', color: '#ffd700', glowColor: '#ccaa00', size: 11, cost: 2000, icon: '\u{1FAB2}', planetsToHatch: 15 },
+  // Boss drops
+  { id: 'mini_nomad', name: 'Mini Nomad', color: '#ff00ff', glowColor: '#00ffff', size: 14, cost: 0, icon: '\u{1F47E}', planetsToHatch: 10 },
   // Legendaries — massive companions (3x ship size)
   { id: 'cosmic_dragon', name: 'Cosmic Dragon', color: '#ff2222', glowColor: '#cc0000', size: 42, cost: 5000, icon: '\u{1F432}', planetsToHatch: 25, isLegendary: true },
   { id: 'phoenix_eternal', name: 'Phoenix Eternal', color: '#ffaa00', glowColor: '#ff8800', size: 40, cost: 7500, icon: '\u{1F985}', planetsToHatch: 35, isLegendary: true },
@@ -821,7 +823,7 @@ export class SpaceGame {
     for (const def of COMPANION_DEFS) {
       const img = new Image();
       img.crossOrigin = 'anonymous';
-      img.src = `/companions/${def.id}.png`;
+      img.src = def.id === 'mini_nomad' ? '/neon-nomad.png' : `/companions/${def.id}.png`;
       img.onload = () => {
         this.companionImages.set(def.id, img);
       };
@@ -7142,6 +7144,21 @@ export class SpaceGame {
         glowColor = `hsl(${hue}, 80%, 50%)`;
       }
 
+      // Mini Nomad: Nomad-style pulsing magenta/cyan underglow
+      if (c.type === 'mini_nomad') {
+        const pulse = 0.6 + 0.4 * Math.sin(Date.now() * 0.003 + c.wobble);
+        const auraRadius = size * 3;
+        const grad = ctx.createRadialGradient(screenX, screenY, 5, screenX, screenY, auraRadius);
+        grad.addColorStop(0, `rgba(255, 0, 255, ${0.3 * pulse})`);
+        grad.addColorStop(0.4, `rgba(0, 255, 255, ${0.15 * pulse})`);
+        grad.addColorStop(0.7, `rgba(255, 165, 0, ${0.08 * pulse})`);
+        grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, auraRadius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
       // Legendary pulsing glow aura
       if (isLegendary) {
         const pulse = 0.6 + 0.4 * Math.sin(Date.now() * 0.003 + c.wobble);
@@ -7177,8 +7194,14 @@ export class SpaceGame {
         // Render with image sprite
         const renderSize = size * 4; // Images are larger than the orb radius
         ctx.shadowColor = glowColor;
-        ctx.shadowBlur = isLegendary ? 25 : 14;
-        ctx.drawImage(img, screenX - renderSize / 2, screenY - renderSize / 2, renderSize, renderSize);
+        ctx.shadowBlur = isLegendary ? 25 : (c.type === 'mini_nomad' ? 20 : 14);
+        // Mini Nomad gets lowrider bounce like the boss
+        let imgY = screenY;
+        if (c.type === 'mini_nomad') {
+          const beatPhase = (Date.now() / 1000) * (40 / 60) * Math.PI * 2;
+          imgY -= Math.abs(Math.sin(beatPhase)) * 3;
+        }
+        ctx.drawImage(img, screenX - renderSize / 2, imgY - renderSize / 2, renderSize, renderSize);
       } else {
         // Fallback: glowing orb
         let color = def.color;
