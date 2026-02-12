@@ -21,7 +21,7 @@ interface QuickTaskModalProps {
 const TASK_TYPES = [
   { value: 'task', label: 'Task', image: '/notion-task.png' },
   { value: 'bug', label: 'Bug', image: '/notion-bug.png' },
-  { value: 'feature', label: 'Enhancement', image: '/notion-enhancement.png' },
+  { value: 'feature', label: 'Enhance', image: '/notion-enhancement.png' },
   { value: 'biz', label: 'Biz', image: '/notion-biz.png' },
 ] as const;
 
