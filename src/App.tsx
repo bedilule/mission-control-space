@@ -4675,8 +4675,8 @@ function App() {
       {/* Stats */}
       <div style={styles.stats}>
         <div style={styles.statItem}>
-          <span style={styles.statValue}>{state.completedPlanets.length}</span>
-          <span style={styles.statLabel}>Planets</span>
+          <span style={styles.statValue}>{state.completedPlanets.length + notionGamePlanets.filter(p => p.completed && p.ownerId?.toLowerCase() === state.currentUser?.toLowerCase()).length}</span>
+          <span style={styles.statLabel}>Missions</span>
         </div>
         <div
           style={{ ...styles.statItem, cursor: 'pointer' }}
@@ -4846,12 +4846,15 @@ function App() {
                       if (!def) return null;
                       const isEquipped = equippedCompanions.includes(id);
                       return (
-                        <div key={id} title={`${def.name}${isEquipped ? ' (equipped)' : ''}`} style={{
-                          width: 36, height: 36, borderRadius: 8,
+                        <div key={id} title={`${def.name} — click to ${isEquipped ? 'unequip' : 'equip'}`}
+                          onClick={() => buyCompanion(id, def.cost, def.planetsToHatch)}
+                          style={{
+                          width: 36, height: 36, borderRadius: 8, cursor: 'pointer',
                           background: isEquipped ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)',
                           border: isEquipped ? `1.5px solid ${def.glowColor || '#fff'}` : '1px solid rgba(255,255,255,0.08)',
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
                           fontSize: '1.2rem', position: 'relative',
+                          transition: 'background 0.15s, border-color 0.15s',
                         }}>
                           {def.icon}
                           {isEquipped && <div style={{ position: 'absolute', top: -2, right: -2, width: 7, height: 7, borderRadius: '50%', background: def.glowColor || '#4ade80', border: '1px solid rgba(0,0,0,0.5)' }} />}
@@ -4865,69 +4868,229 @@ function App() {
               {/* Equipment */}
               <div style={sectionStyle}>
                 <div style={sectionTitle}>{'\u2694\uFE0F'} Equipment</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {/* Weapons */}
                   {weapons.length > 0 && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.35)', width: 52 }}>Weapons</span>
-                      {weapons.map(w => (
-                        <span key={w.name} title={`${w.name}${w.equipped ? ' (equipped)' : ''}`} style={{
-                          fontSize: '1.1rem', opacity: w.equipped ? 1 : 0.4,
-                          filter: w.equipped ? 'drop-shadow(0 0 4px rgba(255,165,0,0.6))' : 'none',
-                        }}>{w.icon}</span>
-                      ))}
+                    <div>
+                      <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.3)', letterSpacing: '0.05em', textTransform: 'uppercase' as const }}>Weapon</span>
+                      <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                        {weapons.map(w => {
+                          const toggleMap: Record<string, () => void> = {
+                            'Space Rifle': toggleSpaceRifle,
+                            'Destroy Canon': toggleSpaceTNT,
+                            'Plasma Canon': togglePlasmaCanon,
+                            'Rocket Launcher': toggleRocketLauncher,
+                            'Nuclear Bomb': toggleNuclearBomb,
+                          };
+                          return (
+                            <div key={w.name} title={`${w.name} — click to ${w.equipped ? 'unequip' : 'equip'}`}
+                              onClick={() => toggleMap[w.name]?.()}
+                              style={{
+                                width: 36, height: 36, borderRadius: 8, cursor: 'pointer',
+                                background: w.equipped ? 'rgba(255,165,0,0.15)' : 'rgba(255,255,255,0.04)',
+                                border: w.equipped ? '1.5px solid rgba(255,165,0,0.5)' : '1px solid rgba(255,255,255,0.08)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: '1.1rem', position: 'relative',
+                                transition: 'background 0.15s, border-color 0.15s',
+                              }}>
+                              {w.icon}
+                              {w.equipped && <div style={{ position: 'absolute', top: -2, right: -2, width: 7, height: 7, borderRadius: '50%', background: '#ffa500', border: '1px solid rgba(0,0,0,0.5)' }} />}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                   {/* Glow */}
-                  {effects.glowColor && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.35)', width: 52 }}>Glow</span>
-                      <span style={{ width: 12, height: 12, borderRadius: '50%', background: effects.glowColor, boxShadow: `0 0 6px ${effects.glowColor}`, display: 'inline-block' }} />
-                      <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)' }}>{GLOW_EFFECTS.find(g => g.value === effects.glowColor)?.name || ''}</span>
+                  {(effects.ownedGlows || []).length > 0 && (
+                    <div>
+                      <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.3)', letterSpacing: '0.05em', textTransform: 'uppercase' as const }}>Glow</span>
+                      <div style={{ display: 'flex', gap: 4, marginTop: 4, alignItems: 'center' }}>
+                        {/* None option */}
+                        <div title="No glow"
+                          onClick={() => { if (effects.glowColor) { const activeGlow = GLOW_EFFECTS.find(g => g.value === effects.glowColor); if (activeGlow) handleGlow(activeGlow.id); } }}
+                          style={{
+                            width: 28, height: 28, borderRadius: 6, cursor: 'pointer',
+                            background: !effects.glowColor ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)',
+                            border: !effects.glowColor ? '1.5px solid rgba(255,255,255,0.3)' : '1px solid rgba(255,255,255,0.08)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: '0.55rem', color: 'rgba(255,255,255,0.4)',
+                            transition: 'background 0.15s, border-color 0.15s',
+                          }}>
+                          {'\u2205'}
+                        </div>
+                        {(effects.ownedGlows || []).map(glowValue => {
+                          const glowDef = GLOW_EFFECTS.find(g => g.value === glowValue);
+                          if (!glowDef) return null;
+                          const isActive = effects.glowColor === glowValue;
+                          return (
+                            <div key={glowValue} title={`${glowDef.name}${isActive ? ' (active)' : ''}`}
+                              onClick={() => handleGlow(glowDef.id)}
+                              style={{
+                                width: 28, height: 28, borderRadius: 6, cursor: 'pointer',
+                                background: isActive ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)',
+                                border: isActive ? `1.5px solid ${glowValue}` : '1px solid rgba(255,255,255,0.08)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                transition: 'background 0.15s, border-color 0.15s',
+                              }}>
+                              <span style={{ width: 14, height: 14, borderRadius: '50%', background: glowValue, boxShadow: isActive ? `0 0 8px ${glowValue}` : 'none', display: 'inline-block' }} />
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                   {/* Trail */}
-                  {effects.trailType !== 'default' && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.35)', width: 52 }}>Trail</span>
-                      <span style={{ fontSize: '1rem' }}>{TRAIL_EFFECTS.find(t => t.value === effects.trailType)?.icon || '\u{1F525}'}</span>
-                      <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)' }}>{TRAIL_EFFECTS.find(t => t.value === effects.trailType)?.name || effects.trailType}</span>
+                  {(effects.ownedTrails || []).length > 0 && (
+                    <div>
+                      <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.3)', letterSpacing: '0.05em', textTransform: 'uppercase' as const }}>Trail</span>
+                      <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                        {/* Default option */}
+                        <div title="Default trail"
+                          onClick={() => { if (effects.trailType !== 'default') { const activeTrail = TRAIL_EFFECTS.find(t => t.value === effects.trailType); if (activeTrail) handleTrail(activeTrail.id); } }}
+                          style={{
+                            width: 36, height: 36, borderRadius: 8, cursor: 'pointer',
+                            background: effects.trailType === 'default' ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)',
+                            border: effects.trailType === 'default' ? '1.5px solid rgba(255,255,255,0.3)' : '1px solid rgba(255,255,255,0.08)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: '0.55rem', color: 'rgba(255,255,255,0.4)',
+                            transition: 'background 0.15s, border-color 0.15s',
+                          }}>
+                          {'\u2205'}
+                        </div>
+                        {(effects.ownedTrails || []).map(trailValue => {
+                          const trailDef = TRAIL_EFFECTS.find(t => t.value === trailValue);
+                          if (!trailDef) return null;
+                          const isActive = effects.trailType === trailValue;
+                          return (
+                            <div key={trailValue} title={`${trailDef.name}${isActive ? ' (active)' : ''}`}
+                              onClick={() => handleTrail(trailDef.id)}
+                              style={{
+                                width: 36, height: 36, borderRadius: 8, cursor: 'pointer',
+                                background: isActive ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)',
+                                border: isActive ? '1.5px solid rgba(100,200,255,0.4)' : '1px solid rgba(255,255,255,0.08)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: '1.1rem', position: 'relative',
+                                transition: 'background 0.15s, border-color 0.15s',
+                              }}>
+                              {trailDef.icon}
+                              {isActive && <div style={{ position: 'absolute', top: -2, right: -2, width: 7, height: 7, borderRadius: '50%', background: '#5490ff', border: '1px solid rgba(0,0,0,0.5)' }} />}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                   {/* Horn */}
-                  {effects.equippedHorn && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.35)', width: 52 }}>Horn</span>
-                      <span style={{ fontSize: '1rem' }}>{HORN_ITEMS.find(h => h.id === effects.equippedHorn)?.icon || '\u{1F4E2}'}</span>
-                      <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)' }}>{HORN_ITEMS.find(h => h.id === effects.equippedHorn)?.name || ''}</span>
+                  {(effects.ownedHorns || []).length > 0 && (
+                    <div>
+                      <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.3)', letterSpacing: '0.05em', textTransform: 'uppercase' as const }}>Horn</span>
+                      <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                        {/* None option */}
+                        <div title="No horn"
+                          onClick={() => { if (effects.equippedHorn) buyHorn(effects.equippedHorn, 0); }}
+                          style={{
+                            width: 36, height: 36, borderRadius: 8, cursor: 'pointer',
+                            background: !effects.equippedHorn ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)',
+                            border: !effects.equippedHorn ? '1.5px solid rgba(255,255,255,0.3)' : '1px solid rgba(255,255,255,0.08)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: '0.55rem', color: 'rgba(255,255,255,0.4)',
+                            transition: 'background 0.15s, border-color 0.15s',
+                          }}>
+                          {'\u2205'}
+                        </div>
+                        {(effects.ownedHorns || []).map(hornId => {
+                          const hornDef = HORN_ITEMS.find(h => h.id === hornId);
+                          if (!hornDef) return null;
+                          const isEquipped = effects.equippedHorn === hornId;
+                          return (
+                            <div key={hornId} title={`${hornDef.name} — click to ${isEquipped ? 'unequip' : 'equip'}`}
+                              onClick={() => buyHorn(hornId, hornDef.cost)}
+                              style={{
+                                width: 36, height: 36, borderRadius: 8, cursor: 'pointer',
+                                background: isEquipped ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)',
+                                border: isEquipped ? '1.5px solid rgba(255,200,50,0.5)' : '1px solid rgba(255,255,255,0.08)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: '1.1rem', position: 'relative',
+                                transition: 'background 0.15s, border-color 0.15s',
+                              }}>
+                              {hornDef.icon}
+                              {isEquipped && <div style={{ position: 'absolute', top: -2, right: -2, width: 7, height: 7, borderRadius: '50%', background: '#ffd700', border: '1px solid rgba(0,0,0,0.5)' }} />}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                   {/* Emote */}
-                  {effects.equippedEmote && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.35)', width: 52 }}>Emote</span>
-                      <span style={{ fontSize: '1rem' }}>{EMOTE_ITEMS.find(e => e.id === effects.equippedEmote)?.icon || '\u{1F4A5}'}</span>
-                      <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)' }}>{EMOTE_ITEMS.find(e => e.id === effects.equippedEmote)?.name || ''}</span>
+                  {(effects.ownedEmotes || []).length > 0 && (
+                    <div>
+                      <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.3)', letterSpacing: '0.05em', textTransform: 'uppercase' as const }}>Emote</span>
+                      <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                        {/* None option */}
+                        <div title="No emote"
+                          onClick={() => { if (effects.equippedEmote) buyEmote(effects.equippedEmote, 0); }}
+                          style={{
+                            width: 36, height: 36, borderRadius: 8, cursor: 'pointer',
+                            background: !effects.equippedEmote ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)',
+                            border: !effects.equippedEmote ? '1.5px solid rgba(255,255,255,0.3)' : '1px solid rgba(255,255,255,0.08)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: '0.55rem', color: 'rgba(255,255,255,0.4)',
+                            transition: 'background 0.15s, border-color 0.15s',
+                          }}>
+                          {'\u2205'}
+                        </div>
+                        {(effects.ownedEmotes || []).map(emoteId => {
+                          const emoteDef = EMOTE_ITEMS.find(e => e.id === emoteId);
+                          if (!emoteDef) return null;
+                          const isEquipped = effects.equippedEmote === emoteId;
+                          return (
+                            <div key={emoteId} title={`${emoteDef.name} — click to ${isEquipped ? 'unequip' : 'equip'}`}
+                              onClick={() => buyEmote(emoteId, emoteDef.cost)}
+                              style={{
+                                width: 36, height: 36, borderRadius: 8, cursor: 'pointer',
+                                background: isEquipped ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)',
+                                border: isEquipped ? '1.5px solid rgba(255,100,200,0.5)' : '1px solid rgba(255,255,255,0.08)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: '1.1rem', position: 'relative',
+                                transition: 'background 0.15s, border-color 0.15s',
+                              }}>
+                              {emoteDef.icon}
+                              {isEquipped && <div style={{ position: 'absolute', top: -2, right: -2, width: 7, height: 7, borderRadius: '50%', background: '#ff6b9d', border: '1px solid rgba(0,0,0,0.5)' }} />}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                   {/* Warp Drive & Portal */}
-                  {effects.hasWarpDrive && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.35)', width: 52 }}>Utility</span>
-                      <span style={{ fontSize: '1rem' }}>{'\u26A1'}</span>
-                      <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)' }}>Warp Drive</span>
-                    </div>
-                  )}
-                  {effects.hasMissionControlPortal && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      {!effects.hasWarpDrive && <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.35)', width: 52 }}>Utility</span>}
-                      {effects.hasWarpDrive && <span style={{ width: 52 }} />}
-                      <span style={{ fontSize: '1rem' }}>{'\u{1F300}'}</span>
-                      <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)' }}>Portal</span>
+                  {(effects.hasWarpDrive || effects.hasMissionControlPortal) && (
+                    <div>
+                      <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.3)', letterSpacing: '0.05em', textTransform: 'uppercase' as const }}>Utility</span>
+                      <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                        {effects.hasWarpDrive && (
+                          <div title="Warp Drive (H)" style={{
+                            width: 36, height: 36, borderRadius: 8,
+                            background: 'rgba(255,255,255,0.06)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: '1.1rem',
+                          }}>{'\u26A1'}</div>
+                        )}
+                        {effects.hasMissionControlPortal && (
+                          <div title="Portal (G)" style={{
+                            width: 36, height: 36, borderRadius: 8,
+                            background: 'rgba(255,255,255,0.06)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: '1.1rem',
+                          }}>{'\u{1F300}'}</div>
+                        )}
+                      </div>
                     </div>
                   )}
                   {/* Nothing equipped */}
-                  {weapons.length === 0 && !effects.glowColor && effects.trailType === 'default' && !effects.equippedHorn && !effects.equippedEmote && !effects.hasWarpDrive && !effects.hasMissionControlPortal && (
+                  {weapons.length === 0 && (effects.ownedGlows || []).length === 0 && (effects.ownedTrails || []).length === 0 && (effects.ownedHorns || []).length === 0 && (effects.ownedEmotes || []).length === 0 && !effects.hasWarpDrive && !effects.hasMissionControlPortal && (
                     <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.25)', fontStyle: 'italic' }}>No equipment yet</span>
                   )}
                 </div>
