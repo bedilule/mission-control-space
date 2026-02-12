@@ -23,6 +23,7 @@ const TYPE_OPTIONS = [
   { value: 'task', label: 'Task', icon: '/notion-task.png' },
   { value: 'bug', label: 'Bug', icon: '/notion-bug.png' },
   { value: 'feature', label: 'Feature', icon: '/notion-enhancement.png' },
+  { value: 'biz', label: 'Biz', icon: '/notion-biz.png' },
 ];
 
 const TYPE_ICONS: Record<string, string> = {
@@ -30,6 +31,7 @@ const TYPE_ICONS: Record<string, string> = {
   feature: '/notion-enhancement.png',
   enhancement: '/notion-enhancement.png',
   task: '/notion-task.png',
+  biz: '/notion-biz.png',
 };
 
 const PRIORITY_OPTIONS = [

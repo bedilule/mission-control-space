@@ -10,6 +10,7 @@ const TASK_TYPE_COLORS: Record<string, { color: string; glowColor: string }> = {
   epic: { color: '#a855f7', glowColor: '#9333ea' },
   improvement: { color: '#60a5fa', glowColor: '#3b82f6' },
   task: { color: '#fbbf24', glowColor: '#f59e0b' },
+  biz: { color: '#ffd700', glowColor: '#ffaa00' },
   default: { color: '#94a3b8', glowColor: '#64748b' },
 };
 
@@ -101,7 +102,7 @@ interface UseNotionPlanetsOptions {
 interface UpdatePlanetFields {
   name?: string;
   description?: string;
-  task_type?: 'bug' | 'feature' | 'task';
+  task_type?: 'bug' | 'feature' | 'task' | 'biz';
   priority?: 'low' | 'medium' | 'high' | 'critical';
   due_date?: string | null;
   assigned_to?: string | null;

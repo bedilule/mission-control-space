@@ -12,7 +12,7 @@ interface UpdateRequest {
   notion_planet_id: string;
   name?: string;
   description?: string;
-  task_type?: 'bug' | 'feature' | 'task';
+  task_type?: 'bug' | 'feature' | 'task' | 'biz';
   priority?: 'low' | 'medium' | 'high' | 'critical';
   due_date?: string | null; // ISO date string or null to clear
   assigned_to?: string | null; // Username or null/empty to unassign
@@ -61,6 +61,7 @@ const TYPE_MAPPING: Record<string, string> = {
   'bug': '🐛 Bug / Problem',
   'feature': '✨ Enhancement',
   'task': '📋 Task',
+  'biz': '💼 Biz',
 };
 
 const PLANET_RADIUS = 50;

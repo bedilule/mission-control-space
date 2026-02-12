@@ -667,6 +667,7 @@ export class SpaceGame {
     this.loadNotionTypeImage('enhancement', '/notion-enhancement.png', true);
     this.loadNotionTypeImage('feature', '/notion-enhancement.png');
     this.loadNotionTypeImage('task', '/notion-task.png', true);
+    this.loadNotionTypeImage('biz', '/notion-biz.png', true);
 
     // Load critical priority flame overlay
     const flameImg = new Image();

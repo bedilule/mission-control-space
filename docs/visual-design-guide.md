@@ -48,6 +48,12 @@ A polished, playful game art style that balances detail with readability. Inspir
 - Theme: Toolbox with wrench on planet (work to do)
 - Use for: Generic task tickets from Notion
 
+**Biz Planet** (`/notion-biz.png`)
+- Primary: Gold `#ffd700`
+- Accent: Yellow/Orange `#ffaa00`
+- Theme: Golden briefcase with rising chart on planet (business growth)
+- Use for: Business/marketing tickets from Notion
+
 ### Priority Effects (Animated)
 
 Priority determines planet size AND animated visual effects:
@@ -140,6 +146,11 @@ A stylized cartoon planet with a large glowing crystal gem on top. Purple and vi
 **Task Planet (Notion):**
 ```
 A stylized cartoon planet with a toolbox and wrench station on top. Teal and green planet with soft surface. The toolbox is open with tools visible, wrench, gears, represents work to do. Friendly cartoon game art style, soft gradients, rounded shapes. Teal and cyan color palette with subtle glow. Dark space background.
+```
+
+**Biz Planet (Notion):**
+```
+A stylized cartoon planet with a golden briefcase and rising bar chart on top. Yellow and gold planet with soft surface details and craters. The briefcase is shiny, open slightly showing golden coins and a small chart going up. Friendly cartoon game art style, soft gradients, rounded shapes. Yellow and gold color palette with warm glow. White background.
 ```
 
 **Critical Priority Flame Overlay:**

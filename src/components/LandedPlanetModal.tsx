@@ -38,6 +38,7 @@ const TASK_TYPES = [
   { value: 'task', label: 'Task', image: '/notion-task.png' },
   { value: 'bug', label: 'Bug', image: '/notion-bug.png' },
   { value: 'feature', label: 'Enhancement', image: '/notion-enhancement.png' },
+  { value: 'biz', label: 'Biz', image: '/notion-biz.png' },
 ];
 
 const PRIORITIES: { value: string; label: string; points: number }[] = [
@@ -61,6 +62,7 @@ function parseTaskType(raw: string | null | undefined): string {
   const lower = raw.toLowerCase();
   if (lower.includes('bug')) return 'bug';
   if (lower.includes('feature') || lower.includes('enhancement')) return 'feature';
+  if (lower.includes('biz')) return 'biz';
   return 'task';
 }
 
@@ -362,7 +364,7 @@ export function LandedPlanetModal({
                       background: t.value === taskType ? 'rgba(255,255,255,0.06)' : 'transparent',
                     }}
                     onClick={() => {
-                      onUpdate({ task_type: t.value as 'bug' | 'feature' | 'task' });
+                      onUpdate({ task_type: t.value as 'bug' | 'feature' | 'task' | 'biz' });
                       setTypeDropdownOpen(false);
                     }}
                   >

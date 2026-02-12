@@ -11,7 +11,7 @@ interface EditTaskModalProps {
 export interface EditTaskUpdates {
   name?: string;
   description?: string;
-  task_type?: 'bug' | 'feature' | 'task';
+  task_type?: 'bug' | 'feature' | 'task' | 'biz';
   priority?: 'low' | 'medium' | 'high' | 'critical';
   due_date?: string | null;
   assigned_to?: string | null;
@@ -37,18 +37,19 @@ function parsePriority(raw: string | null | undefined): 'low' | 'medium' | 'high
 }
 
 // Parse task type from planet.taskType
-function parseTaskType(raw: string | null | undefined): 'bug' | 'feature' | 'task' {
+function parseTaskType(raw: string | null | undefined): 'bug' | 'feature' | 'task' | 'biz' {
   if (!raw) return 'task';
   const lower = raw.toLowerCase();
   if (lower.includes('bug')) return 'bug';
   if (lower.includes('feature') || lower.includes('enhancement')) return 'feature';
+  if (lower.includes('biz')) return 'biz';
   return 'task';
 }
 
 export function EditTaskModal({ isOpen, onClose, onSave, planet }: EditTaskModalProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [taskType, setTaskType] = useState<'bug' | 'feature' | 'task'>('task');
+  const [taskType, setTaskType] = useState<'bug' | 'feature' | 'task' | 'biz'>('task');
   const [priority, setPriority] = useState<'low' | 'medium' | 'high' | 'critical'>('medium');
   const [dueDate, setDueDate] = useState('');
   const [assignedTo, setAssignedTo] = useState('');
@@ -137,11 +138,12 @@ export function EditTaskModal({ isOpen, onClose, onSave, planet }: EditTaskModal
             <select
               style={styles.select}
               value={taskType}
-              onChange={(e) => setTaskType(e.target.value as 'task' | 'bug' | 'feature')}
+              onChange={(e) => setTaskType(e.target.value as 'task' | 'bug' | 'feature' | 'biz')}
             >
               <option value="task">Task</option>
               <option value="bug">Bug</option>
               <option value="feature">Enhancement</option>
+              <option value="biz">Biz</option>
             </select>
           </div>
 
