@@ -339,7 +339,7 @@ function parseNotionPage(page: any): ParsedNotionPage | null {
     description = props['Description'].rich_text[0].plain_text;
   }
 
-  // Extract "What is it ?" (type: bug/enhancement)
+  // Extract "What is it ?" (type: bug/enhancement/biz/task)
   let type = '';
   if (props['What is it ?']?.select?.name) {
     const rawType = props['What is it ?'].select.name.toLowerCase();
@@ -347,6 +347,10 @@ function parseNotionPage(page: any): ParsedNotionPage | null {
       type = 'bug';
     } else if (rawType.includes('enhancement')) {
       type = 'enhancement';
+    } else if (rawType.includes('biz') || rawType.includes('business')) {
+      type = 'biz';
+    } else if (rawType.includes('task')) {
+      type = 'task';
     } else {
       type = rawType;
     }

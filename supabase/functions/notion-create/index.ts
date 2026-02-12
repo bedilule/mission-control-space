@@ -353,6 +353,7 @@ Deno.serve(async (req) => {
       'task': '📋 Task',
       'achievement': '🏆 Achievement',
       'business': '💼 Business',
+      'biz': '💼 Biz',
       'roadmap': '🗺️ Roadmap',
     };
     if (body.type && typeMapping[body.type]) {
