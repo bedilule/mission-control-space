@@ -7255,8 +7255,21 @@ export class SpaceGame {
       c.worldX += c.vx * this.dt;
       c.worldY += c.vy * this.dt;
 
-      // Emit trail particles based on speed
+      // ── Rotation: point in direction of travel ──
       const cSpeed = Math.sqrt(c.vx * c.vx + c.vy * c.vy);
+      if (cSpeed > 0.3) {
+        const targetAngle = Math.atan2(c.vy, c.vx);
+        // Smooth rotation with angular LERP (handles wraparound)
+        let angleDiff = targetAngle - c.angle;
+        // Normalize to [-PI, PI]
+        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+        // Slower lerp for companions further back = more organic lag
+        const rotLerp = Math.min(0.08 / (1 + i * 0.3), 0.08) * this.dt;
+        c.angle += angleDiff * rotLerp;
+      }
+
+      // Emit trail particles based on speed
       if (cSpeed > 0.5 && Math.random() > 0.6) {
         const def = COMPANION_DEFS.find(d => d.id === c.type);
         if (def) {
@@ -7270,6 +7283,27 @@ export class SpaceGame {
             maxLife: 20,
             size: Math.random() * 3 + 1,
             color: def.color,
+          });
+        }
+      }
+
+      // Mini Nomad engine trail: magenta/cyan thrust particles from the back
+      if (c.type === 'mini_nomad' && cSpeed > 0.4) {
+        const backAngle = c.angle + Math.PI; // Behind the ship
+        const trailCount = cSpeed > 3 ? 3 : (cSpeed > 1.5 ? 2 : 1);
+        for (let t = 0; t < trailCount; t++) {
+          const spread = (Math.random() - 0.5) * 0.5;
+          const speed = Math.random() * 2 + 1;
+          const trailColors = ['#ff00ff', '#00ffff', '#ff88ff', '#88ffff', '#ff44aa'];
+          this.state.particles.push({
+            x: c.worldX + Math.cos(backAngle) * 10,
+            y: c.worldY + Math.sin(backAngle) * 10,
+            vx: Math.cos(backAngle + spread) * speed + c.vx * 0.15,
+            vy: Math.sin(backAngle + spread) * speed + c.vy * 0.15,
+            life: 18 + Math.random() * 12,
+            maxLife: 30,
+            size: Math.random() * 3 + 1.5,
+            color: trailColors[Math.floor(Math.random() * trailColors.length)],
           });
         }
       }
@@ -7359,13 +7393,19 @@ export class SpaceGame {
         const renderSize = size * 4; // Images are larger than the orb radius
         ctx.shadowColor = glowColor;
         ctx.shadowBlur = isLegendary ? 25 : (c.type === 'mini_nomad' ? 20 : 14);
-        // Mini Nomad gets lowrider bounce like the boss
-        let imgY = screenY;
+
         if (c.type === 'mini_nomad') {
+          // Mini Nomad: rotate to face direction of travel + lowrider bounce
           const beatPhase = (Date.now() / 1000) * (40 / 60) * Math.PI * 2;
-          imgY -= Math.abs(Math.sin(beatPhase)) * 3;
+          const bounce = Math.abs(Math.sin(beatPhase)) * 3;
+          ctx.save();
+          ctx.translate(screenX, screenY - bounce);
+          ctx.rotate(c.angle + Math.PI / 2); // +PI/2 because sprite faces up
+          ctx.drawImage(img, -renderSize / 2, -renderSize / 2, renderSize, renderSize);
+          ctx.restore();
+        } else {
+          ctx.drawImage(img, screenX - renderSize / 2, screenY - renderSize / 2, renderSize, renderSize);
         }
-        ctx.drawImage(img, screenX - renderSize / 2, imgY - renderSize / 2, renderSize, renderSize);
       } else {
         // Fallback: glowing orb
         let color = def.color;
@@ -9905,6 +9945,17 @@ export class SpaceGame {
         c.vy *= Math.pow(damping, this.dt);
         c.worldX += c.vx * this.dt;
         c.worldY += c.vy * this.dt;
+
+        // Rotation: point in direction of travel
+        const cSpeed = Math.sqrt(c.vx * c.vx + c.vy * c.vy);
+        if (cSpeed > 0.3) {
+          const targetAngle = Math.atan2(c.vy, c.vx);
+          let angleDiff = targetAngle - c.angle;
+          while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+          while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+          const rotLerp = Math.min(0.08 / (1 + i * 0.3), 0.08) * this.dt;
+          c.angle += angleDiff * rotLerp;
+        }
       }
     }
   }
@@ -9935,7 +9986,19 @@ export class SpaceGame {
         const renderSize = size * 4;
         ctx.shadowColor = glowColor;
         ctx.shadowBlur = isLegendary ? 20 : 10;
-        ctx.drawImage(img, screenX - renderSize / 2, screenY - renderSize / 2, renderSize, renderSize);
+
+        if (c.type === 'mini_nomad') {
+          // Mini Nomad: rotate to face direction of travel + lowrider bounce
+          const beatPhase = (Date.now() / 1000) * (40 / 60) * Math.PI * 2;
+          const bounce = Math.abs(Math.sin(beatPhase)) * 3;
+          ctx.save();
+          ctx.translate(screenX, screenY - bounce);
+          ctx.rotate(c.angle + Math.PI / 2);
+          ctx.drawImage(img, -renderSize / 2, -renderSize / 2, renderSize, renderSize);
+          ctx.restore();
+        } else {
+          ctx.drawImage(img, screenX - renderSize / 2, screenY - renderSize / 2, renderSize, renderSize);
+        }
       } else {
         ctx.shadowColor = glowColor;
         ctx.shadowBlur = isLegendary ? 20 : 10;
