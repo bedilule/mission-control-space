@@ -28,4 +28,8 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      - run: aws s3 sync dist/ s3://mission-control-space --delete
+      # Sync hashed assets (JS/CSS) with long cache
+      - run: aws s3 sync dist/assets/ s3://mission-control-space/assets/ --delete --cache-control "max-age=31536000, immutable"
+
+      # Sync everything else (sounds, images, HTML) with no-cache so browsers always revalidate
+      - run: aws s3 sync dist/ s3://mission-control-space --delete --exclude "assets/*" --cache-control "no-cache, must-revalidate"
