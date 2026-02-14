@@ -1323,34 +1323,51 @@ function App() {
     saveState(state);
   }, [state]);
 
-  // Sync userShips from teamPlayers (Supabase is the source of truth for effects/image)
+  // Sync userShips from teamPlayers (Supabase is the source of truth)
   useEffect(() => {
     if (teamPlayers.length === 0) return;
 
-    setUserShips(prev => {
-      const merged: Record<string, UserShip> = {};
-
-      for (const player of teamPlayers) {
-        if (player.shipImage) {
-          const existing = prev[player.username];
-          merged[player.username] = {
-            baseImage: existing?.baseImage || '/ship-base.png',
-            currentImage: player.shipImage,
-            // Preserve local upgrades array (not available via teamPlayers)
-            upgrades: existing?.upgrades || [],
-            // Effects from Supabase are the source of truth
-            effects: player.shipEffects || existing?.effects || getEffectsWithDefaults(undefined),
-          };
-        }
+    const shipsFromSupabase: Record<string, UserShip> = {};
+    for (const player of teamPlayers) {
+      if (player.shipImage) {
+        shipsFromSupabase[player.username] = {
+          baseImage: '/ship-base.png',
+          currentImage: player.shipImage,
+          upgrades: [],
+          effects: player.shipEffects || {
+            glowColor: null,
+            trailType: 'default',
+            sizeBonus: 0,
+            speedBonus: 0,
+            landingSpeedBonus: 0,
+            ownedGlows: [],
+            ownedTrails: [],
+            hasDestroyCanon: false,
+            destroyCanonEquipped: false,
+            hasSpaceRifle: false,
+            spaceRifleEquipped: false,
+            hasPlasmaCanon: false,
+            plasmaCanonEquipped: false,
+            hasRocketLauncher: false,
+            rocketLauncherEquipped: false,
+            hasNuclearBomb: false,
+            nuclearBombEquipped: false,
+            ownedCompanions: [],
+            equippedCompanions: [],
+          },
+        };
       }
+    }
 
+    // Merge with local state (local state may have pending changes)
+    setUserShips(prev => {
+      const merged = { ...shipsFromSupabase };
       // Keep any local ships that aren't in Supabase yet
       for (const [userId, ship] of Object.entries(prev)) {
         if (!merged[userId] && ship.currentImage) {
           merged[userId] = ship;
         }
       }
-
       // Cache to localStorage for instant load next time
       try { localStorage.setItem('mission-control-user-ships-cache', JSON.stringify(merged)); } catch {}
       return merged;
