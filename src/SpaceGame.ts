@@ -3472,7 +3472,7 @@ export class SpaceGame {
     }
   }
 
-  // Start warp home animation (teleport ship to home planet)
+  // Start warp home animation (teleport ship to home planet, or to Mission Control if already home)
   private startWarpHomeAnimation() {
     // Find home planet zone for current user
     const playerZone = ZONES.find(z => z.ownerId === this.currentUser);
@@ -3480,13 +3480,27 @@ export class SpaceGame {
 
     const { ship } = this.state;
 
+    // Check if ship is already in home zone (within ZONE_SIZE radius)
+    const dxHome = ship.x - playerZone.centerX;
+    const dyHome = ship.y - playerZone.centerY;
+    const distToHome = Math.sqrt(dxHome * dxHome + dyHome * dyHome);
+    const isInHomeZone = distToHome < ZONE_SIZE;
+
     // Set start position (current ship location)
     this.warpStartX = ship.x;
     this.warpStartY = ship.y;
 
-    // Set target position (zone center, offset to not land inside planet)
-    this.warpTargetX = playerZone.centerX;
-    this.warpTargetY = playerZone.centerY - 150; // Offset above planet center
+    if (isInHomeZone) {
+      // Already home → warp to Mission Control
+      const mcZone = ZONES.find(z => z.id === 'mission-control');
+      if (!mcZone) return;
+      this.warpTargetX = mcZone.centerX;
+      this.warpTargetY = mcZone.centerY - 150;
+    } else {
+      // Not home → warp home
+      this.warpTargetX = playerZone.centerX;
+      this.warpTargetY = playerZone.centerY - 150; // Offset above planet center
+    }
 
     // Initialize animation state
     this.isWarping = true;
