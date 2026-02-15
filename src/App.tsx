@@ -44,6 +44,9 @@ interface PlanetPrompts {
   basePlanet: PromptConfig;
   terraform: PromptConfig;
   customPlanet: PromptConfig;
+  baseMoon: PromptConfig;
+  terraformMoon: PromptConfig;
+  terraformStation: PromptConfig;
 }
 
 // Default prompts (fallback if JSON fails to load) - Nano Banana format
@@ -68,6 +71,21 @@ const DEFAULT_PLANET_PROMPTS: PlanetPrompts = {
   },
   customPlanet: {
     prompt: "{userInput}, spherical planet floating in space, game art style, dramatic lighting, black background",
+    api: "fal-ai/nano-banana",
+    settings: { num_images: 1, aspect_ratio: "1:1", output_format: "png" }
+  },
+  baseMoon: {
+    prompt: "A small rocky cratered moon, gray barren surface with subtle {userColor} glow on edges, tiny spherical moon, game art style, pure black background.",
+    api: "fal-ai/nano-banana",
+    settings: { num_images: 1, aspect_ratio: "1:1", output_format: "png" }
+  },
+  terraformMoon: {
+    prompt: "A small moon with {userInput} features, tiny spherical moon orbiting a planet, game art style, pure black background.",
+    api: "fal-ai/nano-banana",
+    settings: { num_images: 1, aspect_ratio: "1:1", output_format: "png" }
+  },
+  terraformStation: {
+    prompt: "A tiny orbital space station with {userInput} theme, sci-fi design, solar panels and antennas, game art style, pure black background.",
     api: "fal-ai/nano-banana",
     settings: { num_images: 1, aspect_ratio: "1:1", output_format: "png" }
   }
@@ -209,6 +227,8 @@ interface Goals {
 interface UserPlanet {
   imageUrl: string;
   baseImage?: string; // Original base planet image (for reverting)
+  moonImageUrl?: string; // Moon skin image (generated alongside planet)
+  stationImageUrl?: string; // Orbiting station skin (appears at terraform >= 8)
   terraformCount: number;
   history: { imageUrl: string; description: string; timestamp: number }[];
   sizeLevel: number; // 0-5 levels
@@ -837,6 +857,8 @@ function App() {
       shipLevel: p.shipLevel,
       isOnline: p.isOnline,
       planetImageUrl: p.planetImageUrl,
+      planetMoonImageUrl: p.planetMoonImageUrl,
+      planetStationImageUrl: p.planetStationImageUrl,
       planetTerraformCount: p.planetTerraformCount,
       planetSizeLevel: p.planetSizeLevel,
     })),
@@ -1955,6 +1977,55 @@ function App() {
     saveGoalsToSupabase(newGoals);
   };
 
+  // Generate a moon image (used by both base planet and terraform)
+  const generateMoonImage = async (userId: string, prompt: string, apiEndpoint: string): Promise<string | undefined> => {
+    try {
+      console.log('[Moon] Generating moon image with prompt:', prompt);
+      const response = await fetch(`https://fal.run/${apiEndpoint}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Key ${FAL_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          prompt,
+          num_images: 1,
+          aspect_ratio: '1:1',
+          output_format: 'png'
+        })
+      });
+      const data = await response.json();
+      console.log('[Moon] FAL response:', data);
+      const moonRawUrl = data.images?.[0]?.url;
+      if (!moonRawUrl) {
+        console.error('[Moon] No image URL in FAL response');
+        return undefined;
+      }
+
+      // Remove background
+      console.log('[Moon] Removing background...');
+      const bgResponse = await fetch('https://fal.run/fal-ai/birefnet', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Key ${FAL_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ image_url: moonRawUrl })
+      });
+      const bgData = await bgResponse.json();
+      const bgRemovedUrl = bgData.image?.url || moonRawUrl;
+      console.log('[Moon] Background removed, saving...');
+
+      const base64 = await getImageAsBase64(bgRemovedUrl);
+      const savedUrl = await saveImageToStorage(base64, 'planet', userId, 'moon', bgRemovedUrl);
+      console.log('[Moon] Saved moon image:', savedUrl);
+      return savedUrl;
+    } catch (err) {
+      console.error('[Moon] Failed to generate moon image:', err);
+      return undefined;
+    }
+  };
+
   // Generate base planet (for first-time setup)
   const generateBasePlanet = async () => {
     if (personalPoints < 50) return;
@@ -1990,6 +2061,12 @@ function App() {
         })
       });
 
+      // Generate moon image in parallel with planet
+      const moonConfig = planetPrompts.baseMoon || DEFAULT_PLANET_PROMPTS.baseMoon;
+      const moonPrompt = moonConfig.prompt.replace('{userColor}', userColor);
+      const moonApiEndpoint = moonConfig.api || 'fal-ai/nano-banana';
+      const moonPromise = generateMoonImage(userId, moonPrompt, moonApiEndpoint);
+
       const data = await response.json();
       let newImageUrl = data.images?.[0]?.url;
 
@@ -2010,6 +2087,9 @@ function App() {
         const base64Image = await getImageAsBase64(bgRemovedUrl);
         newImageUrl = await saveImageToStorage(base64Image, 'planet', userId, 'base', bgRemovedUrl);
 
+        // Wait for moon generation to complete
+        const moonImageUrl = await moonPromise;
+
         // Deduct personal points and sync to backend
         setPersonalPoints(prev => prev - 50);
         updateRemotePersonalPoints(-50, 'Planet generation');
@@ -2017,6 +2097,7 @@ function App() {
         const newPlanet = {
           imageUrl: newImageUrl,
           baseImage: newImageUrl, // Store base for reverting later
+          moonImageUrl: moonImageUrl || undefined,
           terraformCount: 0,
           history: [] as { imageUrl: string; description: string; timestamp: number }[],
           sizeLevel: 0,
@@ -2026,7 +2107,7 @@ function App() {
         setUserPlanets(prev => ({ ...prev, [userId]: newPlanet }));
         saveUserPlanetToSupabase(userId, newPlanet);
 
-        gameRef.current?.updateUserPlanetImage(userId, newImageUrl, 0, 0);
+        gameRef.current?.updateUserPlanetImage(userId, newImageUrl, 0, 0, moonImageUrl);
 
         // Record prompt for history
         recordPrompt({
@@ -2080,6 +2161,22 @@ function App() {
 
       console.log('Terraforming with prompt:', prompt);
 
+      // Generate moon image in parallel with planet terraform
+      const moonConfig = planetPrompts.terraformMoon || DEFAULT_PLANET_PROMPTS.terraformMoon;
+      const moonPrompt = moonConfig.prompt.replace('{userInput}', promptText);
+      const moonApiEndpoint = moonConfig.api || 'fal-ai/nano-banana';
+      const moonPromise = generateMoonImage(userId, moonPrompt, moonApiEndpoint);
+
+      // Generate station image in parallel (only when reaching or past terraform 8)
+      const newTfCount = currentPlanet.terraformCount + 1;
+      let stationPromise: Promise<string | undefined> = Promise.resolve(undefined);
+      if (newTfCount >= 8) {
+        const stationConfig = planetPrompts.terraformStation || DEFAULT_PLANET_PROMPTS.terraformStation;
+        const stationPrompt = stationConfig.prompt.replace('{userInput}', promptText);
+        const stationApiEndpoint = stationConfig.api || 'fal-ai/nano-banana';
+        stationPromise = generateMoonImage(userId, stationPrompt, stationApiEndpoint);
+      }
+
       const response = await fetch(`https://fal.run/${apiEndpoint}`, {
         method: 'POST',
         headers: {
@@ -2120,6 +2217,10 @@ function App() {
         const base64Image = await getImageAsBase64(bgRemovedUrl);
         newImageUrl = await saveImageToStorage(base64Image, 'planet', userId, 'terraform', bgRemovedUrl);
 
+        // Wait for moon and station generation to complete
+        const [moonImageUrl, stationImageUrl] = await Promise.all([moonPromise, stationPromise]);
+        console.log('[Terraform] Moon:', moonImageUrl ? 'ok' : 'none', 'Station:', stationImageUrl ? 'ok' : 'none');
+
         // Deduct personal points and sync to backend
         setPersonalPoints(prev => prev - 100);
         updateRemotePersonalPoints(-100, 'Planet terraforming');
@@ -2135,6 +2236,8 @@ function App() {
         const updatedPlanet = {
           imageUrl: newImageUrl,
           baseImage: currentPlanet.baseImage,
+          moonImageUrl: moonImageUrl || currentPlanet.moonImageUrl,
+          stationImageUrl: stationImageUrl || currentPlanet.stationImageUrl,
           terraformCount: newTerraformCount,
           history: newHistory,
           sizeLevel: currentPlanet.sizeLevel,
@@ -2145,7 +2248,7 @@ function App() {
         saveUserPlanetToSupabase(userId, updatedPlanet);
 
         // Update in game (with new size)
-        gameRef.current?.updateUserPlanetImage(userId, newImageUrl, newTerraformCount, currentPlanet.sizeLevel);
+        gameRef.current?.updateUserPlanetImage(userId, newImageUrl, newTerraformCount, currentPlanet.sizeLevel, updatedPlanet.moonImageUrl, updatedPlanet.stationImageUrl);
         soundManager.playPlanetUpgrade();
 
         // Record prompt for history
@@ -2208,6 +2311,8 @@ function App() {
       return {
         imageUrl: supabasePlanet.imageUrl,
         baseImage: supabasePlanet.baseImage,
+        moonImageUrl: supabasePlanet.moonImageUrl,
+        stationImageUrl: supabasePlanet.stationImageUrl,
         terraformCount: supabasePlanet.terraformCount || 0,
         history: supabasePlanet.history || [],
         sizeLevel: supabasePlanet.sizeLevel || 0,
@@ -2220,6 +2325,8 @@ function App() {
       return {
         imageUrl: planet.imageUrl,
         baseImage: planet.baseImage,
+        moonImageUrl: planet.moonImageUrl,
+        stationImageUrl: planet.stationImageUrl,
         terraformCount: planet.terraformCount || 0,
         history: planet.history || [],
         sizeLevel: planet.sizeLevel || 0,
@@ -2232,6 +2339,8 @@ function App() {
       return {
         imageUrl: teamPlayer.planetImageUrl,
         baseImage: undefined, // Not synced via multiplayer
+        moonImageUrl: teamPlayer.planetMoonImageUrl,
+        stationImageUrl: teamPlayer.planetStationImageUrl,
         terraformCount: teamPlayer.planetTerraformCount || 0,
         history: [], // Not synced via multiplayer
         sizeLevel: teamPlayer.planetSizeLevel || 0,

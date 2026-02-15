@@ -17,6 +17,8 @@ interface PlayerInfo {
   shipLevel: number;
   isOnline: boolean;
   planetImageUrl?: string;
+  planetMoonImageUrl?: string;
+  planetStationImageUrl?: string;
   planetTerraformCount?: number;
   planetSizeLevel?: number;
 }
@@ -442,6 +444,8 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
           shipEffects: playerInfo.shipEffects || defaultShipEffects,
           shipLevel: playerInfo.shipLevel || 1,
           planetImageUrl: playerInfo.planetImageUrl,
+          planetMoonImageUrl: playerInfo.planetMoonImageUrl,
+          planetStationImageUrl: playerInfo.planetStationImageUrl,
           planetTerraformCount: playerInfo.planetTerraformCount,
           planetSizeLevel: playerInfo.planetSizeLevel,
         });
@@ -553,6 +557,7 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
                 shipEffects: playerInfo.shipEffects || defaultShipEffects,
                 shipLevel: playerInfo.shipLevel || 1,
                 planetImageUrl: playerInfo.planetImageUrl,
+                planetMoonImageUrl: playerInfo.planetMoonImageUrl,
                 planetTerraformCount: playerInfo.planetTerraformCount,
                 planetSizeLevel: playerInfo.planetSizeLevel,
               };
@@ -768,6 +773,7 @@ export function usePlayerPositions(options: UsePlayerPositionsOptions): UsePlaye
               shipEffects: playerInfo.shipEffects || defaultShipEffects,
               shipLevel: playerInfo.shipLevel || 1,
               planetImageUrl: playerInfo.planetImageUrl,
+              planetMoonImageUrl: playerInfo.planetMoonImageUrl,
               planetTerraformCount: playerInfo.planetTerraformCount,
               planetSizeLevel: playerInfo.planetSizeLevel,
             };

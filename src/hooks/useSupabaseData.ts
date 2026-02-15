@@ -33,6 +33,8 @@ interface CustomPlanet {
 interface UserPlanet {
   imageUrl: string;
   baseImage?: string;
+  moonImageUrl?: string;
+  stationImageUrl?: string;
   terraformCount: number;
   history: { imageUrl: string; description: string; timestamp: number }[];
   sizeLevel: number;
@@ -134,7 +136,7 @@ export function useSupabaseData(options: UseSupabaseDataOptions): UseSupabaseDat
       // Fetch all players' planet data for this team
       const { data: playersData, error: playersError } = await supabase
         .from('players')
-        .select('username, planet_image_url, planet_base_image, planet_terraform_count, planet_size_level, planet_history, mascot_history')
+        .select('username, planet_image_url, planet_base_image, planet_moon_image_url, planet_station_image_url, planet_terraform_count, planet_size_level, planet_history, mascot_history')
         .eq('team_id', teamId);
 
       if (playersError) {
@@ -148,6 +150,8 @@ export function useSupabaseData(options: UseSupabaseDataOptions): UseSupabaseDat
             planets[player.username] = {
               imageUrl: player.planet_image_url || '',
               baseImage: player.planet_base_image || undefined,
+              moonImageUrl: player.planet_moon_image_url || undefined,
+              stationImageUrl: player.planet_station_image_url || undefined,
               terraformCount: player.planet_terraform_count || 0,
               sizeLevel: player.planet_size_level || 0,
               history: (player.planet_history as UserPlanet['history']) || [],
@@ -227,6 +231,8 @@ export function useSupabaseData(options: UseSupabaseDataOptions): UseSupabaseDat
         .update({
           planet_image_url: planet.imageUrl,
           planet_base_image: planet.baseImage,
+          planet_moon_image_url: planet.moonImageUrl || null,
+          planet_station_image_url: planet.stationImageUrl || null,
           planet_terraform_count: planet.terraformCount,
           planet_size_level: planet.sizeLevel,
           planet_history: planet.history,
@@ -330,6 +336,8 @@ export function useSupabaseData(options: UseSupabaseDataOptions): UseSupabaseDat
             username: string;
             planet_image_url: string;
             planet_base_image: string;
+            planet_moon_image_url: string;
+            planet_station_image_url: string;
             planet_terraform_count: number;
             planet_size_level: number;
             planet_history: UserPlanet['history'];
@@ -341,6 +349,8 @@ export function useSupabaseData(options: UseSupabaseDataOptions): UseSupabaseDat
               [data.username]: {
                 imageUrl: data.planet_image_url || '',
                 baseImage: data.planet_base_image || prev[data.username]?.baseImage,
+                moonImageUrl: data.planet_moon_image_url || prev[data.username]?.moonImageUrl,
+                stationImageUrl: data.planet_station_image_url || prev[data.username]?.stationImageUrl,
                 terraformCount: data.planet_terraform_count || 0,
                 sizeLevel: data.planet_size_level || 0,
                 history: data.planet_history || [],

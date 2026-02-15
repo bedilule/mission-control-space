@@ -33,6 +33,7 @@ export interface Planet {
   style?: PlanetStyle;
   hasRing?: boolean;
   hasMoon?: boolean;
+  hasStation?: boolean;
   description?: string;
   reward?: RewardType;
   realWorldReward?: string;
@@ -185,6 +186,8 @@ export interface OtherPlayer {
   shipLevel: number; // 1 + upgrade count (affects ship size)
   // Planet data for multiplayer sync
   planetImageUrl?: string;
+  planetMoonImageUrl?: string;
+  planetStationImageUrl?: string;
   planetTerraformCount?: number;
   planetSizeLevel?: number;
 }

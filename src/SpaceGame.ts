@@ -31,6 +31,8 @@ interface GoalsData {
 
 interface UserPlanetData {
   imageUrl: string;
+  moonImageUrl?: string;
+  stationImageUrl?: string;
   terraformCount: number;
   sizeLevel?: number;
 }
@@ -250,6 +252,8 @@ export class SpaceGame {
   private suckProgress: number = 0;
   private customPlanetImages: Map<string, HTMLImageElement> = new Map();
   private userPlanetImages: Map<string, HTMLImageElement> = new Map();
+  private userMoonImages: Map<string, HTMLImageElement> = new Map();
+  private userStationImages: Map<string, HTMLImageElement> = new Map();
   private notionTypeImages: Map<string, HTMLImageElement> = new Map();
   private criticalFlameImage: HTMLImageElement | null = null;
 
@@ -1605,13 +1609,38 @@ export class SpaceGame {
     this.shipEffects = effects;
   }
 
-  public updateUserPlanetImage(userId: string, imageUrl: string, terraformCount?: number, sizeLevel?: number) {
+  public updateUserPlanetImage(userId: string, imageUrl: string, terraformCount?: number, sizeLevel?: number, moonImageUrl?: string, stationImageUrl?: string) {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.src = imageUrl;
     img.onload = () => {
       this.userPlanetImages.set(userId, img);
     };
+
+    // Load moon image if provided
+    if (moonImageUrl) {
+      console.log('[SpaceGame] Loading moon image for', userId, ':', moonImageUrl.substring(0, 60) + '...');
+      const moonImg = new Image();
+      moonImg.crossOrigin = 'anonymous';
+      moonImg.src = moonImageUrl;
+      moonImg.onload = () => {
+        console.log('[SpaceGame] Moon image loaded for', userId);
+        this.userMoonImages.set(userId, moonImg);
+      };
+      moonImg.onerror = (e) => {
+        console.error('[SpaceGame] Moon image failed to load for', userId, e);
+      };
+    }
+
+    // Load station image if provided
+    if (stationImageUrl) {
+      const stationImg = new Image();
+      stationImg.crossOrigin = 'anonymous';
+      stationImg.src = stationImageUrl;
+      stationImg.onload = () => {
+        this.userStationImages.set(userId, stationImg);
+      };
+    }
 
     // Update terraform count and size level
     if (terraformCount !== undefined) {
@@ -1631,10 +1660,12 @@ export class SpaceGame {
       const baseRadius = 100;
       const sizeMultiplier = 1 + (sl * 0.2);
       planet.radius = baseRadius * sizeMultiplier;
-      // Add ring after 3 terraforms
-      (planet as any).hasRing = tc >= 3;
+      // No ring on user planets
+      (planet as any).hasRing = false;
       // Add moon after 5 terraforms
       (planet as any).hasMoon = tc >= 5;
+      // Add station after 8 terraforms
+      (planet as any).hasStation = tc >= 8;
     }
   }
 
@@ -1697,8 +1728,9 @@ export class SpaceGame {
         type: 'achievement',
         size: 'big',
         style: { baseColor: colors.base, accent: colors.accent, type: 'user-planet' },
-        hasRing: (planetData?.terraformCount || 0) >= 3,
+        hasRing: false,
         hasMoon: (planetData?.terraformCount || 0) >= 5,
+        hasStation: (planetData?.terraformCount || 0) >= 8,
         description: `${userId.charAt(0).toUpperCase() + userId.slice(1)}'s personal planet`,
         ownerId: userId, // This user owns this planet
       };
@@ -1712,6 +1744,24 @@ export class SpaceGame {
         img.src = planetData.imageUrl;
         img.onload = () => {
           this.userPlanetImages.set(userId, img);
+        };
+      }
+      // Load moon image if exists
+      if (planetData?.moonImageUrl) {
+        const moonImg = new Image();
+        moonImg.crossOrigin = 'anonymous';
+        moonImg.src = planetData.moonImageUrl;
+        moonImg.onload = () => {
+          this.userMoonImages.set(userId, moonImg);
+        };
+      }
+      // Load station image if exists
+      if (planetData?.stationImageUrl) {
+        const stationImg = new Image();
+        stationImg.crossOrigin = 'anonymous';
+        stationImg.src = planetData.stationImageUrl;
+        stationImg.onload = () => {
+          this.userStationImages.set(userId, stationImg);
         };
       }
     });
@@ -7978,6 +8028,71 @@ export class SpaceGame {
       }
     }
 
+    // Pre-compute moon orbit position (needed for behind/in-front rendering)
+    const hasMoon = (planet as any).hasMoon && !planet.completed;
+    const moonAngle = Date.now() * 0.001;
+    const moonBehind = Math.sin(moonAngle) < 0; // negative sin = moon is behind planet
+    const moonImg = (hasMoon && userId) ? this.userMoonImages.get(userId) : null;
+
+    const drawMoon = () => {
+      if (!hasMoon) return;
+      const moonDist = planet.radius * 1.8;
+      const moonX = x + Math.cos(moonAngle) * moonDist;
+      const moonY = y + Math.sin(moonAngle) * moonDist * 0.4;
+      const moonRadius = planet.radius * 0.2;
+
+      if (moonImg) {
+        const moonImgSize = moonRadius * 2.42;
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(moonX, moonY, moonRadius * 1.21, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.drawImage(moonImg, moonX - moonImgSize / 2, moonY - moonImgSize / 2, moonImgSize, moonImgSize);
+        ctx.restore();
+      } else {
+        ctx.beginPath();
+        ctx.arc(moonX, moonY, moonRadius, 0, Math.PI * 2);
+        ctx.fillStyle = '#888';
+        ctx.fill();
+      }
+    };
+
+    // Pre-compute station orbit (opposite direction, slower, wider, tilted)
+    const hasStation = (planet as any).hasStation && !planet.completed;
+    const stationAngle = -Date.now() * 0.0006; // opposite direction, 60% speed
+    const stationBehind = Math.sin(stationAngle + 0.8) < 0; // offset tilt
+    const stationImg = (hasStation && userId) ? this.userStationImages.get(userId) : null;
+
+    const drawStation = () => {
+      if (!hasStation) return;
+      const stationDist = planet.radius * 2.4;
+      const stationX = x + Math.cos(stationAngle) * stationDist;
+      const stationY = y + Math.sin(stationAngle + 0.8) * stationDist * 0.3; // tilted ellipse
+      const stationRadius = planet.radius * 0.15;
+
+      if (stationImg) {
+        const stationImgSize = stationRadius * 2.42;
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(stationX, stationY, stationRadius * 1.21, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.drawImage(stationImg, stationX - stationImgSize / 2, stationY - stationImgSize / 2, stationImgSize, stationImgSize);
+        ctx.restore();
+      } else {
+        // Fallback: small metallic rectangle
+        ctx.save();
+        ctx.translate(stationX, stationY);
+        ctx.rotate(stationAngle * 0.5);
+        ctx.fillStyle = '#aaa';
+        ctx.fillRect(-stationRadius, -stationRadius * 0.4, stationRadius * 2, stationRadius * 0.8);
+        // Solar panels
+        ctx.fillStyle = '#4488cc';
+        ctx.fillRect(-stationRadius * 1.8, -stationRadius * 0.2, stationRadius * 0.6, stationRadius * 0.4);
+        ctx.fillRect(stationRadius * 1.2, -stationRadius * 0.2, stationRadius * 0.6, stationRadius * 0.4);
+        ctx.restore();
+      }
+    };
+
     // Pulsing glow for critical priority
     const pulseIntensity = isCritical ? 0.3 + Math.sin(Date.now() * 0.005) * 0.2 : 0;
     const glowMultiplier = isCritical ? 3.5 : (isHigh ? 3 : 2.5);
@@ -7992,6 +8107,10 @@ export class SpaceGame {
     ctx.arc(x, y, planet.radius * glowMultiplier, 0, Math.PI * 2);
     ctx.fillStyle = glowGradient;
     ctx.fill();
+
+    // Draw orbiting objects behind planet (back half of orbit)
+    if (moonBehind) drawMoon();
+    if (stationBehind) drawStation();
 
     // Ring (if has ring and not custom image planet)
     if ((planet as any).hasRing && !hasCustomImage) {
@@ -8112,17 +8231,9 @@ export class SpaceGame {
     }
 
 
-    // Moon (if has moon)
-    if ((planet as any).hasMoon && !planet.completed) {
-      const moonAngle = Date.now() * 0.001;
-      const moonDist = planet.radius * 1.8;
-      const moonX = x + Math.cos(moonAngle) * moonDist;
-      const moonY = y + Math.sin(moonAngle) * moonDist * 0.4;
-      ctx.beginPath();
-      ctx.arc(moonX, moonY, planet.radius * 0.2, 0, Math.PI * 2);
-      ctx.fillStyle = '#888';
-      ctx.fill();
-    }
+    // Draw orbiting objects in front of planet (front half of orbit)
+    if (!moonBehind) drawMoon();
+    if (!stationBehind) drawStation();
 
     // Priority effects for Notion planets
     if (isNotionPlanet && !planet.completed) {
@@ -9451,7 +9562,9 @@ export class SpaceGame {
             player.username,
             player.planetImageUrl,
             player.planetTerraformCount,
-            player.planetSizeLevel
+            player.planetSizeLevel,
+            player.planetMoonImageUrl,
+            player.planetStationImageUrl
           );
           this.otherPlayerPlanetUrls.set(player.username, player.planetImageUrl);
         }
