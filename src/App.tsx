@@ -2305,31 +2305,25 @@ function App() {
 
   // Get a user's planet (checks Supabase data first, then local state, then teamPlayers)
   const getUserPlanet = (userId: string): UserPlanet => {
-    // First check supabaseUserPlanets (source of truth from hook)
     const supabasePlanet = supabaseUserPlanets?.[userId];
-    if (supabasePlanet?.imageUrl) {
-      return {
-        imageUrl: supabasePlanet.imageUrl,
-        baseImage: supabasePlanet.baseImage,
-        moonImageUrl: supabasePlanet.moonImageUrl,
-        stationImageUrl: supabasePlanet.stationImageUrl,
-        terraformCount: supabasePlanet.terraformCount || 0,
-        history: supabasePlanet.history || [],
-        sizeLevel: supabasePlanet.sizeLevel || 0,
-      };
-    }
+    const localPlanet = userPlanets[userId];
 
-    // Fallback to local userPlanets (for immediate updates before hook syncs)
-    const planet = userPlanets[userId];
-    if (planet?.imageUrl) {
+    // Merge supabase + local: use supabase as primary, fall back to local for missing fields
+    if (supabasePlanet?.imageUrl || localPlanet?.imageUrl) {
+      const primary = supabasePlanet?.imageUrl ? supabasePlanet : localPlanet;
+      const secondary = supabasePlanet?.imageUrl ? localPlanet : supabasePlanet;
+      // Use the richer history (more entries = more complete data)
+      const primaryHistory = primary?.history || [];
+      const secondaryHistory = secondary?.history || [];
+      const bestHistory = primaryHistory.length >= secondaryHistory.length ? primaryHistory : secondaryHistory;
       return {
-        imageUrl: planet.imageUrl,
-        baseImage: planet.baseImage,
-        moonImageUrl: planet.moonImageUrl,
-        stationImageUrl: planet.stationImageUrl,
-        terraformCount: planet.terraformCount || 0,
-        history: planet.history || [],
-        sizeLevel: planet.sizeLevel || 0,
+        imageUrl: primary!.imageUrl,
+        baseImage: primary?.baseImage ?? secondary?.baseImage,
+        moonImageUrl: primary?.moonImageUrl ?? secondary?.moonImageUrl,
+        stationImageUrl: primary?.stationImageUrl ?? secondary?.stationImageUrl,
+        terraformCount: primary?.terraformCount || secondary?.terraformCount || 0,
+        history: bestHistory,
+        sizeLevel: primary?.sizeLevel ?? secondary?.sizeLevel ?? 0,
       };
     }
 
@@ -2338,11 +2332,11 @@ function App() {
     if (teamPlayer?.planetImageUrl) {
       return {
         imageUrl: teamPlayer.planetImageUrl,
-        baseImage: undefined, // Not synced via multiplayer
+        baseImage: undefined,
         moonImageUrl: teamPlayer.planetMoonImageUrl,
         stationImageUrl: teamPlayer.planetStationImageUrl,
         terraformCount: teamPlayer.planetTerraformCount || 0,
-        history: [], // Not synced via multiplayer
+        history: [],
         sizeLevel: teamPlayer.planetSizeLevel || 0,
       };
     }

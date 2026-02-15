@@ -344,18 +344,21 @@ export function useSupabaseData(options: UseSupabaseDataOptions): UseSupabaseDat
           };
 
           if (data.planet_image_url || data.planet_terraform_count > 0) {
-            setUserPlanets(prev => ({
-              ...prev,
-              [data.username]: {
-                imageUrl: data.planet_image_url || '',
-                baseImage: data.planet_base_image || prev[data.username]?.baseImage,
-                moonImageUrl: data.planet_moon_image_url || prev[data.username]?.moonImageUrl,
-                stationImageUrl: data.planet_station_image_url || prev[data.username]?.stationImageUrl,
-                terraformCount: data.planet_terraform_count || 0,
-                sizeLevel: data.planet_size_level || 0,
-                history: data.planet_history || [],
-              }
-            }));
+            setUserPlanets(prev => {
+              const existing = prev[data.username];
+              return {
+                ...prev,
+                [data.username]: {
+                  imageUrl: data.planet_image_url || existing?.imageUrl || '',
+                  baseImage: data.planet_base_image ?? existing?.baseImage,
+                  moonImageUrl: data.planet_moon_image_url ?? existing?.moonImageUrl,
+                  stationImageUrl: data.planet_station_image_url ?? existing?.stationImageUrl,
+                  terraformCount: data.planet_terraform_count ?? existing?.terraformCount ?? 0,
+                  sizeLevel: data.planet_size_level ?? existing?.sizeLevel ?? 0,
+                  history: data.planet_history ?? existing?.history ?? [],
+                },
+              };
+            });
           }
         }
       )
