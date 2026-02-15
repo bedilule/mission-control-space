@@ -453,7 +453,7 @@ class VoiceService {
   private async generateText(ctx: GreetingContext): Promise<string> {
     const userMessage = buildUserMessage(ctx);
     console.log('[Voice] Context:', ctx);
-    console.log('[Voice] System prompt:', 'You are a ship AI greeting a player returning to their spaceship in a multiplayer space game. Generate ONE short welcome line (max 15 words).\n\nRules:\n- IMPORTANT: Address the player using EXACTLY the title provided in the prompt. Do NOT use "Commander".\n- Be encouraging, fun, and space-themed\n- If they\'re #1, hype them up. If someone else leads, playful competitive nudge\n- Credits context: 1000+ is rich (joke about wealth), 500 is decent, a few hundred is not much, under 100 is broke (tease them)\n- Keep it varied — sometimes dramatic, sometimes chill, sometimes funny\n- Output ONLY the greeting line, nothing else\n\n(Title is randomly picked server-side from: Captain, Pilot, Admiral, Star Lord, Space Cowboy, Cadet, Astronaut, Navigator, Chief, Legend, etc.)');
+    console.log('[Voice] System prompt: warm encouraging ship AI greeting (server-side)');
     console.log('[Voice] User message:', userMessage);
 
     const res = await fetch(`${SUPABASE_URL}/functions/v1/voice-greeting`, {
