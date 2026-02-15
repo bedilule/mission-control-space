@@ -8041,13 +8041,15 @@ export class SpaceGame {
       const moonY = y + Math.sin(moonAngle) * moonDist * 0.4;
       const moonRadius = planet.radius * 0.2;
 
-      if (moonImg) {
+      // Use custom moon skin, planet's own skin, or grey fallback
+      const moonSkinImg = moonImg || notionTypeImage;
+      if (moonSkinImg) {
         const moonImgSize = moonRadius * 2.42;
         ctx.save();
         ctx.beginPath();
         ctx.arc(moonX, moonY, moonRadius * 1.21, 0, Math.PI * 2);
         ctx.clip();
-        ctx.drawImage(moonImg, moonX - moonImgSize / 2, moonY - moonImgSize / 2, moonImgSize, moonImgSize);
+        ctx.drawImage(moonSkinImg, moonX - moonImgSize / 2, moonY - moonImgSize / 2, moonImgSize, moonImgSize);
         ctx.restore();
       } else {
         ctx.beginPath();
