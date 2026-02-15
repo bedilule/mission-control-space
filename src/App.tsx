@@ -881,6 +881,7 @@ function App() {
     updatePlanet: updateNotionPlanet,
     markPlanetSeen: markNotionPlanetSeen,
     triggerAnalysis: triggerNotionAnalysis,
+    removePlanetsOptimistic: removeNotionPlanetsOptimistic,
   } = useNotionPlanets({
     teamId: team?.id || null,
     currentUser: state.currentUser?.toLowerCase(),
@@ -2667,6 +2668,9 @@ function App() {
     const destroyedIds = new Set(completedNotionPlanets.map(p => p.id));
     gameRef.current?.removePlanetsById(destroyedIds);
 
+    // Optimistic remove: immediately remove from React state + block realtime re-adds
+    removeNotionPlanetsOptimistic(completedNotionPlanets.map(p => p.id));
+
     // Remove from completedPlanets list
     setState(prev => ({
       ...prev,
@@ -2689,7 +2693,7 @@ function App() {
         console.error(`[Nuke] Error destroying planet ${actualId}:`, err);
       }
     }
-  }, [state.currentUser]);
+  }, [state.currentUser, removeNotionPlanetsOptimistic]);
 
   useEffect(() => {
     nukeCompleteRef.current = handleNukeComplete;
@@ -3237,6 +3241,8 @@ function App() {
     // Handle Notion planets - mark as destroyed in Notion and delete from our DB
     if (planet.id.startsWith('notion-')) {
       const actualId = planet.id.replace('notion-', '');
+      // Optimistic remove: immediately remove from React state + block realtime re-adds
+      removeNotionPlanetsOptimistic([planet.id]);
       try {
         const { data, error } = await supabase.functions.invoke('notion-update-status', {
           body: { planet_id: actualId, action: 'destroy' },
@@ -3263,7 +3269,7 @@ function App() {
       ...prev,
       completedPlanets: prev.completedPlanets.filter(id => id !== planet.id),
     }));
-  }, [customPlanets, saveCustomPlanetsToSupabase]);
+  }, [customPlanets, saveCustomPlanetsToSupabase, removeNotionPlanetsOptimistic]);
 
   // Handle black hole death - show random funny message
   const handleBlackHoleDeath = useCallback(() => {

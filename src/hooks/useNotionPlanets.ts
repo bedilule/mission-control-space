@@ -123,6 +123,7 @@ interface UseNotionPlanetsReturn {
   updatePlanet: (notionPlanetId: string, updates: UpdatePlanetFields) => Promise<UpdatePlanetResult | null>;
   markPlanetSeen: (notionPlanetId: string, username: string) => Promise<void>;
   triggerAnalysis: (notionPlanetId: string) => Promise<boolean>;
+  removePlanetsOptimistic: (planetIds: string[]) => void;
 }
 
 export function useNotionPlanets(options: UseNotionPlanetsOptions): UseNotionPlanetsReturn {
@@ -132,6 +133,9 @@ export function useNotionPlanets(options: UseNotionPlanetsOptions): UseNotionPla
   const [isLoading, setIsLoading] = useState(true);
 
   const channelRef = useRef<RealtimeChannel | null>(null);
+
+  // Track optimistically destroyed planet IDs to prevent realtime from re-adding them
+  const destroyedIdsRef = useRef<Set<string>>(new Set());
 
   // Store callbacks in refs to avoid re-renders
   const onPlanetCreatedRef = useRef(options.onPlanetCreated);
@@ -333,6 +337,13 @@ export function useNotionPlanets(options: UseNotionPlanetsOptions): UseNotionPla
     }
   }, []);
 
+  // Optimistically remove planets from state and block realtime from re-adding them
+  const removePlanetsOptimistic = useCallback((planetIds: string[]) => {
+    const actualIds = planetIds.map(id => id.startsWith('notion-') ? id.slice(7) : id);
+    actualIds.forEach(id => destroyedIdsRef.current.add(id));
+    setNotionPlanets((prev) => prev.filter((p) => !actualIds.includes(p.id)));
+  }, []);
+
   // Set up realtime subscriptions
   useEffect(() => {
     if (!teamId) {
@@ -373,11 +384,21 @@ export function useNotionPlanets(options: UseNotionPlanetsOptions): UseNotionPla
 
         if (payload.eventType === 'INSERT') {
           const planet = rowToNotionPlanet(payload.new);
+          // Skip if this planet was optimistically destroyed
+          if (destroyedIdsRef.current.has(planet.id)) {
+            console.log('[useNotionPlanets] INSERT - Skipping destroyed planet:', planet.name);
+            return;
+          }
           console.log('[useNotionPlanets] INSERT - Adding planet:', planet.name);
           setNotionPlanets((prev) => [planet, ...prev]);
           onPlanetCreatedRef.current?.(planet);
         } else if (payload.eventType === 'UPDATE') {
           const planet = rowToNotionPlanet(payload.new);
+          // Skip if this planet was optimistically destroyed
+          if (destroyedIdsRef.current.has(planet.id)) {
+            console.log('[useNotionPlanets] UPDATE - Skipping destroyed planet:', planet.name);
+            return;
+          }
           console.log('[useNotionPlanets] UPDATE - Updating planet:', planet.name);
           setNotionPlanets((prev) =>
             prev.map((p) => (p.id === planet.id ? planet : p))
@@ -389,6 +410,8 @@ export function useNotionPlanets(options: UseNotionPlanetsOptions): UseNotionPla
           const oldPlanet = payload.old as { id: string };
           console.log('[useNotionPlanets] DELETE - Removing planet with id:', oldPlanet?.id, 'payload.old:', payload.old);
           if (oldPlanet?.id) {
+            // Clean up from destroyed set - the DB confirmed the deletion
+            destroyedIdsRef.current.delete(oldPlanet.id);
             setNotionPlanets((prev) => {
               const filtered = prev.filter((p) => p.id !== oldPlanet.id);
               console.log('[useNotionPlanets] DELETE - Filtered from', prev.length, 'to', filtered.length, 'planets');
@@ -429,5 +452,6 @@ export function useNotionPlanets(options: UseNotionPlanetsOptions): UseNotionPla
     updatePlanet,
     markPlanetSeen,
     triggerAnalysis,
+    removePlanetsOptimistic,
   };
 }
